@@ -1,6 +1,6 @@
 # https://github.com/super-linter/super-linter/blob/main/TEMPLATES/linter.yml
 ---
-name: super-linter
+name: Super Linter
 
 on:
   push:
