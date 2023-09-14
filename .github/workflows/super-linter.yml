@@ -27,6 +27,7 @@ jobs:
           VALIDATE_ALL_CODEBASE: true
           VALIDATE_CPP: false
           VALIDATE_CLANG_FORMAT: false
+          VALIDATE_GOOGLE_JAVA_FORMAT: false
           VALIDATE_JAVA: false
           VALIDATE_PYTHON: false
           VALIDATE_PYTHON_BLACK: false
