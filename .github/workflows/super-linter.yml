@@ -1,14 +1,13 @@
 # https://github.com/super-linter/super-linter/blob/main/TEMPLATES/linter.yml
 ---
-name: Super Lint Code Base
+name: super-linter
 
 on:
   push:
   pull_request:
 
 jobs:
-  build:
-    name: Super Lint Code Base
+  super-linter:
     runs-on: ubuntu-latest
 
     permissions:
@@ -25,7 +24,7 @@ jobs:
       - name: Lint Code Base
         uses: super-linter/super-linter@v5
         env:
-          VALIDATE_ALL_CODEBASE: false
+          VALIDATE_ALL_CODEBASE: true
           VALIDATE_RUST_2015: false
           VALIDATE_RUST_2018: false
           VALIDATE_RUST_2021: false
