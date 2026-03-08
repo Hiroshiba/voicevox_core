@@ -2,6 +2,12 @@ name: build downloader workflow
 
 on:
   workflow_dispatch: # ビルドのみ行い、デプロイしない。デプロイは`build`からの`workflow_call`から行われる。
+    inputs:
+      code_signing:
+        description: "コード署名する（テスト用）"
+        type: boolean
+        required: false
+        default: false
   workflow_call:
     inputs:
       upload_url:
