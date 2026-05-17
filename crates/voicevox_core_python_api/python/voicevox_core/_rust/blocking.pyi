@@ -224,8 +224,8 @@ class Synthesizer:
 
         Parameters
         ----------
-        style_id
-            読み込むモデルのスタイルID。
+        model
+            読み込むモデル。
         """
         ...
     def unload_voice_model(self, voice_model_id: VoiceModelId | UUID) -> None:

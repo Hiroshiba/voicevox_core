@@ -80,6 +80,10 @@
     - \[追加\]: `git+https://github.com/pykeio/ort.git?rev=94417081c47f47f5a7d6a92ce94bb38fda10019f#ort@2.0.0-rc.12`
     - \[変更\]: `indexmap@2`: `^2.6.0` → `^2.13.0`
 
+### Fixed
+
+- \[Python\] `Synthesizer.load_voice_model`のdocstringにおける"Parameters"の説明が誤っていたのが修正されます ([#1359])。
+
 ### Security
 
 - \[Rust,ダウンローダー\] 以下の脆弱性登録の影響を受けないようになります ([#1349], [#1350])。
@@ -1513,6 +1517,7 @@ Windows版ダウンローダーのビルドに失敗しています。
 [#1331]: https://github.com/VOICEVOX/voicevox_core/pull/1331
 [#1349]: https://github.com/VOICEVOX/voicevox_core/pull/1349
 [#1350]: https://github.com/VOICEVOX/voicevox_core/pull/1350
+[#1359]: https://github.com/VOICEVOX/voicevox_core/pull/1359
 
 [VOICEVOX/onnxruntime-builder#25]: https://github.com/VOICEVOX/onnxruntime-builder/pull/25
 
