@@ -71,15 +71,6 @@ mod blocking {
         bencher.bench_local(|| ojt.analyze(input.value).unwrap());
     }
 
-    #[divan::bench(sample_count = 300, sample_size = 10)]
-    fn open_and_close_vvm(bencher: Bencher<'_, '_>) {
-        bencher.bench_local(|| {
-            divan::black_box_drop(
-                VoiceModelFile::open(test_util::SAMPLE_VOICE_MODEL_FILE_PATH).unwrap(),
-            );
-        });
-    }
-
     #[divan::bench(args = InputText::ALL, sample_count = 300, sample_size = 10)]
     fn replace_mora_pitch(bencher: Bencher<'_, '_>, input: InputText) {
         let (synth, _) = &*FIXTURE;
