@@ -12,6 +12,7 @@ import jp.hiroshiba.voicevoxcore.AccentPhrase;
 import jp.hiroshiba.voicevoxcore.AudioQuery;
 import jp.hiroshiba.voicevoxcore.CharacterMeta;
 import jp.hiroshiba.voicevoxcore.FrameAudioQuery;
+import jp.hiroshiba.voicevoxcore.OnExistingVoiceModelId;
 import jp.hiroshiba.voicevoxcore.Score;
 import jp.hiroshiba.voicevoxcore.StyleType;
 import jp.hiroshiba.voicevoxcore.exceptions.IncompatibleQueriesException;
@@ -98,10 +99,11 @@ public class Synthesizer {
    * モデルを読み込む。
    *
    * @param voiceModel 読み込むモデル。
-   * @throws InvalidModelDataException 無効なモデルデータの場合。
+   * @return {@link LoadVoiceModelConfigurator}。
    */
-  public void loadVoiceModel(VoiceModelFile voiceModel) throws InvalidModelDataException {
-    rsLoadVoiceModel(voiceModel);
+  @Nonnull
+  public LoadVoiceModelConfigurator loadVoiceModel(VoiceModelFile voiceModel) {
+    return new LoadVoiceModelConfigurator(this, voiceModel);
   }
 
   /**
@@ -441,7 +443,8 @@ public class Synthesizer {
   @Nonnull
   private native String rsGetMetasJson();
 
-  private native void rsLoadVoiceModel(VoiceModelFile voiceModel) throws InvalidModelDataException;
+  private native void rsLoadVoiceModel(VoiceModelFile voiceModel, OnExistingVoiceModelId onExisting)
+      throws InvalidModelDataException;
 
   private native void rsUnloadVoiceModel(UUID voiceModelId);
 
@@ -559,6 +562,40 @@ public class Synthesizer {
     public Synthesizer build() {
       Synthesizer synthesizer = new Synthesizer(onnxruntime, openJtalk, this);
       return synthesizer;
+    }
+  }
+
+  /** {@link Synthesizer#loadVoiceModel} のオプション。 */
+  public class LoadVoiceModelConfigurator {
+    private Synthesizer synthesizer;
+    private VoiceModelFile voiceModel;
+
+    private OnExistingVoiceModelId onExisting;
+
+    private LoadVoiceModelConfigurator(Synthesizer synthesizer, VoiceModelFile voiceModel) {
+      this.synthesizer = synthesizer;
+      this.voiceModel = voiceModel;
+    }
+
+    /**
+     * 同じIDの{@link VoiceModelFile}が既に読み込まれていたときのふるまい。
+     *
+     * @param onExisting ふるまいの指定。
+     * @return {@link LoadVoiceModelConfigurator}。
+     */
+    @Nonnull
+    public LoadVoiceModelConfigurator onExisting(OnExistingVoiceModelId onExisting) {
+      this.onExisting = onExisting;
+      return this;
+    }
+
+    /**
+     * 実行する。
+     *
+     * @throws InvalidModelDataException 無効なモデルデータの場合。
+     */
+    public void perform() throws InvalidModelDataException {
+      synthesizer.rsLoadVoiceModel(voiceModel, onExisting);
     }
   }
 

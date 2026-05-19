@@ -9,6 +9,7 @@ if TYPE_CHECKING:
         AudioQuery,
         CharacterMeta,
         FrameAudioQuery,
+        OnExistingVoiceModelId,
         Score,
         StyleId,
         SupportedDevices,
@@ -217,7 +218,12 @@ class Synthesizer:
     def metas(self) -> list[CharacterMeta]:
         """メタ情報。"""
         ...
-    async def load_voice_model(self, model: VoiceModelFile) -> None:
+    async def load_voice_model(
+        self,
+        model: VoiceModelFile,
+        *,
+        on_existing: OnExistingVoiceModelId = "ERROR",
+    ) -> None:
         """
         モデルを読み込む。
 
@@ -225,6 +231,8 @@ class Synthesizer:
         ----------
         model
             読み込むモデル。
+        on_existing
+            同じ ``id`` の :class:`VoiceModelFile` が既に読み込まれていたときのふるまい。
         """
         ...
     def unload_voice_model(self, voice_model_id: VoiceModelId | UUID) -> None:

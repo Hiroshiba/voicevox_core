@@ -118,6 +118,33 @@ typedef int32_t VoicevoxAccelerationMode;
 #endif // __cplusplus
 
 /**
+ * ::voicevox_synthesizer_load_voice_model の実行時に、同じIDの ::VoicevoxVoiceModelFile が既に読み込まれていたときのふるまい。
+ *
+ * \orig-impl{VoicevoxOnExistingVoiceModelId}
+ */
+enum VoicevoxOnExistingVoiceModelId
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+  /**
+   * エラーにする。デフォルトのふるまい
+   */
+  VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_ERROR = 0,
+  /**
+   * 再読み込みする。VOICEVOX COREでは、長文のテキストを一度に音声合成するとCPU/GPUメモリが大量に占有されたままになる。再読み込みを行うとメモリの使用量が元に戻る
+   */
+  VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_RELOAD = 1,
+  /**
+   * 何もしない
+   */
+  VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_SKIP = 2,
+};
+#ifndef __cplusplus
+typedef int32_t VoicevoxOnExistingVoiceModelId;
+#endif // __cplusplus
+
+/**
  * 処理結果を示す結果コード。
  *
  * \orig-impl{VoicevoxResultCode,C APIにしか無いものがあることに注意。}
@@ -391,6 +418,18 @@ typedef struct VoicevoxInitializeOptions {
    */
   uint16_t cpu_num_threads;
 } VoicevoxInitializeOptions;
+
+/**
+ * ::voicevox_synthesizer_load_voice_model のオプション。
+ *
+ * \no-orig-impl{VoicevoxLoadVoiceModelOptions}
+ */
+typedef struct VoicevoxLoadVoiceModelOptions {
+  /**
+   * 同じIDの ::VoicevoxVoiceModelFile が既に読み込まれていたときのふるまい
+   */
+  VoicevoxOnExistingVoiceModelId on_existing;
+} VoicevoxLoadVoiceModelOptions;
 
 /**
  * 音声モデルID。
@@ -1067,10 +1106,22 @@ __declspec(dllimport)
 void voicevox_synthesizer_delete(struct VoicevoxSynthesizer *synthesizer);
 
 /**
+ * デフォルトの `voicevox_synthesizer_load_voice_model` のオプションを生成する
+ * @return デフォルト値が設定された `voicevox_synthesizer_load_voice_model` のオプション
+ *
+ * \no-orig-impl{voicevox_make_default_load_voice_model_options}
+ */
+#ifdef _WIN32
+__declspec(dllimport)
+#endif
+struct VoicevoxLoadVoiceModelOptions voicevox_make_default_load_voice_model_options(void);
+
+/**
  * 音声モデルを読み込む。
  *
  * @param [in] synthesizer 音声シンセサイザ
  * @param [in] model 音声モデル
+ * @param [in] options オプション
  *
  * @returns 結果コード
  *
@@ -1080,7 +1131,8 @@ void voicevox_synthesizer_delete(struct VoicevoxSynthesizer *synthesizer);
 __declspec(dllimport)
 #endif
 VoicevoxResultCode voicevox_synthesizer_load_voice_model(const struct VoicevoxSynthesizer *synthesizer,
-                                                         const struct VoicevoxVoiceModelFile *model);
+                                                         const struct VoicevoxVoiceModelFile *model,
+                                                         struct VoicevoxLoadVoiceModelOptions options);
 
 /**
  * 音声モデルの読み込みを解除する。

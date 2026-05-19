@@ -64,7 +64,8 @@ int main(int argc, char *argv[]) {
       std::cerr << voicevox_error_result_to_message(result) << std::endl;
       return 0;
     }
-    result = voicevox_synthesizer_load_voice_model(synthesizer, model);
+    result = voicevox_synthesizer_load_voice_model(
+        synthesizer, model, voicevox_make_default_load_voice_model_options());
     if (result != VoicevoxResultCode::VOICEVOX_RESULT_OK) {
       std::cerr << voicevox_error_result_to_message(result) << std::endl;
       return 0;

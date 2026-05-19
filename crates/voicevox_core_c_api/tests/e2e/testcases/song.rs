@@ -110,7 +110,13 @@ impl assert_cdylib::TestCase for TestCase {
         };
 
         // SAFETY: `voicevox_synthesizer_load_voice_model` has no safety requirements.
-        assert_ok(unsafe { lib.voicevox_synthesizer_load_voice_model(synthesizer, model) });
+        assert_ok(unsafe {
+            lib.voicevox_synthesizer_load_voice_model(
+                synthesizer,
+                model,
+                lib.voicevox_make_default_load_voice_model_options(),
+            )
+        });
 
         const SINGING_TEACHER: u32 = 6000;
         const SINGER: u32 = 3000;

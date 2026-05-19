@@ -103,8 +103,12 @@ impl *const VoicevoxSynthesizer {
     pub(crate) fn load_voice_model(
         self,
         model: &voicevox_core::blocking::VoiceModelFile,
+        on_existing: voicevox_core::OnExistingVoiceModelId,
     ) -> CApiResult<()> {
-        self.body().load_voice_model(model).perform()?;
+        self.body()
+            .load_voice_model(model)
+            .on_existing(on_existing)
+            .perform()?;
         Ok(())
     }
 

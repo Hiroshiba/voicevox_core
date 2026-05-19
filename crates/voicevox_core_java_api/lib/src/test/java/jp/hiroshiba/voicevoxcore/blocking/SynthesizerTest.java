@@ -64,7 +64,7 @@ class SynthesizerTest extends TestUtils {
     assertTrue(synthesizer.metas().length == 0);
 
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
 
       assertTrue(synthesizer.metas().length >= 1);
       assertTrue(synthesizer.isLoadedVoiceModel(model.id));
@@ -83,7 +83,7 @@ class SynthesizerTest extends TestUtils {
     Synthesizer synthesizer = Synthesizer.builder(onnxruntime, openJtalk).build();
 
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
     }
 
     AudioQuery query = synthesizer.createAudioQuery("こんにちは", synthesizer.metas()[0].styles[0].id);
@@ -96,7 +96,7 @@ class SynthesizerTest extends TestUtils {
     Onnxruntime onnxruntime = loadOnnxruntime();
     Synthesizer synthesizer = Synthesizer.builder(onnxruntime, openJtalk).build();
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
     }
     List<AccentPhrase> accentPhrases =
         synthesizer.createAccentPhrases("こんにちは", synthesizer.metas()[0].styles[0].id);
@@ -128,7 +128,7 @@ class SynthesizerTest extends TestUtils {
     OpenJtalk openJtalk = loadOpenJtalk();
     Synthesizer synthesizer = Synthesizer.builder(onnxruntime, openJtalk).build();
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
     }
 
     final String TEXT = "こんにちは？";
@@ -193,7 +193,7 @@ class SynthesizerTest extends TestUtils {
     OpenJtalk openJtalk = loadOpenJtalk();
     Synthesizer synthesizer = Synthesizer.builder(onnxruntime, openJtalk).build();
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
     }
 
     final Score SCORE =

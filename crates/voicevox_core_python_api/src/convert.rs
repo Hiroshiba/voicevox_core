@@ -17,8 +17,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::json;
 use voicevox_core::{
     __internal::interop::{ToJsonValue as _, Validate},
-    AccelerationMode, AccentPhrase, AudioQuery, FrameAudioQuery, SupportedDevices, UserDictWord,
-    VoiceModelMeta,
+    AccelerationMode, AccentPhrase, AudioQuery, FrameAudioQuery, OnExistingVoiceModelId,
+    SupportedDevices, UserDictWord, VoiceModelMeta,
 };
 
 use crate::{
@@ -38,6 +38,20 @@ pub(crate) fn from_acceleration_mode(ob: &Bound<'_, PyAny>) -> PyResult<Accelera
         mode => Err(PyValueError::new_err(format!(
             "`AccelerationMode` should be one of {{AUTO, CPU, GPU}}: {mode}",
             mode = PyString::new(ob.py(), mode).repr()?,
+        ))),
+    }
+}
+
+pub(crate) fn from_on_existing_voice_model_id(
+    ob: &Bound<'_, PyAny>,
+) -> PyResult<OnExistingVoiceModelId> {
+    match ob.extract::<&str>()? {
+        "ERROR" => Ok(OnExistingVoiceModelId::Error),
+        "RELOAD" => Ok(OnExistingVoiceModelId::Reload),
+        "SKIP" => Ok(OnExistingVoiceModelId::Skip),
+        on_existing => Err(PyValueError::new_err(format!(
+            "`OnExistingVoiceModelId` should be one of {{ERROR, RELOAD, SKIP}}: {on_existing}",
+            on_existing = PyString::new(ob.py(), on_existing).repr()?,
         ))),
     }
 }

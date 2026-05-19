@@ -415,6 +415,24 @@ pub extern "C" fn voicevox_open_jtalk_rc_delete(open_jtalk: *mut OpenJtalkRc) {
     open_jtalk.drop_body();
 }
 
+/// ::voicevox_synthesizer_load_voice_model の実行時に、同じIDの ::VoicevoxVoiceModelFile が既に読み込まれていたときのふるまい。
+///
+/// \orig-impl{VoicevoxOnExistingVoiceModelId}
+#[repr(i32)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(
+    non_camel_case_types,
+    reason = "実際に公開するC APIとの差異をできるだけ少なくするため"
+)]
+pub enum VoicevoxOnExistingVoiceModelId {
+    /// エラーにする。デフォルトのふるまい
+    VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_ERROR = 0,
+    /// 再読み込みする。VOICEVOX COREでは、長文のテキストを一度に音声合成するとCPU/GPUメモリが大量に占有されたままになる。再読み込みを行うとメモリの使用量が元に戻る
+    VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_RELOAD = 1,
+    /// 何もしない
+    VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_SKIP = 2,
+}
+
 /// ハードウェアアクセラレーションモードを設定する設定値。
 ///
 /// \orig-impl{VoicevoxAccelerationMode}
@@ -954,11 +972,33 @@ pub extern "C" fn voicevox_synthesizer_delete(synthesizer: *mut VoicevoxSynthesi
     synthesizer.drop_body();
 }
 
+/// ::voicevox_synthesizer_load_voice_model のオプション。
+///
+/// \no-orig-impl{VoicevoxLoadVoiceModelOptions}
+#[repr(C)]
+pub struct VoicevoxLoadVoiceModelOptions {
+    /// 同じIDの ::VoicevoxVoiceModelFile が既に読み込まれていたときのふるまい
+    on_existing: VoicevoxOnExistingVoiceModelId,
+}
+
+// SAFETY: voicevox_core_c_apiを構成するライブラリの中に、これと同名のシンボルは存在しない
+/// デフォルトの `voicevox_synthesizer_load_voice_model` のオプションを生成する
+/// @return デフォルト値が設定された `voicevox_synthesizer_load_voice_model` のオプション
+///
+/// \no-orig-impl{voicevox_make_default_load_voice_model_options}
+#[unsafe(no_mangle)]
+pub extern "C" fn voicevox_make_default_load_voice_model_options() -> VoicevoxLoadVoiceModelOptions
+{
+    init_logger_once();
+    VoicevoxLoadVoiceModelOptions::default()
+}
+
 // SAFETY: voicevox_core_c_apiを構成するライブラリの中に、これと同名のシンボルは存在しない
 /// 音声モデルを読み込む。
 ///
 /// @param [in] synthesizer 音声シンセサイザ
 /// @param [in] model 音声モデル
+/// @param [in] options オプション
 ///
 /// @returns 結果コード
 ///
@@ -967,9 +1007,11 @@ pub extern "C" fn voicevox_synthesizer_delete(synthesizer: *mut VoicevoxSynthesi
 pub extern "C" fn voicevox_synthesizer_load_voice_model(
     synthesizer: *const VoicevoxSynthesizer,
     model: *const VoicevoxVoiceModelFile,
+    options: VoicevoxLoadVoiceModelOptions,
 ) -> VoicevoxResultCode {
     init_logger_once();
-    into_result_code_with_error(synthesizer.load_voice_model(&model.body()))
+    let VoicevoxLoadVoiceModelOptions { on_existing } = options;
+    into_result_code_with_error(synthesizer.load_voice_model(&model.body(), on_existing.into()))
 }
 
 // SAFETY: voicevox_core_c_apiを構成するライブラリの中に、これと同名のシンボルは存在しない

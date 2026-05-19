@@ -258,6 +258,27 @@ def _(mode: AccelerationMode):
     _: str = mode
 
 
+OnExistingVoiceModelId: TypeAlias = Literal["ERROR", "RELOAD", "SKIP"] | _Reserved
+"""
+``Synthesizer::load_voice_model`` の実行時に、同じ ``id`` の ``VoiceModelFile`` が既に読み込まれていたときのふるまい。
+
+============= =============================================
+値            説明
+``"ERROR"``   エラー。デフォルトのふるまい。
+``"RELOAD"``  再読み込みする。VOICEVOX
+              COREでは、長文のテキストを一度に音声合成するとCPU/GPUメモリが大量に占有されたままになる。再読み込みを行うとメモリの使用量が元に戻る。
+``"SKIP"``    スキップする。
+``_Reserved`` 将来のために予約されている値。この値が存在することは決してない。
+              ``str`` のサブタイプであるため、 ``OnExistingVoiceModelId`` を ``str`` として
+              扱うことは可能。
+============= =============================================
+"""
+
+
+def _(on_existing: OnExistingVoiceModelId):
+    _: str = on_existing
+
+
 @dataclasses.dataclass
 class Mora:
     """

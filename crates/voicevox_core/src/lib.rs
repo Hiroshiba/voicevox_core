@@ -340,6 +340,7 @@ pub mod __doc {
     /// | `VoicevoxTtsOptions` | 〃 |
     /// | `voicevox_make_default_load_onnxruntime_options` | 〃 |
     /// | `voicevox_make_default_initialize_options` | 〃 |
+    /// | `voicevox_make_default_load_voice_model_options` | 〃 |
     /// | `voicevox_make_default_synthesis_options` | 〃 |
     /// | `voicevox_make_default_tts_options` | 〃 |
     /// | `voicevox_json_free` | [Rustのデストラクタ機構]があるため |

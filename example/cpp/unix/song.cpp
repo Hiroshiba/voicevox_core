@@ -85,7 +85,8 @@ int main(int argc, char* argv[]) {
 
   TRY(voicevox_voice_model_file_open(kVvm, &model));
 
-  TRY(voicevox_synthesizer_load_voice_model(synthesizer, model));
+  TRY(voicevox_synthesizer_load_voice_model(
+      synthesizer, model, voicevox_make_default_load_voice_model_options()));
 
   TRY(voicevox_synthesizer_create_sing_frame_audio_query(
       synthesizer, kScore, kSingingTeacher, &frame_audio_query));

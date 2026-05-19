@@ -386,8 +386,8 @@ mod blocking {
     use uuid::Uuid;
     use voicevox_core::{
         __internal::interop::BlockingTextAnalyzerExt as _, AccelerationMode, AccentPhrase,
-        AudioQuery, FrameAudioQuery, Score, StyleId, SupportedDevices, UserDictWord,
-        VoiceModelMeta,
+        AudioQuery, FrameAudioQuery, OnExistingVoiceModelId, Score, StyleId, SupportedDevices,
+        UserDictWord, VoiceModelMeta,
     };
 
     use crate::{
@@ -753,14 +753,20 @@ mod blocking {
             Ok(synthesizer.metas().into())
         }
 
+        #[pyo3(signature = (model, *, on_existing = Default::default()))]
         fn load_voice_model(
             &self,
             model: &Bound<'_, VoiceModelFile>,
+            #[pyo3(from_py_with = crate::convert::from_on_existing_voice_model_id)]
+            on_existing: OnExistingVoiceModelId,
             py: Python<'_>,
         ) -> PyResult<()> {
             let this = self.synthesizer.read()?;
             let model = &model.get().model.read()?;
-            this.load_voice_model(model).perform().into_py_result(py)
+            this.load_voice_model(model)
+                .on_existing(on_existing)
+                .perform()
+                .into_py_result(py)
         }
 
         fn unload_voice_model(&self, voice_model_id: Uuid, py: Python<'_>) -> PyResult<()> {
@@ -1153,8 +1159,8 @@ mod asyncio {
     use uuid::Uuid;
     use voicevox_core::{
         __internal::interop::NonblockingTextAnalyzerExt as _, AccelerationMode, AccentPhrase,
-        AudioQuery, FrameAudioQuery, Score, StyleId, SupportedDevices, UserDictWord,
-        VoiceModelMeta,
+        AudioQuery, FrameAudioQuery, OnExistingVoiceModelId, Score, StyleId, SupportedDevices,
+        UserDictWord, VoiceModelMeta,
     };
 
     use crate::{
@@ -1486,13 +1492,20 @@ mod asyncio {
             Ok(synthesizer.metas().into())
         }
 
-        async fn load_voice_model(&self, model: Py<VoiceModelFile>) -> PyResult<()> {
+        #[pyo3(signature = (model, *, on_existing = Default::default()))]
+        async fn load_voice_model(
+            &self,
+            model: Py<VoiceModelFile>,
+            #[pyo3(from_py_with = crate::convert::from_on_existing_voice_model_id)]
+            on_existing: OnExistingVoiceModelId,
+        ) -> PyResult<()> {
             let model = &*model.get().model.read()?;
             let result = self
                 .synthesizer
                 .clone()
                 .read()?
                 .load_voice_model(model)
+                .on_existing(on_existing)
                 .perform()
                 .await;
             Python::attach(|py| result.into_py_result(py))

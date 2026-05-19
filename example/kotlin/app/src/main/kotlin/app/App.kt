@@ -49,7 +49,7 @@ fun main(args: Array<String>) {
 
   println("Loading: ${vvmPath}")
   val vvm = VoiceModelFile(vvmPath)
-  synthesizer.loadVoiceModel(vvm)
+  synthesizer.loadVoiceModel(vvm).perform()
 
   println("Creating an AudioQuery from the text: ${text}")
   val audioQuery = synthesizer.createAudioQuery(text, styleId)

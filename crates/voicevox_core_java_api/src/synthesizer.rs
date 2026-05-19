@@ -144,8 +144,25 @@ unsafe extern "system" fn Java_jp_hiroshiba_voicevoxcore_blocking_Synthesizer_rs
     env: JNIEnv<'local>,
     this: JObject<'local>,
     model: JObject<'local>,
+    on_existing: JObject<'local>,
 ) {
     throw_if_err(env, (), |env| {
+        let on_existing = if on_existing.is_null() {
+            Default::default()
+        } else {
+            let error = static_field!(env, "OnExistingVoiceModelId", "ERROR")?;
+            let reload = static_field!(env, "OnExistingVoiceModelId", "RELOAD")?;
+            let skip = static_field!(env, "OnExistingVoiceModelId", "SKIP")?;
+            if env.is_same_object(&on_existing, error)? {
+                voicevox_core::OnExistingVoiceModelId::Error
+            } else if env.is_same_object(&on_existing, reload)? {
+                voicevox_core::OnExistingVoiceModelId::Reload
+            } else if env.is_same_object(&on_existing, skip)? {
+                voicevox_core::OnExistingVoiceModelId::Skip
+            } else {
+                panic!("予期しない`OnExistingVoiceModelId`です: {on_existing:?}");
+            }
+        };
         let model = unsafe {
             // SAFETY:
             // - The safety contract must be upheld by the caller.
@@ -165,7 +182,10 @@ unsafe extern "system" fn Java_jp_hiroshiba_voicevoxcore_blocking_Synthesizer_rs
             env.get_rust_field::<_, _, RustField>(&this, "handle")
         }?
         .clone();
-        internal.load_voice_model(&model).perform()?;
+        internal
+            .load_voice_model(&model)
+            .on_existing(on_existing)
+            .perform()?;
         Ok(())
     })
 }

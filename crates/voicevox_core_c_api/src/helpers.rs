@@ -18,9 +18,9 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    VoicevoxAccelerationMode, VoicevoxInitializeOptions, VoicevoxSynthesisOptions,
-    VoicevoxTtsOptions, VoicevoxUserDictWord, VoicevoxUserDictWordType,
-    result_code::VoicevoxResultCode,
+    VoicevoxAccelerationMode, VoicevoxInitializeOptions, VoicevoxLoadVoiceModelOptions,
+    VoicevoxOnExistingVoiceModelId, VoicevoxSynthesisOptions, VoicevoxTtsOptions,
+    VoicevoxUserDictWord, VoicevoxUserDictWordType, result_code::VoicevoxResultCode,
 };
 
 pub(crate) fn into_result_code_with_error(result: CApiResult<()>) -> VoicevoxResultCode {
@@ -213,6 +213,37 @@ impl From<VoicevoxAccelerationMode> for voicevox_core::AccelerationMode {
             VOICEVOX_ACCELERATION_MODE_AUTO => Self::Auto,
             VOICEVOX_ACCELERATION_MODE_CPU => Self::Cpu,
             VOICEVOX_ACCELERATION_MODE_GPU => Self::Gpu,
+        }
+    }
+}
+
+impl From<VoicevoxOnExistingVoiceModelId> for voicevox_core::OnExistingVoiceModelId {
+    fn from(value: VoicevoxOnExistingVoiceModelId) -> Self {
+        use VoicevoxOnExistingVoiceModelId::*;
+        match value {
+            VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_ERROR => Self::Error,
+            VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_RELOAD => Self::Reload,
+            VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_SKIP => Self::Skip,
+        }
+    }
+}
+
+impl From<voicevox_core::OnExistingVoiceModelId> for VoicevoxOnExistingVoiceModelId {
+    fn from(value: voicevox_core::OnExistingVoiceModelId) -> Self {
+        use voicevox_core::OnExistingVoiceModelId::*;
+        match value {
+            Error => Self::VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_ERROR,
+            Reload => Self::VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_RELOAD,
+            Skip => Self::VOICEVOX_ON_EXISTING_VOICE_MODEL_ID_SKIP,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Default for VoicevoxLoadVoiceModelOptions {
+    fn default() -> Self {
+        Self {
+            on_existing: voicevox_core::OnExistingVoiceModelId::default().into(),
         }
     }
 }

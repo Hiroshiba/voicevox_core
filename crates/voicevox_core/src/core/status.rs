@@ -32,6 +32,7 @@ use super::{
 /// `Synthesizer::load_voice_model`の実行時に、同じ[`id`]の`VoiceModelFile`が既に読み込まれていたときのふるまい。
 ///
 /// [`id`]: VoiceModelId
+#[cfg_attr(doc, doc(alias = "VoicevoxLoadVoiceModelOptions"))]
 #[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(test, derive(strum::EnumIter))]
 #[non_exhaustive]

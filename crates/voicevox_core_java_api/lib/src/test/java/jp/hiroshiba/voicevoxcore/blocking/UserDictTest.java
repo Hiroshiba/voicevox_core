@@ -24,7 +24,7 @@ class UserDictTest extends TestUtils {
     Synthesizer synthesizer = Synthesizer.builder(onnxruntime, openJtalk).build();
     UserDict userDict = new UserDict();
     try (VoiceModelFile model = openModel()) {
-      synthesizer.loadVoiceModel(model);
+      synthesizer.loadVoiceModel(model).perform();
     }
     AudioQuery query1 =
         synthesizer.createAudioQuery(
