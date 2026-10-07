@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "spectrograms": [
+    {
+      "pcm_sha256": "48eb1e4476a0220ba524317d3d980a8ad053ac74642b914c0b2565bcbc4842ac",
+      "wav_format": {
+        "channels": 1,
+        "sample_bytes": 2,
+        "sample_rate": 24000,
+        "frames": 239104
+      },
+      "modes": [
+        "native"
+      ],
+      "png_sha256": "8cf3559a2067bf8f46e97623d74f801b559903d5b1b9c528845fe54d34ea2f77",
+      "width": 702,
+      "height": 292,
+      "method": {
+        "window": "periodic Hann",
+        "nfft": 1024,
+        "hop": 256,
+        "channel": "first",
+        "scale": "one-sided amplitude dBFS",
+        "range_db": [
+          -100,
+          0
+        ],
+        "centered_zero_padding": true,
+        "amplitude_normalization": "2/sum(window); DC and Nyquist not doubled"
+      },
+      "provenance": "Generated locally from retained untimed diagnostic WAVs after checking PCM hashes and formats against the measurement record. Only PNG pixels and provenance are distributed; CI verifies those images, not the private source WAVs.",
+      "file": "native.png"
+    },
+    {
+      "pcm_sha256": "c65706a79cefe24a9a984b1b1572f91cbc12ebc56de9b82626f5c5a10d2e0a4c",
+      "wav_format": {
+        "channels": 1,
+        "sample_bytes": 2,
+        "sample_rate": 24000,
+        "frames": 239104
+      },
+      "modes": [
+        "browser",
+        "browser_mt",
+        "browser_mt_fixed",
+        "browser_revectorize"
+      ],
+      "png_sha256": "9cb3f009dec541dbd4577c3461a1f87e02f048e0d17b315a8919d4c4c92e1e2b",
+      "width": 702,
+      "height": 292,
+      "method": {
+        "window": "periodic Hann",
+        "nfft": 1024,
+        "hop": 256,
+        "channel": "first",
+        "scale": "one-sided amplitude dBFS",
+        "range_db": [
+          -100,
+          0
+        ],
+        "centered_zero_padding": true,
+        "amplitude_normalization": "2/sum(window); DC and Nyquist not doubled"
+      },
+      "provenance": "Generated locally from retained untimed diagnostic WAVs after checking PCM hashes and formats against the measurement record. Only PNG pixels and provenance are distributed; CI verifies those images, not the private source WAVs.",
+      "file": "browser-cpu.png"
+    },
+    {
+      "pcm_sha256": "100890180c1067bcc316674be9012130157beb18f794688920fbfccd1dbb51a0",
+      "wav_format": {
+        "channels": 1,
+        "sample_bytes": 2,
+        "sample_rate": 24000,
+        "frames": 239104
+      },
+      "modes": [
+        "browser_xnnpack",
+        "browser_xnnpack_revectorize"
+      ],
+      "png_sha256": "456242ba5bd9c9b647fb2b4d631ff7df6b2048217a052b7e01ab4044ce6035b5",
+      "width": 702,
+      "height": 292,
+      "method": {
+        "window": "periodic Hann",
+        "nfft": 1024,
+        "hop": 256,
+        "channel": "first",
+        "scale": "one-sided amplitude dBFS",
+        "range_db": [
+          -100,
+          0
+        ],
+        "centered_zero_padding": true,
+        "amplitude_normalization": "2/sum(window); DC and Nyquist not doubled"
+      },
+      "provenance": "Generated locally from retained untimed diagnostic WAVs after checking PCM hashes and formats against the measurement record. Only PNG pixels and provenance are distributed; CI verifies those images, not the private source WAVs.",
+      "file": "browser-xnnpack.png"
+    }
+  ]
+}

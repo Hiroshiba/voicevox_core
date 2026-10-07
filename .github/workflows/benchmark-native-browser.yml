@@ -1,14 +1,22 @@
-# New branch in Hiroshiba's fork only. Production and upstream workflows are untouched.
+# Fork-only: pushes refresh the report; full timing runs require an explicit dispatch.
 name: Benchmark native and browser VOICEVOX CORE
 on:
   push:
     branches: ['benchmark/native-browser-*']
     paths:
       - benchmarks/voicevox_core_benchmark.py
+      - benchmarks/report-spectrograms/**
       - .github/workflows/benchmark-native-browser.yml
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Render existing measurements or perform a new benchmark
+        type: choice
+        default: render
+        options: [render, benchmark]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: voicevox-browser-benchmark-${{ github.ref }}
   cancel-in-progress: true
@@ -17,6 +25,8 @@ jobs:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/voicevox-core-benchmark/playwright
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -25,128 +35,127 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
-      - name: Restore downloaded tools and compiled CORE
+      - name: Restore tools only for an explicitly requested benchmark
         id: benchmark-cache
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'benchmark'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/voicevox-core-benchmark
           key: ${{ runner.os }}-voicevox-core-v1-${{ hashFiles('benchmarks/voicevox_core_benchmark.py') }}
           restore-keys: ${{ runner.os }}-voicevox-core-v1-
-      - name: Install runner dependencies
-        shell: bash
+      - name: Install report and browser dependencies
         run: |
           python -m pip install 'uv==0.12.19' 'playwright==1.63.0'
-          python -m playwright install-deps chromium
+          python -m playwright install --with-deps chromium
       - name: Check the standalone script
-        shell: bash
         run: uv run benchmarks/voicevox_core_benchmark.py --self-test
-      - name: Verify and measure XNNPACK and V8 revectorization
-        shell: bash
+      - name: Download the exact prior measurement artifact
+        if: github.event_name != 'workflow_dispatch' || inputs.operation != 'benchmark'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: voicevox-core-browser-benchmark
+          run-id: 37633692185
+          github-token: ${{ github.token }}
+          path: original
+      - name: Preserve measurements and record their provenance
+        if: github.event_name != 'workflow_dispatch' || inputs.operation != 'benchmark'
+        run: |
+          python - <<'PYDATA'
+          from pathlib import Path
+          import hashlib, json
+          source = Path('original/benchmark.json')
+          expected = 'c24a589bd96ff0063248eea51b2b132ea413bbc3eb716bbb4ad0809de57270f1'
+          assert hashlib.sha256(source.read_bytes()).hexdigest() == expected
+          data = json.loads(source.read_text())
+          assert data['schema_version'] == 4 and len(data['trials']) == 105
+          data['environment']['measurement_commit'] = '6c282db49dcd4f22bcc067acca731740c655ce18'
+          data['environment']['measurement_run_url'] = 'https://github.com/Hiroshiba/voicevox_core/actions/runs/37633692185'
+          data['environment']['source_measurement_json_sha256'] = expected
+          Path('results').mkdir(exist_ok=True)
+          Path('results/benchmark.json').write_text(json.dumps(data, ensure_ascii=False, indent=2))
+          PYDATA
+      - name: Render spectrogram images and existing measurements without synthesis
+        if: github.event_name != 'workflow_dispatch' || inputs.operation != 'benchmark'
+        run: |
+          uv run benchmarks/voicevox_core_benchmark.py --report-from results/benchmark.json \
+            --spectrogram-dir benchmarks/report-spectrograms --output results/benchmark.html
+      - name: Run new synthesis measurements only when explicitly dispatched
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'benchmark'
         run: |
           mkdir -p results
-          uv run benchmarks/voicevox_core_benchmark.py \
-            --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
-            --threads 2 --backend-experiments \
-            --seed 20261007 --output results/benchmark.html
+          uv run benchmarks/voicevox_core_benchmark.py --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
+            --threads 2 --backend-experiments --seed 20261007 --output results/benchmark.html
       - name: Validate and screenshot the report
-        shell: bash
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/voicevox-core-benchmark/playwright
         run: |
-          python - <<'PYREPORT'
+          uv run --with pillow==12.3.0 --with playwright==1.63.0 python - <<'PYREPORT'
           from pathlib import Path
-          import json
+          import csv, importlib.util, io, json, math, sys
           from playwright.sync_api import sync_playwright
+          spec = importlib.util.spec_from_file_location('benchmark_report', 'benchmarks/voicevox_core_benchmark.py')
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          measured = json.loads(Path('results/benchmark.json').read_text())
+          module.validate_results(measured)
+          assert 'audio_outputs' not in measured
+          if Path('original/benchmark.json').exists():
+              module.attach_saved_spectrograms(measured, Path('benchmarks/report-spectrograms'))
+          else:
+              module.validate_spectrograms(measured)
+          assert not list(Path('results').rglob('*.wav'))
+          for file in Path('results').rglob('*'):
+              if file.is_file():
+                  assert not file.read_bytes().startswith((b'RIFF', b'fLaC', b'OggS'))
+          report_text = Path('results/benchmark.html').read_text()
+          assert 'data:audio/' not in report_text and '<audio' not in report_text and 'wav_base64' not in report_text
+          keys = {mode['key'] for mode in measured['modes']}
+          assert keys == {'native', 'browser', 'browser_mt', 'browser_mt_fixed', 'browser_xnnpack', 'browser_revectorize', 'browser_xnnpack_revectorize'}
+          assert len(measured['trials']) == 105
+          if Path('original/benchmark.json').exists():
+              original = json.loads(Path('original/benchmark.json').read_text())
+              for key in ('trials', 'modes', 'output_checks', 'schedule', 'log', 'created_at', 'audio_s'):
+                  assert measured[key] == original[key], 'Original measurement data changed: ' + key
           with sync_playwright() as p:
               browser = p.chromium.launch()
-              page = browser.new_page(viewport={"width": 1200, "height": 1000})
+              page = browser.new_page(viewport={'width': 1200, 'height': 1000})
               page.goto(Path('results/benchmark.html').resolve().as_uri())
               assert page.locator('details[open]').count() == 0
-              measured = json.loads(Path('results/benchmark.json').read_text())
-              assert len(page.locator('#raw-csv').text_content().strip().splitlines()) == len(measured['trials']) + 1
-              modes = measured['modes']
-              keys = {mode['key'] for mode in modes}
-              assert page.locator('svg').count() == 2 + len(modes)
-              assert page.locator('svg.cpu-profile').count() == len(modes)
-              assert measured['schema_version'] == 4 and len(measured['trials']) == 15 * len(modes)
-              assert keys == {'native', 'browser', 'browser_mt', 'browser_mt_fixed', 'browser_xnnpack', 'browser_revectorize', 'browser_xnnpack_revectorize'}
-              assert len(measured['trials']) == 105
-              env = measured['environment']
-              assert ('browser_xnnpack' in keys) == env['xnnpack_diagnostic']['verified']
-              assert ('browser_mt_fixed' in keys) == ('browser_xnnpack' in keys)
-              assert ('browser_revectorize' in keys) == env['revectorization_diagnostic']['verified']
-              assert ('browser_xnnpack_revectorize' in keys) == env['combined_diagnostic']['verified']
-              if 'browser_xnnpack' in keys:
-                  assert env['xnnpack_diagnostic']['provider_kernel_counts']['XnnpackExecutionProvider'] > 0
-                  assert env['browser_xnnpack_xnn_threads'] == 2 and env['browser_xnnpack_ort_global_threads'] == 1
-                  assert env['browser_xnnpack_pthreads_after_warmup'] == 1
-                  assert env['browser_xnnpack_fixed_matches'] == 1 and env['browser_mt_fixed_fixed_matches'] == 1
-              if 'browser_revectorize' in keys:
-                  assert env['revectorization_diagnostic']['control']['transformed_groups'] == 0
-                  assert env['revectorization_diagnostic']['candidate']['transformed_groups'] > 0
-                  assert env['timed_revectorization_engine']['requested_js_flags'] == ['--js-flags=--wasm-revectorize']
-              if 'browser_xnnpack_revectorize' in keys:
-                  assert 'browser_xnnpack' in keys and 'browser_mt_fixed' in keys
-                  combined = env['combined_diagnostic']
-                  assert combined['control']['transformed_groups'] == 0 and combined['candidate']['transformed_groups'] > 0
-                  a, b = combined['control']['xnnpack_profile'], combined['candidate']['xnnpack_profile']
-                  assert a['verified'] and b['verified'] and a['provider_assignment_sha256'] == b['provider_assignment_sha256']
-                  assert env['timed_combined_engine']['requested_js_flags'] == ['--js-flags=--wasm-revectorize']
-                  assert env['browser_xnnpack_revectorize_pthreads_after_warmup'] == 1
-                  assert env['browser_xnnpack_revectorize_verified_input_shapes'] == env['browser_mt_fixed_verified_input_shapes']
-              assert measured['schedule_method'].startswith('seeded position-balanced')
-              for mode in modes:
-                  positions = [i % len(modes) for i, block in enumerate(measured['schedule']) if block['mode'] == mode['key']]
-                  counts = [positions.count(i) for i in range(len(modes))]
-                  assert max(counts) - min(counts) <= 1
-              assert all(not row['cpu_incomplete'] for row in measured['trials']), 'Incomplete CPU observations'
-              assert all(row['cpu_time_s'] > 0 and row['cpu_window_s'] > 0 for row in measured['trials'])
-              assert measured['environment']['cpu_sample_interval_ms'] == 100
-              assert measured['environment']['cpu_padding_seconds'] == 1
-              for trial in measured['trials']:
-                  phases = {phase: [p for p in trial['cpu_trace'] if p['phase'] == phase] for phase in ('pre', 'action', 'post')}
-                  assert all(phases.values()) and all(not p['cpu_incomplete'] for p in trial['cpu_trace'])
-                  for phase in ('pre', 'post'):
-                      assert sum(p['end_s'] - p['start_s'] for p in phases[phase]) >= 1 - 1e-6
-                  assert abs(sum(p['cpu_time_s'] for p in phases['action']) - trial['cpu_time_s']) < 1e-8
-                  assert abs(sum(p['end_s'] - p['start_s'] for p in phases['action']) - trial['cpu_window_s']) < 1e-8
-              assert 'separate Chromium' in measured['environment']['cpu_browser_scope']
-              assert len(page.locator('#cpu-csv').text_content().strip().splitlines()) == 1 + sum(len(row['cpu_trace']) for row in measured['trials'])
-              checks = measured['output_checks']
-              assert checks['reference_mode'] == 'browser_mt' and checks['reference_deterministic']
-              assert set(checks['modes']) == {mode['key'] for mode in measured['modes']}
-              assert all(row['finite'] and row['fp32_samples'] > 0 for row in checks['modes'].values())
-              if 'browser_xnnpack' in keys:
-                  assert checks['fixed_control_repeat']['pcm_exact'] and checks['fixed_control_repeat']['fp32_exact']
-                  assert checks['xnnpack_vs_fixed_control']['finite'] and checks['xnnpack_vs_fixed_control']['fp32_samples'] > 0
-              if 'browser_xnnpack_revectorize' in keys:
-                  assert checks['xnnpack_reference_repeat']['pcm_exact'] and checks['xnnpack_reference_repeat']['fp32_exact']
-                  assert checks['combined_vs_xnnpack']['finite'] and checks['combined_vs_fixed_control']['finite']
+              assert page.locator('svg.cpu-profile').count() == 7
+              assert page.locator('path.timing-ci').count() == 7
+              assert page.locator('figure.spectrogram').count() == 3
+              actual_images = page.locator('figure.spectrogram img').evaluate_all('(images) => images.map(image => ({src: image.src, width: image.naturalWidth, height: image.naturalHeight, complete: image.complete}))')
+              assert len(actual_images) == len(measured['spectrograms'])
+              for actual, expected in zip(actual_images, measured['spectrograms']):
+                  assert actual['complete'] and (actual['width'], actual['height']) == (expected['width'], expected['height'])
+                  assert actual['src'] == 'data:image/png;base64,' + expected['png_base64']
+              assert list(csv.reader(io.StringIO(page.locator('#raw-csv').text_content()))) == list(csv.reader(io.StringIO(module.trial_csv(measured['trials']))))
+              assert list(csv.reader(io.StringIO(page.locator('#cpu-csv').text_content()))) == list(csv.reader(io.StringIO(module.cpu_trace_csv(measured['trials']))))
               profiles = json.loads(page.locator('#cpu-profile-data').text_content())
-              assert {profile['mode'] for profile in profiles} == keys
+              assert profiles == module.aggregate_cpu_profiles(measured)
+              assert page.locator('rect.cpu-ci').count() == sum(point['ci_low_percent'] is not None for profile in profiles for point in profile['points'])
               for profile in profiles:
-                  assert profile['complete_trials'] == 15
-                  assert profile['phase_complete_trials'] == {'pre': 15, 'action': 15, 'post': 15}
                   assert profile['points'][0]['start_s'] == -1
-                  assert profile['post_points'][0]['start_s'] == 0 and profile['post_points'][-1]['end_s'] == 1
-                  assert all(0 < point['trial_count'] <= 15 and point['q25_percent'] <= point['median_percent'] <= point['q75_percent'] for point in profile['points'] + profile['post_points'])
-              for mode in modes:
-                  chart = page.locator('svg.cpu-profile[data-mode="' + mode['key'] + '"]')
-                  assert mode['label'] in chart.locator('title').first.text_content()
-                  assert chart.locator('path').count() > 0
+                  assert profile['points'][-1]['end_s'] >= profile['response_end_max_s'] + 1 - 1e-8
+                  for point in profile['points']:
+                      if point['full_trial_count'] < 15:
+                          assert point['ci_low_percent'] is None and point['ci_high_percent'] is None
+                      else:
+                          assert point['ci_low_percent'] <= point['median_percent'] <= point['ci_high_percent']
+              assert '15回／3ブロック' in page.locator('body').inner_text()
+              assert '安定した95%被覆を保証するものではありません' in page.locator('body').inner_text()
               page.screenshot(path='results/report.png', full_page=True)
               browser.close()
           PYREPORT
-      - name: Upload measured results
+      - name: Upload report artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: voicevox-core-browser-benchmark
           path: results/
           if-no-files-found: warn
-      - name: Save downloaded tools and compiled CORE even if measurement failed
+      - name: Save compiled tools only after an explicitly requested benchmark
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: always() && steps.benchmark-cache.outputs.cache-hit != 'true'
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.operation == 'benchmark' && steps.benchmark-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ runner.temp }}/voicevox-core-benchmark
           key: ${{ steps.benchmark-cache.outputs.cache-primary-key }}

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["playwright==1.63.0", "platformdirs==4.12.3", "cmake==4.4.4", "ninja==1.13.2", "libclang==18.1.1", "psutil==7.2.2"]
+# dependencies = ["playwright==1.63.0", "platformdirs==4.12.3", "cmake==4.4.4", "ninja==1.13.2", "libclang==18.1.1", "psutil==7.2.2", "numpy==2.3.5", "matplotlib==3.10.8", "pillow==12.3.0"]
 # ///
 """Reproducible VOICEVOX CORE CPU/browser benchmark (one-file distribution).
 
@@ -22,6 +22,7 @@ No text analyzer or dictionary is used. No benchmark measurements are simulated.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import csv
 import hashlib
@@ -323,6 +324,30 @@ def weighted_cpu_percent(trials: list[dict[str, Any]]) -> float | None:
     return 100 * sum(row["cpu_time_s"] for row in complete) / sum(row["cpu_window_s"] for row in complete)
 
 
+def block_bootstrap_median_ci(samples: list[tuple[int, float]]) -> dict[str, Any] | None:
+    """Nominal percentile interval; three intact blocks, all 3**3 draws.
+
+    This preserves within-block dependence. Three clusters are too few to
+    guarantee reliable 95% coverage; the report labels the interval exploratory.
+    """
+    import itertools
+    groups: dict[int, list[float]] = {}
+    for block, value in samples:
+        groups.setdefault(block, []).append(value)
+    if len(groups) != BLOCKS_PER_MODE:
+        return None
+    keys = sorted(groups)
+    estimates = sorted(statistics.median(value for key in draw for value in groups[key])
+                       for draw in itertools.product(keys, repeat=BLOCKS_PER_MODE))
+    def quantile(probability: float) -> float:
+        position = (len(estimates) - 1) * probability
+        lo, hi = math.floor(position), math.ceil(position)
+        return estimates[lo] + (estimates[hi] - estimates[lo]) * (position - lo)
+    return {"low": quantile(0.025), "high": quantile(0.975), "nominal_level": 0.95,
+            "resampling_unit": "whole five-trial block", "blocks": len(groups), "draws": len(estimates),
+            "quantile_method": "linear interpolation at (n-1)*p", "exploratory": True}
+
+
 def make_schedule(modes: list[Mode], seed: int, *, balanced: bool = False) -> list[Block]:
     """Three shuffled rounds, each containing one five-trial block per mode."""
     if not modes or len({mode.key for mode in modes}) != len(modes):
@@ -609,6 +634,183 @@ def wav_duration(data: bytes) -> float:
         return wav.getnframes() / wav.getframerate()
 
 
+def pcm_wav_info(data: bytes) -> tuple[dict[str, int], bytes]:
+    with wave.open(io.BytesIO(data), "rb") as stream:
+        info = {"channels": stream.getnchannels(), "sample_bytes": stream.getsampwidth(),
+                "sample_rate": stream.getframerate(), "frames": stream.getnframes()}
+        pcm = stream.readframes(info["frames"])
+    if info["sample_bytes"] != 2 or min(info.values()) <= 0 or len(pcm) != info["frames"] * info["channels"] * 2:
+        raise ValueError("Spectrogram requires complete nonempty PCM16 WAV audio")
+    return info, pcm
+
+
+SPECTROGRAM_METHOD = {"window": "periodic Hann", "nfft": 1024, "hop": 256,
+                      "channel": "first", "scale": "one-sided amplitude dBFS",
+                      "range_db": [-100, 0], "centered_zero_padding": True,
+                      "amplitude_normalization": "2/sum(window); DC and Nyquist not doubled"}
+
+
+def spectrogram_db(wav: bytes) -> tuple[Any, int, float]:
+    import numpy as np
+    info, pcm = pcm_wav_info(wav)
+    signal = np.frombuffer(pcm, dtype="<i2").reshape(-1, info["channels"])[:, 0].astype(np.float64) / 32768.0
+    nfft, hop = 1024, 256
+    window = 0.5 - 0.5 * np.cos(2 * np.pi * np.arange(nfft) / nfft)
+    frames = np.lib.stride_tricks.sliding_window_view(np.pad(signal, (nfft // 2, nfft // 2 + (-signal.size) % hop)), nfft)[::hop]
+    amplitude = np.abs(np.fft.rfft(frames * window, axis=1)) * (2.0 / window.sum())
+    amplitude[:, (0, -1)] *= 0.5
+    db = 20 * np.log10(np.maximum(amplitude, 1e-5))
+    return np.clip(db.T, -100, 0), info["sample_rate"], info["frames"] / info["sample_rate"]
+
+
+def png_dimensions(data: bytes) -> tuple[int, int]:
+    """Accept pixels only: no metadata chunks, appended data, or audio payload."""
+    from PIL import Image
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("Expected a PNG spectrogram")
+    offset, chunks = 8, []
+    while offset < len(data):
+        if offset + 12 > len(data):
+            raise ValueError("Truncated PNG")
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        if kind not in {b"IHDR", b"IDAT", b"IEND"} or offset + 12 + size > len(data):
+            raise ValueError("Spectrogram PNG must contain only image pixels")
+        chunks.append(kind)
+        offset += 12 + size
+        if kind == b"IEND":
+            break
+    if offset != len(data) or not chunks or chunks[0] != b"IHDR" or chunks[-1] != b"IEND":
+        raise ValueError("Malformed PNG or trailing payload")
+    with Image.open(io.BytesIO(data)) as image:
+        if image.format != "PNG" or image.mode != "RGB" or not (1 <= image.width <= 4096 and 1 <= image.height <= 4096):
+            raise ValueError("Unexpected spectrogram image format or dimensions")
+        size = image.size
+        image.verify()
+    return size
+
+
+def encode_spectrograms(wavs: dict[str, bytes], checks: dict[str, Any], provenance: str) -> list[dict[str, Any]]:
+    """Convert local diagnostics into image-only report data; never serialize audio."""
+    groups: dict[str, dict[str, Any]] = {}
+    previous_config = os.environ.get("MPLCONFIGDIR")
+    previous_cache = os.environ.get("XDG_CACHE_HOME")
+    with tempfile.TemporaryDirectory(prefix="voicevox-plot-") as config:
+        os.environ["MPLCONFIGDIR"] = config
+        os.environ["XDG_CACHE_HOME"] = config
+        try:
+            import matplotlib
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.figure import Figure
+            from PIL import Image
+            for key, wav in wavs.items():
+                info, pcm = pcm_wav_info(wav)
+                digest = hashlib.sha256(pcm).hexdigest()
+                if digest != checks[key]["pcm_sha256"] or info != checks[key]["wav_format"]:
+                    raise ValueError(f"Audio does not match the recorded output for {key}")
+                if digest not in groups:
+                    spectrum, rate, duration = spectrogram_db(wav)
+                    with matplotlib.rc_context({"font.family": "DejaVu Sans", "font.size": 8.5}):
+                        figure = Figure(figsize=(5.4, 2.25), dpi=130, layout="constrained")
+                        FigureCanvasAgg(figure)
+                        axes = figure.subplots()
+                        dt, df = 256 / rate, rate / 1024 / 1000
+                        image = axes.imshow(spectrum, origin="lower", aspect="auto", extent=(-dt / 2, (spectrum.shape[1] - .5) * dt, -df / 2, rate / 2000 + df / 2),
+                                            vmin=-100, vmax=0, cmap="magma", interpolation="nearest")
+                        axes.set(xlabel="Time (s)", ylabel="Frequency (kHz)", xlim=(0, duration), ylim=(0, rate / 2000))
+                        figure.colorbar(image, ax=axes, label="dBFS", ticks=(-100, -50, 0))
+                        rendered = io.BytesIO()
+                        figure.savefig(rendered, format="png")
+                    # Re-encode pixel data only, removing metadata and ancillary chunks.
+                    image_bytes = io.BytesIO()
+                    with Image.open(io.BytesIO(rendered.getvalue())) as source:
+                        pixels = Image.frombytes("RGB", source.size, source.convert("RGB").tobytes())
+                        pixels.save(image_bytes, format="PNG")
+                    png = image_bytes.getvalue()
+                    width, height = png_dimensions(png)
+                    groups[digest] = {"pcm_sha256": digest, "wav_format": info, "modes": [],
+                                      "png_base64": base64.b64encode(png).decode(), "png_sha256": hashlib.sha256(png).hexdigest(),
+                                      "width": width, "height": height, "method": SPECTROGRAM_METHOD.copy(), "provenance": provenance}
+                groups[digest]["modes"].append(key)
+        finally:
+            if previous_config is None:
+                os.environ.pop("MPLCONFIGDIR", None)
+            else:
+                os.environ["MPLCONFIGDIR"] = previous_config
+            if previous_cache is None:
+                os.environ.pop("XDG_CACHE_HOME", None)
+            else:
+                os.environ["XDG_CACHE_HOME"] = previous_cache
+    return list(groups.values())
+
+
+def attach_saved_audio(result: dict[str, Any], directory: Path) -> None:
+    checks = result.get("output_checks", {}).get("modes", {})
+    if not checks:
+        raise ValueError("Saved audio requires recorded PCM hashes and formats")
+    by_digest = {}
+    for path in sorted(directory.glob("*.wav")):
+        wav = path.read_bytes()
+        _, pcm = pcm_wav_info(wav)
+        by_digest.setdefault(hashlib.sha256(pcm).hexdigest(), wav)
+    missing = [key for key, check in checks.items() if check["pcm_sha256"] not in by_digest]
+    if missing:
+        raise ValueError("No hash-matched audio for: " + ", ".join(missing))
+    result["spectrograms"] = encode_spectrograms({key: by_digest[check["pcm_sha256"]] for key, check in checks.items()}, checks,
+        "Generated locally from retained untimed diagnostic WAVs after checking PCM hashes and formats against the measurement record. Only PNG pixels and provenance are distributed; CI verifies those images, not the private source WAVs.")
+
+
+def validate_spectrograms(result: dict[str, Any]) -> None:
+    groups = result.get("spectrograms", [])
+    if not groups:
+        return
+    labels = {mode["key"] for mode in result["modes"]}
+    fields = {"pcm_sha256", "wav_format", "modes", "png_base64", "png_sha256", "width", "height", "method", "provenance"}
+    represented = [key for group in groups for key in group["modes"]]
+    if set(represented) != labels or len(represented) != len(labels):
+        raise ValueError("Spectrogram groups must represent every mode exactly once")
+    for group in groups:
+        if set(group) != fields or group["method"] != SPECTROGRAM_METHOD:
+            raise ValueError("Unexpected spectrogram metadata or analysis method")
+        png = base64.b64decode(group["png_base64"], validate=True)
+        if hashlib.sha256(png).hexdigest() != group["png_sha256"] or png_dimensions(png) != (group["width"], group["height"]):
+            raise ValueError("Spectrogram image integrity check failed")
+        for key in group["modes"]:
+            check = result["output_checks"]["modes"][key]
+            if check["pcm_sha256"] != group["pcm_sha256"] or check["wav_format"] != group["wav_format"]:
+                raise ValueError("Spectrogram provenance does not match its measured mode")
+
+
+def attach_saved_spectrograms(result: dict[str, Any], directory: Path) -> None:
+    manifest = json.loads((directory / "manifest.json").read_text("utf-8"))
+    if set(manifest) != {"schema_version", "spectrograms"} or manifest["schema_version"] != 1:
+        raise ValueError("Unexpected spectrogram manifest")
+    groups = []
+    for item in manifest["spectrograms"]:
+        group = dict(item)
+        filename = group.pop("file")
+        if not re.fullmatch(r"[a-z0-9-]+\.png", filename):
+            raise ValueError("Invalid spectrogram filename")
+        group["png_base64"] = base64.b64encode((directory / filename).read_bytes()).decode()
+        groups.append(group)
+    result["spectrograms"] = groups
+    validate_spectrograms(result)
+
+
+def spectrograms_html(result: dict[str, Any]) -> str:
+    groups = result.get("spectrograms", [])
+    if not groups:
+        return ""
+    validate_spectrograms(result)
+    labels = {mode["key"]: mode["label"] for mode in result["modes"]}
+    figures = []
+    for group in groups:
+        title = " / ".join(labels[key] for key in group["modes"])
+        figures.append(f'<figure class="spectrogram" data-pcm-sha256="{group["pcm_sha256"]}" data-png-sha256="{group["png_sha256"]}"><figcaption>{html.escape(title)}</figcaption><img alt="{html.escape(title, quote=True)} spectrogram" src="data:image/png;base64,{group["png_base64"]}"/></figure>')
+    provenance = " / ".join(sorted({group["provenance"] for group in groups}))
+    return '<h2>出力音声のスペクトログラム</h2><div class="spectrogram-grid">' + ''.join(figures) + '</div><p class="cpu-caption">PCMが完全一致するモードはまとめて表示。共通の時間・周波数・色スケール（−100〜0 dBFS）、先頭チャンネル、Hann窓1024点・hop256点。画像作成時にPCMハッシュと音声形式を実測記録と照合済み。</p><details><summary>音声の出典・解析条件</summary><p>' + html.escape(provenance) + '</p><p>PCM16を32768で割り、窓の総和で振幅を正規化した片側FFT（DC/Nyquistは倍化しない）。端は解析窓用にゼロpadding。1つの保存音声から作った画像であり、15試行の平均音声ではありません。配布するHTML・JSONにはスペクトログラム画像だけを含み、音声データは含みません。</p></details>'
+
+
 def waveform_comparison(reference_wav: bytes, reference_raw: bytes, wav: bytes, raw: bytes) -> dict[str, Any]:
     """Untimed exactness check, with error magnitudes but no perceptual tolerance."""
     import array
@@ -679,6 +881,7 @@ def verify_outputs(runners: dict[str, Any], reference: str, log: list[dict[str, 
         result["reference_deterministic"] = result["reference_deterministic"] and repeat_xnn["pcm_exact"] and repeat_xnn["fp32_exact"]
         result["combined_vs_xnnpack"] = waveform_comparison(wav_outputs[xnn], raw_outputs[xnn], wav_outputs[combined], raw_outputs[combined])
         result["combined_vs_fixed_control"] = waveform_comparison(wav_outputs["browser_mt_fixed"], raw_outputs["browser_mt_fixed"], wav_outputs[combined], raw_outputs[combined])
+    result["spectrograms"] = encode_spectrograms(wav_outputs, comparisons, "Generated locally from same-run untimed output-check WAVs before measured trials; only spectrogram PNG pixels are retained in this report.")
     log.append({"event": "untimed_output_checks", "reference": reference, "reference_deterministic": result["reference_deterministic"]})
     return result
 
@@ -876,6 +1079,10 @@ def svg_results(result: dict[str, Any]) -> str:
             output.append(f'<circle cx="{x:.2f}" cy="{y+dy}" r="3.5" fill="{color}" fill-opacity="0.65"><title>{label}</title></circle>')
         median = statistics.median(row["elapsed_s"] for row in samples)
         x = left + median / maximum * plot_width
+        interval = block_bootstrap_median_ci([(row["block"], row["elapsed_s"]) for row in samples])
+        if interval:
+            low, high = (left + interval[key] / maximum * plot_width for key in ("low", "high"))
+            output.append(f'<path class="timing-ci" d="M{low:.2f},{y}H{high:.2f}M{low:.2f},{y-9}V{y+9}M{high:.2f},{y-9}V{y+9}" stroke="{color}" stroke-width="1.8" fill="none"><title>中央値の参考95%区間: {interval["low"]:.6f}–{interval["high"]:.6f}秒（3ブロックbootstrap）</title></path>')
         output.append(f'<line x1="{x:.2f}" x2="{x:.2f}" y1="{y-17}" y2="{y+17}" stroke="{color}" stroke-width="3"><title>Median: {median:.6f} s</title></line>')
     output.append(f'<text x="{left+plot_width/2}" y="{height-2}" text-anchor="middle">合成時間（秒、短いほど速い）</text></svg>')
     return "".join(output)
@@ -902,68 +1109,75 @@ def svg_sequence(result: dict[str, Any]) -> str:
 
 
 def aggregate_cpu_profiles(result: dict[str, Any], bin_seconds: float = 0.25) -> list[dict[str, Any]]:
-    """Start-aligned pre/action and separately end-aligned actual post samples."""
+    """Actual request-relative pre/action/post; pointwise block-bootstrap CI."""
     if not math.isfinite(bin_seconds) or bin_seconds <= 0:
         raise ValueError("CPU profile bin duration must be positive")
     profiles = []
     padded = result["schema_version"] >= 4
+    minimum = -CPU_PADDING_S if padded else 0.0
     for mode in result["modes"]:
-        all_trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
+        trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
         phase_counts = {phase: 0 for phase in ("pre", "action", "post")}
-        main_segments, post_segments = [], []
-        for trial in all_trials:
-            main, post = [], []
+        trial_segments = []
+        response_ends = []
+        for trial in trials:
+            segments = []
             for phase in phase_counts:
                 intervals = [point for point in trial.get("cpu_trace", []) if point.get("phase", "action") == phase]
                 if not intervals or any(point["cpu_incomplete"] for point in intervals):
                     continue
                 phase_counts[phase] += 1
-                origin = intervals[0]["start_s"] if phase == "post" else 0.0
+                if phase == "action":
+                    response_ends.append(intervals[-1]["end_s"])
+                post_limit = intervals[0]["start_s"] + CPU_PADDING_S if phase == "post" else math.inf
                 for point in intervals:
-                    start, end = point["start_s"] - origin, point["end_s"] - origin
+                    start, end = point["start_s"], min(point["end_s"], post_limit)
                     rate = point["cpu_time_s"] / (point["end_s"] - point["start_s"])
                     if padded and phase == "action":
                         start = max(0.0, start)
                     elif phase == "pre":
                         end = min(0.0, end)
-                    (post if phase == "post" else main).append((start, end, rate))
-            main_segments.append(main)
-            post_segments.append(post)
-        maximum = max((end for trial in main_segments for _, end, _ in trial), default=0.0)
-
-        def bin_segments(segments: list[list[tuple[float, float, float]]], minimum: float, maximum: float) -> list[dict[str, Any]]:
-            count = max(0, math.ceil((maximum - minimum) / bin_seconds))
-            contributions: list[list[tuple[float, float]]] = [[] for _ in range(count)]
-            for trial in segments:
-                cpu, observed = [0.0] * count, [0.0] * count
-                for start, end, rate in trial:
-                    start, end = max(minimum, start), min(maximum, end)
-                    index = max(0, math.floor((start - minimum) / bin_seconds))
-                    while index < count and minimum + index * bin_seconds < end:
-                        left = minimum + index * bin_seconds
-                        overlap = max(0.0, min(end, left + bin_seconds) - max(start, left))
-                        cpu[index] += rate * overlap
-                        observed[index] += overlap
-                        index += 1
-                for index, seconds in enumerate(observed):
-                    if seconds > 0:
-                        contributions[index].append((cpu[index], seconds))
-            points = []
-            for index, entries in enumerate(contributions):
-                if not entries:
-                    continue
-                cpu, seconds = math.fsum(pair[0] for pair in entries), math.fsum(pair[1] for pair in entries)
-                percents = [100 * pair[0] / pair[1] for pair in entries]
-                quartiles = statistics.quantiles(percents, n=4, method="inclusive") if len(percents) > 1 else [percents[0]] * 3
-                points.append({"start_s": minimum + index * bin_seconds, "end_s": min(maximum, minimum + (index + 1) * bin_seconds),
-                               "cpu_percent": 100 * cpu / seconds, "min_percent": min(percents), "max_percent": max(percents),
-                               "median_percent": statistics.median(percents), "q25_percent": quartiles[0], "q75_percent": quartiles[2],
-                               "cpu_time_s": cpu, "observed_s": seconds, "trial_count": len(entries)})
-            return points
+                    if end > start:
+                        segments.append((start, end, rate))
+            trial_segments.append((trial["block"], segments))
+        maximum = max((end for _, segments in trial_segments for _, end, _ in segments), default=0.0)
+        count = max(0, math.ceil((maximum - minimum) / bin_seconds))
+        contributions: list[list[tuple[int, float, float]]] = [[] for _ in range(count)]
+        for block, segments in trial_segments:
+            cpu, observed = [0.0] * count, [0.0] * count
+            for start, end, rate in segments:
+                start, end = max(minimum, start), min(maximum, end)
+                index = max(0, math.floor((start - minimum) / bin_seconds))
+                while index < count and minimum + index * bin_seconds < end:
+                    left = minimum + index * bin_seconds
+                    overlap = max(0.0, min(end, left + bin_seconds) - max(start, left))
+                    cpu[index] += rate * overlap
+                    observed[index] += overlap
+                    index += 1
+            for index, seconds in enumerate(observed):
+                if seconds > 0:
+                    contributions[index].append((block, cpu[index], seconds))
+        points = []
+        for index, entries in enumerate(contributions):
+            if not entries:
+                continue
+            left, right = minimum + index * bin_seconds, min(maximum, minimum + (index + 1) * bin_seconds)
+            cpu, seconds = math.fsum(entry[1] for entry in entries), math.fsum(entry[2] for entry in entries)
+            samples = [(block, 100 * value / observed) for block, value, observed in entries]
+            full_count = sum(observed >= right - left - 1e-9 for _, _, observed in entries)
+            interval = block_bootstrap_median_ci(samples) if full_count == len(trials) else None
+            points.append({"start_s": left, "end_s": right, "cpu_percent": 100 * cpu / seconds,
+                           "median_percent": statistics.median(value for _, value in samples),
+                           "ci_low_percent": interval["low"] if interval else None,
+                           "ci_high_percent": interval["high"] if interval else None,
+                           "cpu_time_s": cpu, "observed_s": seconds, "trial_count": len(entries),
+                           "full_trial_count": full_count, "contributing_blocks": len({block for block, _ in samples})})
         profiles.append({"mode": mode["key"], "label": mode["label"], "complete_trials": phase_counts["action"],
-                         "phase_complete_trials": phase_counts, "total_trials": len(all_trials), "bin_seconds": bin_seconds,
-                         "points": bin_segments(main_segments, -CPU_PADDING_S if padded else 0.0, maximum),
-                         "post_points": bin_segments(post_segments, 0.0, CPU_PADDING_S) if padded else []})
+                         "phase_complete_trials": phase_counts, "total_trials": len(trials), "bin_seconds": bin_seconds,
+                         "response_end_median_s": statistics.median(response_ends) if response_ends else None,
+                         "response_end_min_s": min(response_ends) if response_ends else None,
+                         "response_end_max_s": max(response_ends) if response_ends else None,
+                         "points": points})
     return profiles
 
 
@@ -974,68 +1188,62 @@ def cpu_profile_html(result: dict[str, Any]) -> str:
     padded = result["schema_version"] >= 4
     xmin = -CPU_PADDING_S if padded else 0.0
     xmax = max((point["end_s"] for row in profiles for point in row["points"]), default=0.25)
-    ymax = max(100, math.ceil(max((point["q75_percent"] for row in profiles for point in row["points"] + row["post_points"]), default=0) / 100) * 100)
+    ymax = max(100, math.ceil(max((point["ci_high_percent"] if point["ci_high_percent"] is not None else point["median_percent"]
+                                  for row in profiles for point in row["points"]), default=0) / 100) * 100)
     colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"]
     figures = []
     for index, profile in enumerate(profiles):
-        left, top, width, height = 52, 30, 255 if padded else 365, 140
+        left, top, width, height = 52, 30, 365, 140
         def x(value: float) -> float:
             return left + (value - xmin) / (xmax - xmin) * width
-        def post_x(value: float) -> float:
-            return left + width + 30 + value / CPU_PADDING_S * 80
         def y(value: float) -> float:
             return top + height - value / ymax * height
         color = colors[index % len(colors)]
-        parts = [f'<svg class="cpu-profile" data-mode="{profile["mode"]}" viewBox="0 0 440 215" role="img" aria-label="{html.escape(profile["label"], quote=True)} CPU時系列集計"><title>{html.escape(profile["label"])}: 完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回</title>',
+        parts = [f'<svg class="cpu-profile" data-mode="{profile["mode"]}" viewBox="0 0 440 215" role="img" aria-label="{html.escape(profile["label"], quote=True)} CPU時系列、全試行の中央値と参考95%区間"><title>{html.escape(profile["label"])}: {profile["total_trials"]}回／3ブロック</title>',
                  f'<text x="{left}" y="16">{html.escape(profile["label"])}</text>']
         if padded:
-            parts.append(f'<rect x="{left}" y="{top}" width="{x(0)-left:.2f}" height="{height}" fill="#edf0f5"/><line x1="{x(0):.2f}" x2="{x(0):.2f}" y1="{top}" y2="{top+height}" stroke="#8592a3" stroke-dasharray="3 2"><title>合成要求開始（0秒）</title></line>')
+            parts.append(f'<rect x="{left}" y="{top}" width="{x(0)-left:.2f}" height="{height}" fill="#edf0f5"/>')
         for tick in range(3):
             value = ymax * tick / 2
             parts.append(f'<line x1="{left}" y1="{y(value):.2f}" x2="{left+width}" y2="{y(value):.2f}" stroke="#e2e6ec"/><text x="{left-7}" y="{y(value)+4:.2f}" text-anchor="end">{value:.0f}%</text>')
-            if padded:
-                parts.append(f'<line x1="{post_x(0):.2f}" y1="{y(value):.2f}" x2="{post_x(CPU_PADDING_S):.2f}" y2="{y(value):.2f}" stroke="#e2e6ec"/>')
         for tick in range(5):
             value = xmax * tick / 4
             parts.append(f'<text x="{x(value):.2f}" y="190" text-anchor="middle">{value:.1f}</text>')
         if padded:
-            for value in (0, CPU_PADDING_S):
-                parts.append(f'<text x="{post_x(value):.2f}" y="190" text-anchor="middle">{value:.0f}</text>')
-        for series, mapper, prefix in ((profile["points"], x, "開始基準"), (profile["post_points"], post_x, "応答完了基準")):
-            previous = None
-            previous_end = None
-            for point in series:
-                low_count = point["trial_count"] < profile["total_trials"]
-                opacity = "0.45" if low_count else "1"
-                dash = ' stroke-dasharray="3 2"' if low_count else ""
-                a, b = mapper(point["start_s"]), mapper(point["end_s"])
-                parts.append(f'<rect x="{a:.2f}" y="{y(point["q75_percent"]):.2f}" width="{b-a:.2f}" height="{y(point["q25_percent"])-y(point["q75_percent"]):.2f}" fill="{color}" fill-opacity="{0.07 if low_count else 0.15}"/>')
-                path = f'M{a:.2f},{y(point["median_percent"]):.2f}L{b:.2f},{y(point["median_percent"]):.2f}'
-                if previous is not None and math.isclose(previous_end, point["start_s"], abs_tol=1e-9):
-                    path = f'M{a:.2f},{y(previous):.2f}L{a:.2f},{y(point["median_percent"]):.2f}' + path
-                parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6" opacity="{opacity}"{dash}/>')
-                title = f'{prefix} {point["start_s"]:.2f}–{point["end_s"]:.2f}秒: 中央値 {point["median_percent"]:.1f}%, 四分位 {point["q25_percent"]:.1f}–{point["q75_percent"]:.1f}%, 寄与試行数 {point["trial_count"]}'
-                parts.append(f'<rect x="{a:.2f}" y="{top}" width="{max(1,b-a):.2f}" height="{height}" fill="transparent"><title>{html.escape(title)}</title></rect>')
-                previous, previous_end = point["median_percent"], point["end_s"]
-        main_caption = "開始前1秒〜合成中（秒）" if padded else "合成要求開始からの秒数（共通軸）"
-        parts.append(f'<text x="{left+width/2}" y="211" text-anchor="middle">{main_caption}</text>')
-        if padded:
-            parts.append(f'<text x="{post_x(0.5):.2f}" y="211" text-anchor="middle">完了後（秒）</text>')
-        parts.append('</svg>')
+            parts.append(f'<text x="{left}" y="190" text-anchor="end">−1</text>')
+        if profile["response_end_median_s"] is not None:
+            a, b, median = (x(profile[key]) for key in ("response_end_min_s", "response_end_max_s", "response_end_median_s"))
+            parts.append(f'<rect class="response-end-range" x="{a:.2f}" y="{top}" width="{max(0.5,b-a):.2f}" height="{height}" fill="#8793a1" fill-opacity="0.16"/>')
+            parts.append(f'<line class="response-end-median" x1="{median:.2f}" x2="{median:.2f}" y1="{top}" y2="{top+height}" stroke="#647082" stroke-dasharray="3 3"><title>応答直後の採取境界: 中央値{profile["response_end_median_s"]:.3f}秒、範囲{profile["response_end_min_s"]:.3f}–{profile["response_end_max_s"]:.3f}秒</title></line>')
+        previous, previous_end = None, None
+        for point in profile["points"]:
+            partial = point["full_trial_count"] < profile["total_trials"]
+            opacity, dash = ("0.45", ' stroke-dasharray="3 2"') if partial else ("1", "")
+            a, b = x(point["start_s"]), x(point["end_s"])
+            if point["ci_low_percent"] is not None:
+                parts.append(f'<rect class="cpu-ci" x="{a:.2f}" y="{y(point["ci_high_percent"]):.2f}" width="{b-a:.2f}" height="{y(point["ci_low_percent"])-y(point["ci_high_percent"]):.2f}" fill="{color}" fill-opacity="0.18"/>')
+            path = f'M{a:.2f},{y(point["median_percent"]):.2f}L{b:.2f},{y(point["median_percent"]):.2f}'
+            if previous is not None and math.isclose(previous_end, point["start_s"], abs_tol=1e-9):
+                path = f'M{a:.2f},{y(previous):.2f}L{a:.2f},{y(point["median_percent"]):.2f}' + path
+            parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6" opacity="{opacity}"{dash}/>')
+            interval = (f'{point["ci_low_percent"]:.1f}–{point["ci_high_percent"]:.1f}%' if point["ci_low_percent"] is not None else 'なし（全試行の区間全体を観測できず）')
+            title = f'{point["start_s"]:.2f}–{point["end_s"]:.2f}秒: 中央値{point["median_percent"]:.1f}%, 参考95%区間{interval}, 寄与n={point["trial_count"]}, 区間全体の観測n={point["full_trial_count"]}'
+            parts.append(f'<rect x="{a:.2f}" y="{top}" width="{max(1,b-a):.2f}" height="{height}" fill="transparent"><title>{html.escape(title)}</title></rect>')
+            previous, previous_end = point["median_percent"], point["end_s"]
+        axis_caption = "合成要求開始からの秒数（前後も同じ軸）" if padded else "合成要求開始からの秒数"
+        parts.append(f'<text x="{left+width/2}" y="211" text-anchor="middle">{axis_caption}</text></svg>')
         tail = profile["points"][-1]["trial_count"] if profile["points"] else 0
-        counts = profile["phase_complete_trials"]
-        caption = (f'完全追跡 前 {counts["pre"]}・合成中 {counts["action"]}・後 {counts["post"]}/{profile["total_trials"]}回' if padded
-                   else f'完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回 · 最終区間の寄与 {tail}回')
-        figures.append('<figure>' + ''.join(parts) + f'<figcaption>{caption}</figcaption></figure>')
+        figures.append('<figure>' + ''.join(parts) + f'<figcaption>全{profile["total_trials"]}回を集計 · 末尾の寄与 n={tail}</figcaption></figure>')
     payload = json.dumps(profiles, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
-    padding_note = "左は開始前1秒と合成中、右は各試行の応答完了にそろえた後1秒。前後も実測で、平均CPU表には合成中だけを使用。" if padded else ""
-    return '<h2>CPU 使用率の時間推移（モード別集計）</h2><div class="cpu-grid">' + ''.join(figures) + '</div><p class="cpu-caption">' + padding_note + '線は完全追跡できた区間の試行間中央値、帯は四分位範囲。全モード共通軸・0.25秒ビン。100%＝論理1コア。観測が終わった試行は0埋めせず除外し、寄与数が減る区間は薄い破線。各区間にカーソルを重ねると寄与数を表示</p><script id="cpu-profile-data" type="application/json">' + payload + '</script>'
+    span_note = "開始前1秒から各試行の応答完了後1秒までを同じ実秒軸に表示。" if padded else "合成中の観測を要求開始からの実秒軸に表示。"
+    return '<h2>CPU 使用率の時間推移（モード別集計）</h2><p>中央値・参考95%区間（15回／3ブロック、各時点）</p><div class="cpu-grid">' + ''.join(figures) + '</div><p class="cpu-caption">' + span_note + '縦の点線は応答直後の採取境界の中央値、灰色は最短〜最長。95%帯は全15回で区間全体を観測できた箇所だけに表示し、末尾は実測の中央値とnのみ（0埋めなし）。100%＝論理1コア。平均CPU表は合成中のみ。</p><script id="cpu-profile-data" type="application/json">' + payload + '</script>'
 
 
 def render_report(result: dict[str, Any], target: Path) -> None:
     validate_results(result)
     raw_csv = trial_csv(result["trials"])
     profile = cpu_profile_html(result)
+    spectra = spectrograms_html(result)
     profile_csv = (f'<details><summary>CPU 時系列（CSV）</summary><button data-csv="cpu-csv" data-filename="voicevox-cpu-timeseries.csv" type="button">CSV を保存</button><pre id="cpu-csv">{html.escape(cpu_trace_csv(result["trials"]))}</pre></details>'
                    if result["schema_version"] >= 3 else "")
     summaries = []
@@ -1044,6 +1252,7 @@ def render_report(result: dict[str, Any], target: Path) -> None:
     for mode in result["modes"]:
         trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
         cpu_percent = weighted_cpu_percent(trials)
+        interval = block_bootstrap_median_ci([(row["block"], row["elapsed_s"]) for row in trials])
         output_cell = ""
         if checks:
             check = checks["modes"][mode["key"]]
@@ -1056,9 +1265,12 @@ def render_report(result: dict[str, Any], target: Path) -> None:
             f'{statistics.median(row["elapsed_s"] for row in trials):.3f}',
             f'{statistics.median(row["rtf"] for row in trials):.3f}',
             "—" if cpu_percent is None else f"{cpu_percent:.1f}%",
-            f'{min(row["elapsed_s"] for row in trials):.3f}–{max(row["elapsed_s"] for row in trials):.3f}',
+            f'{interval["low"]:.3f}–{interval["high"]:.3f}' if interval else "—",
         )) + output_cell + "</tr>")
-    env_rows = "".join(f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value))}</td></tr>" for key, value in result["environment"].items())
+    report_environment = {**result["environment"], "cpu_plot_aggregation": "actual request-start axis including post; 0.25s per-trial overlap-weighted rates, then median; nominal pointwise 95% whole-block percentile bootstrap, 27 draws; no tail CI without 15 fully observed trials",
+                          "report_script_sha256": sha256_file(Path(__file__)),
+                          "statistics": "15 trials in 3 intact blocks; all 27 draws of 3 blocks with replacement; median estimator; linearly interpolated 2.5/97.5 percentiles; exploratory, only 3 clusters"}
+    env_rows = "".join(f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value))}</td></tr>" for key, value in report_environment.items())
     mode_rows = "".join(f'<li>{html.escape(mode["label"])}: {mode["threads"]} inference thread(s), {html.escape(mode["backend"])}</li>' for mode in result["modes"])
     note_values = list(result.get("notes", []))
     incomplete = sum(row["cpu_incomplete"] for row in result["trials"])
@@ -1077,14 +1289,18 @@ def render_report(result: dict[str, Any], target: Path) -> None:
 <html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VOICEVOX CORE benchmark</title>
 <style>
-:root{{font-family:system-ui,-apple-system,sans-serif;color:#202936;background:#fff;font-size:15px;line-height:1.5}}body{{max-width:960px;margin:36px auto;padding:0 24px}}h1{{font-size:24px;letter-spacing:-.03em;margin:0 0 6px}}h2{{font-size:17px;margin:28px 0 10px}}p{{margin:6px 0 18px;color:#546170}}table{{border-collapse:collapse;width:100%;font-size:14px}}th,td{{padding:9px 12px;border-bottom:1px solid #e2e6ec;text-align:right}}th:first-child,td:first-child{{text-align:left}}th{{font-weight:600;background:#f6f8fa}}figure{{margin:18px 0}}figcaption{{color:#546170;font-size:13px}}svg{{width:100%;height:auto}}svg text{{font-size:12px;fill:#546170}}details{{margin:18px 0;border-top:1px solid #d8dee7;padding-top:12px}}summary{{cursor:pointer;font-weight:600}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f6f8fa;padding:14px;max-height:420px;overflow:auto}}button{{font:inherit;background:#fff;border:1px solid #a8b4c4;border-radius:4px;padding:6px 12px;cursor:pointer;margin-top:12px}}.cpu-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}}.cpu-grid figure{{margin:0}}.cpu-caption{{font-size:12px;margin-top:12px}}.scroll{{overflow-x:auto}}.environment th{{text-align:left;width:34%}}.environment td{{text-align:left;overflow-wrap:anywhere}}ul{{padding-left:22px}}@media(max-width:600px){{.cpu-grid{{grid-template-columns:1fr}}body{{margin:20px auto;padding:0 14px}}th,td{{padding:7px}}}}
+:root{{font-family:system-ui,-apple-system,sans-serif;color:#202936;background:#fff;font-size:15px;line-height:1.5}}body{{max-width:960px;margin:36px auto;padding:0 24px}}h1{{font-size:24px;letter-spacing:-.03em;margin:0 0 6px}}h2{{font-size:17px;margin:28px 0 10px}}p{{margin:6px 0 18px;color:#546170}}table{{border-collapse:collapse;width:100%;font-size:14px}}th,td{{padding:9px 12px;border-bottom:1px solid #e2e6ec;text-align:right}}th:first-child,td:first-child{{text-align:left}}th{{font-weight:600;background:#f6f8fa}}figure{{margin:18px 0}}figcaption{{color:#546170;font-size:13px}}svg{{width:100%;height:auto}}svg text{{font-size:12px;fill:#546170}}details{{margin:18px 0;border-top:1px solid #d8dee7;padding-top:12px}}summary{{cursor:pointer;font-weight:600}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f6f8fa;padding:14px;max-height:420px;overflow:auto}}button{{font:inherit;background:#fff;border:1px solid #a8b4c4;border-radius:4px;padding:6px 12px;cursor:pointer;margin-top:12px}}.cpu-grid,.spectrogram-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}}.cpu-grid figure,.spectrogram-grid figure{{margin:0}}.spectrogram figcaption{{min-height:3em}}.spectrogram img{{display:block;width:100%;height:auto}}.cpu-caption{{font-size:12px;margin-top:12px}}.scroll{{overflow-x:auto}}.environment th{{text-align:left;width:34%}}.environment td{{text-align:left;overflow-wrap:anywhere}}ul{{padding-left:22px}}@media(max-width:600px){{.cpu-grid,.spectrogram-grid{{grid-template-columns:1fr}}body{{margin:20px auto;padding:0 14px}}th,td{{padding:7px}}}}
 </style>
 <h1>VOICEVOX CORE benchmark</h1>
 <p>{html.escape(result["created_at"])} · 音声 {duration:.3f} 秒 · 各モード 5 回 × 3 ブロック</p>
-<div class="scroll"><table><thead><tr><th>モード</th><th>スレッド</th><th>回数</th><th>中央値（秒）</th><th>中央値 RTF</th><th>平均 CPU</th><th>最小–最大（秒）</th>{output_header}</tr></thead><tbody>{''.join(summaries)}</tbody></table></div>
-<figure>{svg_results(result)}<figcaption>点は各試行、太線は中央値。RTF = 合成時間 ÷ 出力音声の長さ</figcaption></figure>
+<p>合成時間：中央値・参考95%区間（15回／3ブロック）</p>
+<div class="scroll"><table><thead><tr><th>モード</th><th>スレッド</th><th>回数</th><th>中央値（秒）</th><th>中央値 RTF</th><th>平均 CPU</th><th>参考95%区間（秒）</th>{output_header}</tr></thead><tbody>{''.join(summaries)}</tbody></table></div>
+<figure>{svg_results(result)}<figcaption>点は15回の各試行、太線は中央値、横の誤差棒は参考95%区間（3ブロックbootstrap）。RTF = 合成時間 ÷ 出力音声の長さ</figcaption></figure>
+<p class="cpu-caption">3ブロックしかないため、95%区間は参考値です。安定した95%被覆を保証するものではありません。</p>
+<details><summary>95%区間の計算方法</summary><p>5回連続のブロックを分割せず、3ブロックを3個復元抽出する全27通りで中央値を再計算。その分布の2.5%・97.5%分位を線形補間して表示する名目95%percentile区間です。15回を独立標本とは扱いません。CPUは5本の曲線をブロック単位で再抽出し、各時点の中央値について同じ計算を行います。点ごとの区間であり、曲線全体を同時に95%で覆う帯ではありません。以前の四分位帯（中央50%範囲）とは異なります。</p></details>
 <figure>{svg_sequence(result)}</figure>
 {profile}
+{spectra}
 <h2>測定条件</h2>
 <ul><li>同一 sample.vvm・Style ID {result["style_id"]}・準備済み AudioQuery JSON を使用。CPU 推論のみ、辞書・テキスト解析なし</li>
 <li>モデル初期化・ダウンロード・ビルド・AudioQuery 作成・ウォームアップ・音声保存は測定外。合成から WAV 生成までを測定</li>
@@ -2374,6 +2590,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     if max(durations) - min(durations) > 1 / query["outputSamplingRate"]:
                         raise RuntimeError("Native/browser output lengths differ; refusing a misleading comparison")
                     output_checks = verify_outputs(runners, "browser_mt" if browser_mt else "browser", log)
+                    spectrograms = output_checks.pop("spectrograms")
                     progress(f"Starting {len(modes) * BLOCKS_PER_MODE * TRIALS_PER_BLOCK} serial trials with target-process CPU sampling")
                     def measured_synthesis(mode: Mode) -> tuple[float, float, CpuMeasurement]:
                         sampler = ProcessCpuSampler(cpu_roots[mode.key], mode.label)
@@ -2383,6 +2600,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                               "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials],
                               "environment": environment, "audio_s": durations[0], "style_id": args.style_id, "seed": args.seed, "log": log,
                               "output_checks": output_checks,
+                              "spectrograms": spectrograms,
                               "schedule_method": "seeded position-balanced and pair-order-balanced design; randomized labels and round order" if args.backend_experiments else "seeded independent shuffle in each round",
                               "schedule": [asdict(block) for block in make_schedule(modes, args.seed, balanced=args.backend_experiments)],
                               "notes": ["出力検証は測定外。同じ実行のブラウザMT基準とPCM・PCM化前FP32を照合。非一致を精度維持とは判定しない。" if browser_mt else "出力検証は測定外。ブラウザST基準とPCM・PCM化前FP32を照合。"]}
@@ -2433,6 +2651,8 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, default=Path("voicevox-benchmark.html"))
     parser.add_argument("--cache-dir", type=Path, default=cache_root())
     parser.add_argument("--report-from", type=Path, help="regenerate HTML from a completed measurement JSON")
+    parser.add_argument("--audio-dir", type=Path, help="with --report-from: make images from local hash-matched WAVs; audio is not embedded")
+    parser.add_argument("--spectrogram-dir", type=Path, help="with --report-from: load PNG-only spectrograms and their manifest")
     parser.add_argument("--baseline-only", action="store_true", help="explicitly measure only native and browser single-thread (MT is not measured)")
     parser.add_argument("--experiments", action="store_true", help="add isolated MT thread-count, CORE O3, and ORT graph-Level3 candidates (90 trials total)")
     parser.add_argument("--backend-experiments", nargs="?", const="all", choices=("all", "v8"), help="all: MT/fixed-shape controls, XNNPACK and V8; v8: only MT control and V8; balanced blocks")
@@ -2520,9 +2740,19 @@ def main() -> None:
         return
     if args.report_from:
         result = json.loads(args.report_from.read_text("utf-8"))
+        if "audio_outputs" in result:
+            raise ValueError("Legacy embedded audio must be removed before rendering; use local WAVs or PNG-only spectrograms")
+        if args.audio_dir and args.spectrogram_dir:
+            raise ValueError("Choose either --audio-dir or --spectrogram-dir")
+        if args.audio_dir:
+            attach_saved_audio(result, args.audio_dir)
+        if args.spectrogram_dir:
+            attach_saved_spectrograms(result, args.spectrogram_dir)
         render_report(result, args.output)
         print(f"Report: {args.output.resolve()}")
         return
+    if args.audio_dir or args.spectrogram_dir:
+        raise ValueError("--audio-dir and --spectrogram-dir are only used with --report-from")
     run_benchmark(args)
 
 
