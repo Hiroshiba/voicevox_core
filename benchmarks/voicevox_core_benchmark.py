@@ -42,7 +42,7 @@ import tempfile
 import time
 import urllib.request
 import wave
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
@@ -52,7 +52,7 @@ ORT_VERSION = "1.23.2"
 VOCODER_MODEL_SHA256 = "80a81fd0598b6e7d4e21fef74e03fed14e22f111c6b0f4c4454561baae075820"
 TRIALS_PER_BLOCK = 5
 BLOCKS_PER_MODE = 3
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,7 @@ class Block:
 
 
 CPU_SAMPLE_INTERVAL_S = 0.1
+CPU_PADDING_S = 1.0
 PROGRESS_INTERVAL_S = 15.0
 
 
@@ -112,6 +113,7 @@ class CpuInterval:
     cpu_percent: float
     cpu_processes: int
     cpu_incomplete: bool
+    phase: str = "action"
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,9 @@ class ProcessCpuSampler:
         self.root_identity = (root_pid, self.root.create_time())
         self.label, self.interval = label, interval
         self.stop = threading.Event()
+        self.sample_lock = threading.Lock()
+        self.phase = "pre"
+        self.phase_started_wall = 0.0
         self.processes: dict[tuple[int, float], Any] = {}
         self.previous: dict[tuple[int, float], float] = {}
         self.lost: set[tuple[int, float]] = set()
@@ -188,9 +193,16 @@ class ProcessCpuSampler:
                         if initial:
                             self.previous[identity] = value
                             continue
-                        if identity[1] < self.started_epoch:
-                            # Existing process first seen after the initial snapshot:
-                            # do not attribute its earlier lifetime CPU to this trial.
+                        phase_epoch = self.started_epoch + self.phase_started_wall - self.started_wall
+                        if identity[1] < phase_epoch:
+                            # Never move a newly discovered child's earlier-phase
+                            # lifetime CPU into this phase's counters. Its late
+                            # discovery also invalidates earlier coverage where
+                            # it could already have consumed unobserved CPU.
+                            birth_wall = self.started_wall + identity[1] - self.started_epoch
+                            affected = {point.phase for point in self.intervals if point.end_s > birth_wall}
+                            self.intervals = [replace(point, cpu_incomplete=True) if point.phase in affected else point
+                                              for point in self.intervals]
                             self.previous[identity] = value
                             self.incomplete = True
                             continue
@@ -220,7 +232,7 @@ class ProcessCpuSampler:
                     raise RuntimeError("CPU snapshot clock did not advance")
                 delta = self.total - before
                 self.intervals.append(CpuInterval(self.previous_sample_wall, sampled, delta,
-                                                  100 * delta / span, len(self.processes), self.incomplete))
+                                                  100 * delta / span, len(self.processes), self.incomplete, self.phase))
             self.previous_sample_wall = sampled
             self.samples += 1
         except Exception as error:
@@ -231,38 +243,62 @@ class ProcessCpuSampler:
         import threading
         self.started_wall = time.perf_counter()
         self.started_epoch = time.time()
-        self._sample(initial=True)
+        with self.sample_lock:
+            self._sample(initial=True)
+            self.phase_started_wall = self.previous_sample_wall
         if self.error:
             raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
         def sample_loop() -> None:
             last_heartbeat = time.perf_counter()
             while not self.stop.wait(self.interval):
-                self._sample()
+                with self.sample_lock:
+                    self._sample()
                 now = time.perf_counter()
                 if now - last_heartbeat >= 30:
                     progress(f"{self.label}: synthesis still running ({now - self.started_wall:.0f}s)")
                     last_heartbeat = now
         worker = threading.Thread(target=sample_loop, name="benchmark-cpu-sampler", daemon=True)
         worker.start()
-        request_started = time.perf_counter()
         try:
+            if self.stop.wait(CPU_PADDING_S):
+                raise RuntimeError(f"CPU pre-observation failed for {self.label}: {self.error}") from self.error
+            with self.sample_lock:
+                self._sample()
+                action_cpu_start, action_wall_start = self.total, self.previous_sample_wall
+                self.phase = "action"
+                self.phase_started_wall = action_wall_start
+                self.incomplete = False
+            if self.error:
+                raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
+            request_started = time.perf_counter()
             elapsed, duration = action()
+            with self.sample_lock:
+                self._sample()
+                action_cpu_end, action_wall_end = self.total, self.previous_sample_wall
+                self.phase = "post"
+                self.phase_started_wall = action_wall_end
+                self.incomplete = False
+            if self.error:
+                raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
+            self.stop.wait(CPU_PADDING_S)
         finally:
             self.stop.set()
             worker.join(timeout=5)
             if worker.is_alive():
                 self.error = RuntimeError("CPU sampler did not stop")
             elif self.error is None:
-                self._sample()
-            window = self.previous_sample_wall - self.baseline_wall
+                with self.sample_lock:
+                    self._sample()
         if self.error:
             raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
-        cores = self.total / window
+        total, window = action_cpu_end - action_cpu_start, action_wall_end - action_wall_start
+        cores = total / window
         trace = tuple(CpuInterval(item.start_s - request_started, item.end_s - request_started,
-                                  item.cpu_time_s, item.cpu_percent, item.cpu_processes, item.cpu_incomplete)
+                                  item.cpu_time_s, item.cpu_percent, item.cpu_processes, item.cpu_incomplete, item.phase)
                       for item in self.intervals)
-        return elapsed, duration, CpuMeasurement(self.total, window, cores, 100 * cores,
-                                                self.samples, len(self.processes), self.incomplete, trace)
+        action_incomplete = any(item.cpu_incomplete for item in trace if item.phase == "action")
+        return elapsed, duration, CpuMeasurement(total, window, cores, 100 * cores,
+                                                self.samples, len(self.processes), action_incomplete, trace)
 
 
 def chromium_process_id(browser: Any) -> int:
@@ -293,11 +329,20 @@ def make_schedule(modes: list[Mode], seed: int, *, balanced: bool = False) -> li
         raise ValueError("Mode keys must be nonempty and unique")
     rng = random.Random(seed)
     if balanced:
-        if len(modes) not in (2, 3, 4) or BLOCKS_PER_MODE != 3:
-            raise ValueError("Balanced experiments require two to four modes and three rounds")
+        if len(modes) not in (2, 3, 4, 5, 6, 7) or BLOCKS_PER_MODE != 3:
+            raise ValueError("Balanced experiments require two to seven modes and three rounds")
         base = list(modes)
         rng.shuffle(base)
-        if len(modes) == 4:
+        if len(modes) == 7:
+            indices = ((0, 1, 2, 3, 4, 5, 6), (3, 5, 4, 6, 2, 1, 0), (6, 4, 5, 2, 0, 3, 1))
+            rotations = [[base[index] for index in row] for row in indices]
+        elif len(modes) == 6:
+            indices = ((0, 1, 2, 3, 4, 5), (5, 4, 3, 2, 1, 0), (2, 3, 4, 5, 0, 1))
+            rotations = [[base[index] for index in row] for row in indices]
+        elif len(modes) == 5:
+            indices = ((0, 1, 2, 3, 4), (4, 3, 0, 2, 1), (2, 4, 1, 0, 3))
+            rotations = [[base[index] for index in row] for row in indices]
+        elif len(modes) == 4:
             indices = ((0, 1, 2, 3), (1, 0, 3, 2), (2, 3, 0, 1))
             rotations = [[base[index] for index in row] for row in indices]
         elif len(modes) == 3:
@@ -626,6 +671,14 @@ def verify_outputs(runners: dict[str, Any], reference: str, log: list[dict[str, 
         result["fixed_control_repeat"] = repeat_fixed
         result["reference_deterministic"] = result["reference_deterministic"] and repeat_fixed["pcm_exact"] and repeat_fixed["fp32_exact"]
         result["xnnpack_vs_fixed_control"] = waveform_comparison(wav_outputs[fixed], raw_outputs[fixed], wav_outputs["browser_xnnpack"], raw_outputs["browser_xnnpack"])
+    if "browser_xnnpack_revectorize" in runners:
+        xnn, combined = "browser_xnnpack", "browser_xnnpack_revectorize"
+        runners[xnn].synthesize(save=True)
+        repeat_xnn = waveform_comparison(wav_outputs[xnn], raw_outputs[xnn], runners[xnn].wav.read_bytes(), runners[xnn].raw_wave())
+        result["xnnpack_reference_repeat"] = repeat_xnn
+        result["reference_deterministic"] = result["reference_deterministic"] and repeat_xnn["pcm_exact"] and repeat_xnn["fp32_exact"]
+        result["combined_vs_xnnpack"] = waveform_comparison(wav_outputs[xnn], raw_outputs[xnn], wav_outputs[combined], raw_outputs[combined])
+        result["combined_vs_fixed_control"] = waveform_comparison(wav_outputs["browser_mt_fixed"], raw_outputs["browser_mt_fixed"], wav_outputs[combined], raw_outputs[combined])
     log.append({"event": "untimed_output_checks", "reference": reference, "reference_deterministic": result["reference_deterministic"]})
     return result
 
@@ -645,12 +698,12 @@ def cpu_trace_csv(trials: list[dict[str, Any]]) -> str:
     writer.writeheader()
     for trial in trials:
         for index, point in enumerate(trial.get("cpu_trace", ()), 1):
-            writer.writerow({**{key: trial[key] for key in context}, "interval": index, **point})
+            writer.writerow({**{key: trial[key] for key in context}, "interval": index, **point, "phase": point.get("phase", "action")})
     return stream.getvalue()
 
 
 def validate_results(result: dict[str, Any]) -> None:
-    if result.get("schema_version") not in (2, SCHEMA_VERSION):
+    if result.get("schema_version") not in (2, 3, SCHEMA_VERSION):
         raise ValueError("Unsupported result schema")
     for field in ("style_id", "seed"):
         if type(result[field]) is not int:
@@ -672,7 +725,7 @@ def validate_results(result: dict[str, Any]) -> None:
             raise ValueError("Output checks do not match measured modes")
         if type(checks["reference_deterministic"]) is not bool:
             raise ValueError("Invalid output repeatability result")
-        optional_checks = [checks[key] for key in ("fixed_control_repeat", "xnnpack_vs_fixed_control") if key in checks]
+        optional_checks = [checks[key] for key in ("fixed_control_repeat", "xnnpack_vs_fixed_control", "xnnpack_reference_repeat", "combined_vs_xnnpack", "combined_vs_fixed_control") if key in checks]
         for check in [checks["reference_repeat"], *checks["modes"].values(), *optional_checks]:
             if check["finite"] is not True or check["fp32_samples"] <= 0:
                 raise ValueError("Invalid FP32 output check")
@@ -710,7 +763,13 @@ def validate_results(result: dict[str, Any]) -> None:
                 raise ValueError("CPU trace does not match the number of snapshots")
             previous_end = None
             incomplete = False
+            phases = []
             for point in trace:
+                phase = point.get("phase", "action")
+                if phase not in ("pre", "action", "post"):
+                    raise ValueError("Invalid CPU observation phase")
+                if phases and phase != phases[-1]:
+                    incomplete = False
                 for key in ("start_s", "end_s", "cpu_time_s", "cpu_percent"):
                     if not isinstance(point[key], (int, float)) or not math.isfinite(point[key]):
                         raise ValueError(f"Invalid CPU interval {key}")
@@ -727,12 +786,21 @@ def validate_results(result: dict[str, Any]) -> None:
                     raise ValueError("CPU interval coverage cannot recover after a lost process")
                 incomplete = point["cpu_incomplete"]
                 previous_end = point["end_s"]
-            if incomplete != trial["cpu_incomplete"]:
-                raise ValueError("CPU interval coverage does not match its trial")
-            if not math.isclose(sum(point["cpu_time_s"] for point in trace), trial["cpu_time_s"], rel_tol=1e-9, abs_tol=1e-9):
-                raise ValueError("CPU interval counters do not sum to trial CPU time")
-            if not math.isclose(trace[-1]["end_s"] - trace[0]["start_s"], trial["cpu_window_s"], rel_tol=1e-9, abs_tol=1e-9):
-                raise ValueError("CPU interval durations do not match trial CPU window")
+                phases.append(phase)
+            action_trace = [point for point in trace if point.get("phase", "action") == "action"]
+            if not action_trace or action_trace[-1]["cpu_incomplete"] != trial["cpu_incomplete"]:
+                raise ValueError("Action CPU coverage does not match its headline result")
+            if not action_trace or not math.isclose(sum(point["cpu_time_s"] for point in action_trace), trial["cpu_time_s"], rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("Action CPU intervals do not sum to headline CPU time")
+            if not math.isclose(sum(point["end_s"] - point["start_s"] for point in action_trace), trial["cpu_window_s"], rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("Action CPU intervals do not match headline CPU window")
+            if result["schema_version"] >= 4:
+                if phases != sorted(phases, key={"pre": 0, "action": 1, "post": 2}.get) or set(phases) != {"pre", "action", "post"}:
+                    raise ValueError("CPU trace must contain ordered pre/action/post phases")
+                for phase in ("pre", "post"):
+                    seconds = sum(point["end_s"] - point["start_s"] for point in trace if point["phase"] == phase)
+                    if seconds < CPU_PADDING_S - 1e-6:
+                        raise ValueError("CPU padding does not contain a full observed second")
         by_block.setdefault((trial["mode"], trial["block"]), []).append(trial)
         orders.append(trial["order"])
     if sorted(orders) != list(range(1, len(orders) + 1)):
@@ -789,7 +857,7 @@ def svg_results(result: dict[str, Any]) -> str:
     left, right, top, bottom = 220, 30, 24, 45
     maximum = max(row["elapsed_s"] for row in rows) * 1.12
     plot_width = width - left - right
-    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873"]
+    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"]
     output = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="各モードの合成時間。点は全試行、太線は中央値">']
     for tick in range(6):
         value = maximum * tick / 5
@@ -816,7 +884,7 @@ def svg_results(result: dict[str, Any]) -> str:
 def svg_sequence(result: dict[str, Any]) -> str:
     rows = sorted(result["trials"], key=lambda row: row["order"])
     modes = result["modes"]
-    colors = {mode["key"]: color for mode, color in zip(modes, ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873"] * len(modes))}
+    colors = {mode["key"]: color for mode, color in zip(modes, ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"] * len(modes))}
     width, height, left, top = 880, 180, 65, 15
     plot_width, plot_height = width - left - 25, height - top - 40
     maximum = max(row["rtf"] for row in rows) * 1.1
@@ -834,44 +902,68 @@ def svg_sequence(result: dict[str, Any]) -> str:
 
 
 def aggregate_cpu_profiles(result: dict[str, Any], bin_seconds: float = 0.25) -> list[dict[str, Any]]:
-    """Overlap-weighted interval rates; ended trials are absent, never zero-padded."""
+    """Start-aligned pre/action and separately end-aligned actual post samples."""
     if not math.isfinite(bin_seconds) or bin_seconds <= 0:
         raise ValueError("CPU profile bin duration must be positive")
     profiles = []
+    padded = result["schema_version"] >= 4
     for mode in result["modes"]:
         all_trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
-        trials = [row for row in all_trials if not row["cpu_incomplete"]]
-        maximum = max((row["cpu_trace"][-1]["end_s"] for row in trials), default=0.0)
-        count = math.ceil(maximum / bin_seconds)
-        contributions: list[list[tuple[float, float]]] = [[] for _ in range(count)]
-        for trial in trials:
-            cpu, observed = [0.0] * count, [0.0] * count
-            for interval in trial["cpu_trace"]:
-                start, end = max(0.0, interval["start_s"]), interval["end_s"]
-                rate = interval["cpu_time_s"] / (interval["end_s"] - interval["start_s"])
-                index = max(0, math.floor(start / bin_seconds))
-                while index < count and index * bin_seconds < end:
-                    overlap = max(0.0, min(end, (index + 1) * bin_seconds) - max(start, index * bin_seconds))
-                    cpu[index] += rate * overlap
-                    observed[index] += overlap
-                    index += 1
-            for index, seconds in enumerate(observed):
-                if seconds > 0:
-                    contributions[index].append((cpu[index], seconds))
-        points = []
-        for index, entries in enumerate(contributions):
-            if not entries:
-                continue
-            cpu = math.fsum(pair[0] for pair in entries)
-            seconds = math.fsum(pair[1] for pair in entries)
-            percents = [100 * pair[0] / pair[1] for pair in entries]
-            quartiles = statistics.quantiles(percents, n=4, method="inclusive") if len(percents) > 1 else [percents[0]] * 3
-            points.append({"start_s": index * bin_seconds, "end_s": min(maximum, (index + 1) * bin_seconds),
-                           "cpu_percent": 100 * cpu / seconds, "min_percent": min(percents), "max_percent": max(percents),
-                           "median_percent": statistics.median(percents), "q25_percent": quartiles[0], "q75_percent": quartiles[2],
-                           "cpu_time_s": cpu, "observed_s": seconds, "trial_count": len(entries)})
-        profiles.append({"mode": mode["key"], "label": mode["label"], "complete_trials": len(trials),
-                         "total_trials": len(all_trials), "bin_seconds": bin_seconds, "points": points})
+        phase_counts = {phase: 0 for phase in ("pre", "action", "post")}
+        main_segments, post_segments = [], []
+        for trial in all_trials:
+            main, post = [], []
+            for phase in phase_counts:
+                intervals = [point for point in trial.get("cpu_trace", []) if point.get("phase", "action") == phase]
+                if not intervals or any(point["cpu_incomplete"] for point in intervals):
+                    continue
+                phase_counts[phase] += 1
+                origin = intervals[0]["start_s"] if phase == "post" else 0.0
+                for point in intervals:
+                    start, end = point["start_s"] - origin, point["end_s"] - origin
+                    rate = point["cpu_time_s"] / (point["end_s"] - point["start_s"])
+                    if padded and phase == "action":
+                        start = max(0.0, start)
+                    elif phase == "pre":
+                        end = min(0.0, end)
+                    (post if phase == "post" else main).append((start, end, rate))
+            main_segments.append(main)
+            post_segments.append(post)
+        maximum = max((end for trial in main_segments for _, end, _ in trial), default=0.0)
+
+        def bin_segments(segments: list[list[tuple[float, float, float]]], minimum: float, maximum: float) -> list[dict[str, Any]]:
+            count = max(0, math.ceil((maximum - minimum) / bin_seconds))
+            contributions: list[list[tuple[float, float]]] = [[] for _ in range(count)]
+            for trial in segments:
+                cpu, observed = [0.0] * count, [0.0] * count
+                for start, end, rate in trial:
+                    start, end = max(minimum, start), min(maximum, end)
+                    index = max(0, math.floor((start - minimum) / bin_seconds))
+                    while index < count and minimum + index * bin_seconds < end:
+                        left = minimum + index * bin_seconds
+                        overlap = max(0.0, min(end, left + bin_seconds) - max(start, left))
+                        cpu[index] += rate * overlap
+                        observed[index] += overlap
+                        index += 1
+                for index, seconds in enumerate(observed):
+                    if seconds > 0:
+                        contributions[index].append((cpu[index], seconds))
+            points = []
+            for index, entries in enumerate(contributions):
+                if not entries:
+                    continue
+                cpu, seconds = math.fsum(pair[0] for pair in entries), math.fsum(pair[1] for pair in entries)
+                percents = [100 * pair[0] / pair[1] for pair in entries]
+                quartiles = statistics.quantiles(percents, n=4, method="inclusive") if len(percents) > 1 else [percents[0]] * 3
+                points.append({"start_s": minimum + index * bin_seconds, "end_s": min(maximum, minimum + (index + 1) * bin_seconds),
+                               "cpu_percent": 100 * cpu / seconds, "min_percent": min(percents), "max_percent": max(percents),
+                               "median_percent": statistics.median(percents), "q25_percent": quartiles[0], "q75_percent": quartiles[2],
+                               "cpu_time_s": cpu, "observed_s": seconds, "trial_count": len(entries)})
+            return points
+        profiles.append({"mode": mode["key"], "label": mode["label"], "complete_trials": phase_counts["action"],
+                         "phase_complete_trials": phase_counts, "total_trials": len(all_trials), "bin_seconds": bin_seconds,
+                         "points": bin_segments(main_segments, -CPU_PADDING_S if padded else 0.0, maximum),
+                         "post_points": bin_segments(post_segments, 0.0, CPU_PADDING_S) if padded else []})
     return profiles
 
 
@@ -879,44 +971,65 @@ def cpu_profile_html(result: dict[str, Any]) -> str:
     if result["schema_version"] < 3:
         return ""
     profiles = aggregate_cpu_profiles(result)
+    padded = result["schema_version"] >= 4
+    xmin = -CPU_PADDING_S if padded else 0.0
     xmax = max((point["end_s"] for row in profiles for point in row["points"]), default=0.25)
-    ymax = max(100, math.ceil(max((point["q75_percent"] for row in profiles for point in row["points"]), default=0) / 100) * 100)
-    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873"]
+    ymax = max(100, math.ceil(max((point["q75_percent"] for row in profiles for point in row["points"] + row["post_points"]), default=0) / 100) * 100)
+    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"]
     figures = []
     for index, profile in enumerate(profiles):
-        left, top, width, height = 52, 30, 365, 140
+        left, top, width, height = 52, 30, 255 if padded else 365, 140
         def x(value: float) -> float:
-            return left + value / xmax * width
+            return left + (value - xmin) / (xmax - xmin) * width
+        def post_x(value: float) -> float:
+            return left + width + 30 + value / CPU_PADDING_S * 80
         def y(value: float) -> float:
             return top + height - value / ymax * height
         color = colors[index % len(colors)]
         parts = [f'<svg class="cpu-profile" data-mode="{profile["mode"]}" viewBox="0 0 440 215" role="img" aria-label="{html.escape(profile["label"], quote=True)} CPU時系列集計"><title>{html.escape(profile["label"])}: 完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回</title>',
                  f'<text x="{left}" y="16">{html.escape(profile["label"])}</text>']
+        if padded:
+            parts.append(f'<rect x="{left}" y="{top}" width="{x(0)-left:.2f}" height="{height}" fill="#edf0f5"/><line x1="{x(0):.2f}" x2="{x(0):.2f}" y1="{top}" y2="{top+height}" stroke="#8592a3" stroke-dasharray="3 2"><title>合成要求開始（0秒）</title></line>')
         for tick in range(3):
             value = ymax * tick / 2
             parts.append(f'<line x1="{left}" y1="{y(value):.2f}" x2="{left+width}" y2="{y(value):.2f}" stroke="#e2e6ec"/><text x="{left-7}" y="{y(value)+4:.2f}" text-anchor="end">{value:.0f}%</text>')
+            if padded:
+                parts.append(f'<line x1="{post_x(0):.2f}" y1="{y(value):.2f}" x2="{post_x(CPU_PADDING_S):.2f}" y2="{y(value):.2f}" stroke="#e2e6ec"/>')
         for tick in range(5):
             value = xmax * tick / 4
             parts.append(f'<text x="{x(value):.2f}" y="190" text-anchor="middle">{value:.1f}</text>')
-        previous = None
-        for point in profile["points"]:
-            low_count = point["trial_count"] < profile["complete_trials"]
-            opacity = "0.45" if low_count else "1"
-            dash = ' stroke-dasharray="3 2"' if low_count else ""
-            a, b = x(point["start_s"]), x(point["end_s"])
-            parts.append(f'<rect x="{a:.2f}" y="{y(point["q75_percent"]):.2f}" width="{b-a:.2f}" height="{y(point["q25_percent"])-y(point["q75_percent"]):.2f}" fill="{color}" fill-opacity="{0.07 if low_count else 0.15}"/>')
-            path = f'M{a:.2f},{y(point["median_percent"]):.2f}L{b:.2f},{y(point["median_percent"]):.2f}'
-            if previous is not None:
-                path = f'M{a:.2f},{y(previous):.2f}L{a:.2f},{y(point["median_percent"]):.2f}' + path
-            parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6" opacity="{opacity}"{dash}/>')
-            title = f'{point["start_s"]:.2f}–{point["end_s"]:.2f}秒: 中央値 {point["median_percent"]:.1f}%, 四分位 {point["q25_percent"]:.1f}–{point["q75_percent"]:.1f}%, 寄与試行数 {point["trial_count"]}'
-            parts.append(f'<rect x="{a:.2f}" y="{top}" width="{max(1,b-a):.2f}" height="{height}" fill="transparent"><title>{html.escape(title)}</title></rect>')
-            previous = point["median_percent"]
-        parts.append(f'<text x="{left+width/2}" y="211" text-anchor="middle">合成要求開始からの秒数（共通軸）</text></svg>')
+        if padded:
+            for value in (0, CPU_PADDING_S):
+                parts.append(f'<text x="{post_x(value):.2f}" y="190" text-anchor="middle">{value:.0f}</text>')
+        for series, mapper, prefix in ((profile["points"], x, "開始基準"), (profile["post_points"], post_x, "応答完了基準")):
+            previous = None
+            previous_end = None
+            for point in series:
+                low_count = point["trial_count"] < profile["total_trials"]
+                opacity = "0.45" if low_count else "1"
+                dash = ' stroke-dasharray="3 2"' if low_count else ""
+                a, b = mapper(point["start_s"]), mapper(point["end_s"])
+                parts.append(f'<rect x="{a:.2f}" y="{y(point["q75_percent"]):.2f}" width="{b-a:.2f}" height="{y(point["q25_percent"])-y(point["q75_percent"]):.2f}" fill="{color}" fill-opacity="{0.07 if low_count else 0.15}"/>')
+                path = f'M{a:.2f},{y(point["median_percent"]):.2f}L{b:.2f},{y(point["median_percent"]):.2f}'
+                if previous is not None and math.isclose(previous_end, point["start_s"], abs_tol=1e-9):
+                    path = f'M{a:.2f},{y(previous):.2f}L{a:.2f},{y(point["median_percent"]):.2f}' + path
+                parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6" opacity="{opacity}"{dash}/>')
+                title = f'{prefix} {point["start_s"]:.2f}–{point["end_s"]:.2f}秒: 中央値 {point["median_percent"]:.1f}%, 四分位 {point["q25_percent"]:.1f}–{point["q75_percent"]:.1f}%, 寄与試行数 {point["trial_count"]}'
+                parts.append(f'<rect x="{a:.2f}" y="{top}" width="{max(1,b-a):.2f}" height="{height}" fill="transparent"><title>{html.escape(title)}</title></rect>')
+                previous, previous_end = point["median_percent"], point["end_s"]
+        main_caption = "開始前1秒〜合成中（秒）" if padded else "合成要求開始からの秒数（共通軸）"
+        parts.append(f'<text x="{left+width/2}" y="211" text-anchor="middle">{main_caption}</text>')
+        if padded:
+            parts.append(f'<text x="{post_x(0.5):.2f}" y="211" text-anchor="middle">完了後（秒）</text>')
+        parts.append('</svg>')
         tail = profile["points"][-1]["trial_count"] if profile["points"] else 0
-        figures.append('<figure>' + ''.join(parts) + f'<figcaption>完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回 · 最終区間の寄与 {tail}回</figcaption></figure>')
+        counts = profile["phase_complete_trials"]
+        caption = (f'完全追跡 前 {counts["pre"]}・合成中 {counts["action"]}・後 {counts["post"]}/{profile["total_trials"]}回' if padded
+                   else f'完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回 · 最終区間の寄与 {tail}回')
+        figures.append('<figure>' + ''.join(parts) + f'<figcaption>{caption}</figcaption></figure>')
     payload = json.dumps(profiles, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
-    return '<h2>CPU 使用率の時間推移（モード別集計）</h2><div class="cpu-grid">' + ''.join(figures) + '</div><p class="cpu-caption">線は完全追跡できた試行の中央値、帯は四分位範囲。共通0.25秒ビンへ区間内一定と仮定して重なり時間で配分した後、試行間で集計。100%＝論理1コア。終了後は0埋めせず除外し、寄与試行数が減る末尾は薄い破線。各区間にカーソルを重ねると寄与数を表示</p><script id="cpu-profile-data" type="application/json">' + payload + '</script>'
+    padding_note = "左は開始前1秒と合成中、右は各試行の応答完了にそろえた後1秒。前後も実測で、平均CPU表には合成中だけを使用。" if padded else ""
+    return '<h2>CPU 使用率の時間推移（モード別集計）</h2><div class="cpu-grid">' + ''.join(figures) + '</div><p class="cpu-caption">' + padding_note + '線は完全追跡できた区間の試行間中央値、帯は四分位範囲。全モード共通軸・0.25秒ビン。100%＝論理1コア。観測が終わった試行は0埋めせず除外し、寄与数が減る区間は薄い破線。各区間にカーソルを重ねると寄与数を表示</p><script id="cpu-profile-data" type="application/json">' + payload + '</script>'
 
 
 def render_report(result: dict[str, Any], target: Path) -> None:
@@ -1618,11 +1731,14 @@ class BrowserRunner:
         if profile_path:
             atomic_write(profile_path, json.dumps(events, ensure_ascii=False, indent=2).encode())
         providers: dict[str, set[str]] = {}
+        assignments: set[tuple[str, str, str]] = set()
         for event in events:
             if event.get("cat") == "Node" and event.get("name", "").endswith("_kernel_time") and event.get("args", {}).get("provider"):
                 providers.setdefault(event["args"]["provider"], set()).add(event["name"])
+                assignments.add((event["args"]["provider"], event["name"], event["args"].get("op_name", "")))
         return {"verified": bool(providers.get("XnnpackExecutionProvider")),
                 "provider_kernel_counts": {key: len(nodes) for key, nodes in providers.items()},
+                "provider_assignment_sha256": hashlib.sha256(json.dumps(sorted(assignments), separators=(",", ":")).encode()).hexdigest(),
                 "profile_events": len(events), "profiling_scope": "separate untimed diagnostic browser only"}
 
 
@@ -1646,10 +1762,19 @@ def revectorization_diagnostic_child(config_path: Path) -> None:
         try:
             info = browser_engine_info(browser)
             info["requested_js_flags"] = options["args"]
-            runner = BrowserRunner(browser, config["url"], "/mt/voicevox_benchmark.js", config["threads"], True,
-                                   config["style"], Path(config["wav"]))
+            xnnpack = config.get("xnnpack", False)
+            runner = BrowserRunner(browser, config["url"], "/xnnpack/voicevox_benchmark.js" if xnnpack else "/mt/voicevox_benchmark.js", config["threads"], True,
+                                   config["style"], Path(config["wav"]), fixed_shape=xnnpack, spin_off=xnnpack,
+                                   xnn_threads=config["threads"] if xnnpack else 0, profile=xnnpack)
             for _ in range(3):
                 runner.synthesize(save=True)
+            if xnnpack:
+                pthreads = runner.thread_state()
+                if pthreads != config["threads"] - 1:
+                    raise RuntimeError("Combined diagnostic has unexpected thread-pool ownership")
+                info["xnnpack_profile"] = {**runner.finish_profile(Path(config["profile_result"])),
+                                           "fixed_length": runner.fixed_length, "fixed_matches": runner.fixed_matches,
+                                           "pthreads": pthreads, "xnn_threads": runner.xnn_threads, "xnn_sessions": runner.xnn_sessions}
             atomic_write(Path(config["result"]), json.dumps(info).encode())
         finally:
             if runner:
@@ -1658,13 +1783,15 @@ def revectorization_diagnostic_child(config_path: Path) -> None:
 
 
 def verify_revectorization(url: str, options: dict[str, Any], threads: int, style: int, work: Path,
-                          trace_dir: Path | None = None) -> dict[str, Any]:
+                          trace_dir: Path | None = None, *, xnnpack: bool = False) -> dict[str, Any]:
     records = {}
+    prefix = "combined" if xnnpack else "revec"
     for enable, key in ((False, "control"), (True, "candidate")):
-        progress(f"Checking V8 {key} vector transformations in a separate untimed browser")
-        config_path, result_path = work / f"revec-{key}-config.json", work / f"revec-{key}-result.json"
+        progress(f"Checking {prefix} {key} vector transformations in a separate untimed browser")
+        config_path, result_path = work / f"{prefix}-{key}-config.json", work / f"{prefix}-{key}-result.json"
         atomic_write(config_path, json.dumps({"options": options, "url": url, "threads": threads, "style": style, "enable": enable,
-                                            "wav": str(work / f"revec-{key}.wav"), "result": str(result_path)}).encode())
+                                            "xnnpack": xnnpack, "profile_result": str((trace_dir or work) / f"{key}-provider-profile.json"),
+                                            "wav": str(work / f"{prefix}-{key}.wav"), "result": str(result_path)}).encode())
         env = dict(os.environ)
         env["DEBUG"] = "pw:browser"
         try:
@@ -1685,6 +1812,10 @@ def verify_revectorization(url: str, options: dict[str, Any], threads: int, styl
     verified = (control["transformed_groups"] == 0 and candidate["transformed_groups"] > 0
                 and all(value["launch_configuration_matches"] and not value["flag_rejected"] for value in records.values())
                 and (control["product"], control["js_version"]) == (candidate["product"], candidate["js_version"]))
+    if xnnpack:
+        a, b = control["xnnpack_profile"], candidate["xnnpack_profile"]
+        verified = verified and a["verified"] and b["verified"] and all(
+            a[field] == b[field] for field in ("provider_assignment_sha256", "fixed_length", "fixed_matches", "pthreads", "xnn_threads", "xnn_sessions"))
     return {**records, "verified": verified,
             "evidence": "no transformations in trace-only control; positive nonempty V8 optimizer transformations with revectorization; actual CORE WASM, three untimed syntheses each; flags record supplied launch configuration, activation is established by traces"}
 
@@ -1992,7 +2123,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     source = next(path.parent for path in core_tree.glob("*/Cargo.toml"))
     platform_name, _ = native_platform()
     runtime_archives = {}
-    urls = {} if args.backend_experiments else {
+    urls = {} if args.backend_experiments == "v8" else {
         "native": f"{BASE_RELEASE}/onnxruntime-{platform_name}-{ORT_VERSION}.tgz",
         "browser": f"{BASE_RELEASE}/onnxruntime-wasm-static-{ORT_VERSION}.tgz",
     }
@@ -2015,8 +2146,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
     library_name = "onnxruntime.dll" if sys.platform == "win32" else (f"libonnxruntime.{ORT_VERSION}.dylib" if sys.platform == "darwin" else f"libonnxruntime.so.{ORT_VERSION}")
     threaded_info = verify_threaded_runtime(runtime_archives["browser_mt"][1]) if not args.baseline_only else None
     xnnpack_info = verify_threaded_runtime(runtime_archives["browser_xnnpack"][1], xnnpack=True) if use_xnnpack else None
-    native_runtime = find_one(runtime_archives["native"][1], library_name) if not args.backend_experiments else None
-    st_runtime = find_one(runtime_archives["browser"][1], "libonnxruntime_webassembly.a") if not args.backend_experiments else None
+    native_runtime = find_one(runtime_archives["native"][1], library_name) if "native" in runtime_archives else None
+    st_runtime = find_one(runtime_archives["browser"][1], "libonnxruntime_webassembly.a") if "browser" in runtime_archives else None
     mt_runtime = find_one(runtime_archives["browser_mt"][1], "libonnxruntime_webassembly.a") if not args.baseline_only else None
     native_binary = build_runner(source, native_runtime, root, env, threaded=None, threads=args.threads) if native_runtime else None
     browser_st = build_runner(source, st_runtime, root, env, threaded=False, threads=1) if st_runtime else None
@@ -2040,7 +2171,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             os.replace(temporary, model)
         finally:
             temporary.unlink(missing_ok=True)
-    modes = [] if args.backend_experiments else [Mode("native", f"Native ×{args.threads}", args.threads, "native CPU, per-session thread pools"),
+    modes = [] if args.backend_experiments == "v8" else [Mode("native", f"Native ×{args.threads}", args.threads, "native CPU, per-session thread pools"),
              Mode("browser", "Browser ×1", 1, "WebAssembly SIMD, unshared memory")]
     if not args.baseline_only:
         modes.append(Mode("browser_mt", f"Browser pthreads ×{args.threads}", args.threads, "WebAssembly SIMD + pthreads, global thread pool"))
@@ -2057,12 +2188,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
         ])
     if args.backend_experiments:
         modes.append(Mode("browser_revectorize", f"実験 V8 revectorize ×{args.threads}", args.threads, "same dynamic-shape CPU WASM as MT control; only --js-flags=--wasm-revectorize", experimental=True, revectorize=True))
+    if use_xnnpack:
+        modes.append(Mode("browser_xnnpack_revectorize", f"実験 XNNPACK + V8 ×{args.threads}", args.threads,
+                          "same fixed-shape XNNPACK WASM and pools; add only --js-flags=--wasm-revectorize", experimental=True,
+                          fixed_shape=True, spin_off=True, execution_provider="XNNPACK", revectorize=True))
     log: list[dict[str, Any]] = [{"event": "assets_ready", "seconds": round(time.monotonic() - begin, 3)}]
     environment = environment_info()
     environment["requested_backend_experiments"] = args.backend_experiments or "none"
-    environment.update({"cpu_metric": "sum target-tree user+system CPU seconds / baseline-to-final snapshot seconds; 100%=one logical CPU", "cpu_sample_interval_ms": CPU_SAMPLE_INTERVAL_S * 1000,
-                        "cpu_trace_clock": "actual snapshot-completion times relative to synthesis request start; baseline may be slightly negative; no internal phase attribution",
-                        "cpu_plot_aggregation": "common 0.25s request-relative bins; overlap-weighted interval rates per complete trial, then across-trial median and inclusive quartiles; ended trials omitted",
+    environment.update({"cpu_metric": "sum target-tree user+system CPU seconds between action boundary snapshots / action snapshot seconds; excludes pre/post padding; 100%=one logical CPU", "cpu_sample_interval_ms": CPU_SAMPLE_INTERVAL_S * 1000,
+                        "cpu_padding_seconds": CPU_PADDING_S,
+                        "cpu_trace_clock": "actual snapshot-completion times relative to synthesis request start; synchronized pre/action/post boundary snapshots; no internal operator-phase attribution",
+                        "cpu_plot_aggregation": "common 0.25s request-relative pre/action bins and separate response-end-relative post bins; overlap-weighted rates per phase-complete trial, then median/inclusive quartiles; no zero padding",
                         "cpu_browser_scope": "separate Chromium instance per mode; root and descendants; Python/Playwright Node excluded", "psutil": psutil.__version__})
     environment.update({"rust": checked_run([str(root / "cargo/bin" / ("rustc.exe" if sys.platform == "win32" else "rustc")), f"+{RUST_VERSION}", "--version"], env=env),
                         "emscripten": EMSDK_VERSION, "sample_vvm_sha256": sha256_file(model),
@@ -2114,6 +2250,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 skipped: dict[str, str] = {}
                 if args.backend_experiments:
                     environment["xnnpack_diagnostic"] = {"requested": use_xnnpack, "verified": False}
+                    environment["combined_diagnostic"] = {"requested": use_xnnpack, "verified": False}
                     if use_xnnpack:
                         try:
                             environment["xnnpack_diagnostic"] = verify_xnnpack(playwright, url, options, args.threads, args.style_id, work,
@@ -2127,19 +2264,29 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     except Exception as error:
                         reason = str(error).replace(str(work), "<temporary>").replace(str(root), "<cache>").replace(str(Path(__file__).resolve()), "<script>").replace(str(Path.home()), "<home>")
                         environment["revectorization_diagnostic"] = {"verified": False, "error": reason[-1500:]}
+                    if use_xnnpack and environment["xnnpack_diagnostic"]["verified"]:
+                        try:
+                            environment["combined_diagnostic"] = verify_revectorization(url, options, args.threads, args.style_id, work,
+                                                                                       args.output.parent / "combined-diagnostic-traces", xnnpack=True)
+                        except Exception as error:
+                            reason = str(error).replace(str(work), "<temporary>").replace(str(root), "<cache>").replace(str(Path(__file__).resolve()), "<script>").replace(str(Path.home()), "<home>")
+                            environment["combined_diagnostic"] = {"verified": False, "error": reason[-1500:]}
                     if use_xnnpack and not environment["xnnpack_diagnostic"]["verified"]:
                         skipped["browser_xnnpack"] = "XNNPACKは実行プロファイルで対象カーネルを確認できず、未測定。"
-                        modes = [mode for mode in modes if mode.key not in {"browser_xnnpack", "browser_mt_fixed"}]
+                        modes = [mode for mode in modes if mode.key not in {"browser_xnnpack", "browser_mt_fixed", "browser_xnnpack_revectorize"}]
                     if not environment["revectorization_diagnostic"]["verified"]:
                         skipped["browser_revectorize"] = "V8再ベクトル化は基準との差を示す変換ログを確認できず、未測定。"
                         modes = [mode for mode in modes if mode.key != "browser_revectorize"]
+                    if use_xnnpack and not environment["combined_diagnostic"]["verified"]:
+                        skipped["browser_xnnpack_revectorize"] = "XNNPACKとV8の併用は同じ演算割当と実際のV8変換を確認できず、未測定。"
+                        modes = [mode for mode in modes if mode.key != "browser_xnnpack_revectorize"]
                     environment["skipped_candidates"] = skipped
                     requested = environment["core_variants"]
                     measured_keys = {mode.key for mode in modes}
                     if skipped:
                         environment["requested_but_unmeasured"] = {key: value for key, value in requested.items() if key not in measured_keys}
                     environment["core_variants"] = {key: value for key, value in requested.items() if key in measured_keys}
-                    atomic_write(args.output.with_suffix(".diagnostics.json"), json.dumps({key: environment[key] for key in ("xnnpack_diagnostic", "revectorization_diagnostic", "skipped_candidates")}, ensure_ascii=False, indent=2).encode())
+                    atomic_write(args.output.with_suffix(".diagnostics.json"), json.dumps({key: environment[key] for key in ("xnnpack_diagnostic", "revectorization_diagnostic", "combined_diagnostic", "skipped_candidates")}, ensure_ascii=False, indent=2).encode())
                     if len(modes) < 2:
                         raise RuntimeError("Neither requested backend passed activation diagnostics; diagnostics saved, no purported optimized timings measured")
                     environment["block_order"] = [block.mode for block in make_schedule(modes, args.seed, balanced=True)]
@@ -2168,6 +2315,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                             ("browser_mt_fixed", "/mt/voicevox_benchmark.js", args.threads, True),
                             ("browser_xnnpack", "/xnnpack/voicevox_benchmark.js", args.threads, True),
                             ("browser_revectorize", "/mt/voicevox_benchmark.js", args.threads, True),
+                            ("browser_xnnpack_revectorize", "/xnnpack/voicevox_benchmark.js", args.threads, True),
                         ])
                         browser_modes = [row for row in browser_modes if any(mode.key == row[0] for mode in modes)]
                     for key, module, threads, threaded in browser_modes:
@@ -2191,10 +2339,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                             info["requested_js_flags"] = launch_options["args"]
                             if info["requested_js_flags"] != ["--js-flags=--wasm-revectorize"]:
                                 raise RuntimeError("Timed launch must use only the revectorization flag without trace flags")
-                            checked_engine = environment["revectorization_diagnostic"]["candidate"]
+                            combined = configured.execution_provider == "XNNPACK"
+                            checked_engine = environment["combined_diagnostic" if combined else "revectorization_diagnostic"]["candidate"]
                             if (info["product"], info["js_version"]) != (checked_engine["product"], checked_engine["js_version"]):
                                 raise RuntimeError("Timed V8 version differs from its activation diagnostic")
-                            environment["timed_revectorization_engine"] = info
+                            environment["timed_combined_engine" if combined else "timed_revectorization_engine"] = info
                         environment[f"{key}_pthreads_created"] = runners[key].pthreads_created
                         environment[f"{key}_global_spin_off"] = runners[key].spin_off
                         if configured.execution_provider == "XNNPACK":
@@ -2242,6 +2391,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     if args.backend_experiments:
                         if use_xnnpack:
                             result["notes"].append("XNNPACKの速度は同じ固定shapeのCPU対照と比較。")
+                            result["notes"].append("併用の追加効果は同じXNNPACK単独と、全体の効果は固定shapeのCPU対照と比較。FP32形式の維持と数値の完全一致は別々に確認。")
                         else:
                             result["notes"].append("この実行はV8候補のみ。XNNPACKは測定対象外。")
                         result["notes"].append("V8再ベクトル化は同じ通常MT WASMとの比較。診断用プロファイル・トレースは時間測定とは別のブラウザで実行。")
@@ -2305,19 +2455,34 @@ def self_test() -> None:
     assert a == make_schedule(modes, 42)
     assert len(a) == 6 and all(sum(block.mode == mode.key for block in a) == 3 for mode in modes)
     assert max(1, logical_cpu_count() // 2) == default_threads()
+    for count in (2, 3, 4, 5, 6, 7):
+        candidates = [Mode(f"mode{i}", str(i), 2, "test") for i in range(count)]
+        for seed in range(100):
+            blocks = make_schedule(candidates, seed, balanced=True)
+            rounds = [[block.mode for block in blocks[start:start + count]] for start in range(0, len(blocks), count)]
+            for mode in candidates:
+                positions = [row.index(mode.key) for row in rounds]
+                counts = [positions.count(index) for index in range(count)]
+                assert max(counts) - min(counts) <= 1
+            for first in candidates:
+                for second in candidates:
+                    if first.key != second.key:
+                        assert {row.index(first.key) < row.index(second.key) for row in rounds} == {False, True}
     # Explicit test fixture, confined to a temporary directory and never delivered
     # as benchmark measurements.
     log: list[dict[str, Any]] = []
     def fixture(mode: Mode) -> tuple[float, float, CpuMeasurement]:
-        trace = (CpuInterval(-0.001, 0.119, 0.06 * mode.threads, 50.0 * mode.threads, 1, False),
-                 CpuInterval(0.119, 0.199, 0.04 * mode.threads, 50.0 * mode.threads, 1, False))
+        trace = (CpuInterval(-1.001, -0.001, 0.0, 0.0, 1, False, "pre"),
+                 CpuInterval(-0.001, 0.119, 0.06 * mode.threads, 50.0 * mode.threads, 1, False),
+                 CpuInterval(0.119, 0.199, 0.04 * mode.threads, 50.0 * mode.threads, 1, False),
+                 CpuInterval(0.199, 1.199, 0.0, 0.0, 1, False, "post"))
         return 0.1 * mode.threads, 10.0, CpuMeasurement(0.1 * mode.threads, 0.2, 0.5 * mode.threads,
-                                                     50.0 * mode.threads, 3, 1, False, trace)
+                                                     50.0 * mode.threads, 5, 1, False, trace)
     trials = run_schedule(modes, 42, fixture, log)
     result = {"schema_version": SCHEMA_VERSION, "created_at": "SELF-TEST FIXTURE", "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials], "environment": {"test": "<>&"}, "audio_s": 10.0, "style_id": 302, "seed": 42, "log": log}
     validate_results(result)
     assert len(list(csv.DictReader(io.StringIO(trial_csv(result["trials"]))))) == 30
-    assert len(list(csv.DictReader(io.StringIO(cpu_trace_csv(result["trials"]))))) == 60
+    assert len(list(csv.DictReader(io.StringIO(cpu_trace_csv(result["trials"]))))) == 120
     with tempfile.TemporaryDirectory() as folder:
         report = Path(folder) / "test.html"
         render_report(result, report)

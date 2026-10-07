@@ -16,7 +16,7 @@ jobs:
   benchmark:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -68,12 +68,14 @@ jobs:
               keys = {mode['key'] for mode in modes}
               assert page.locator('svg').count() == 2 + len(modes)
               assert page.locator('svg.cpu-profile').count() == len(modes)
-              assert measured['schema_version'] == 3 and len(measured['trials']) == 15 * len(modes)
-              assert 2 <= len(modes) <= 4 and 'browser_mt' in keys
+              assert measured['schema_version'] == 4 and len(measured['trials']) == 15 * len(modes)
+              assert keys == {'native', 'browser', 'browser_mt', 'browser_mt_fixed', 'browser_xnnpack', 'browser_revectorize', 'browser_xnnpack_revectorize'}
+              assert len(measured['trials']) == 105
               env = measured['environment']
               assert ('browser_xnnpack' in keys) == env['xnnpack_diagnostic']['verified']
               assert ('browser_mt_fixed' in keys) == ('browser_xnnpack' in keys)
               assert ('browser_revectorize' in keys) == env['revectorization_diagnostic']['verified']
+              assert ('browser_xnnpack_revectorize' in keys) == env['combined_diagnostic']['verified']
               if 'browser_xnnpack' in keys:
                   assert env['xnnpack_diagnostic']['provider_kernel_counts']['XnnpackExecutionProvider'] > 0
                   assert env['browser_xnnpack_xnn_threads'] == 2 and env['browser_xnnpack_ort_global_threads'] == 1
@@ -83,6 +85,15 @@ jobs:
                   assert env['revectorization_diagnostic']['control']['transformed_groups'] == 0
                   assert env['revectorization_diagnostic']['candidate']['transformed_groups'] > 0
                   assert env['timed_revectorization_engine']['requested_js_flags'] == ['--js-flags=--wasm-revectorize']
+              if 'browser_xnnpack_revectorize' in keys:
+                  assert 'browser_xnnpack' in keys and 'browser_mt_fixed' in keys
+                  combined = env['combined_diagnostic']
+                  assert combined['control']['transformed_groups'] == 0 and combined['candidate']['transformed_groups'] > 0
+                  a, b = combined['control']['xnnpack_profile'], combined['candidate']['xnnpack_profile']
+                  assert a['verified'] and b['verified'] and a['provider_assignment_sha256'] == b['provider_assignment_sha256']
+                  assert env['timed_combined_engine']['requested_js_flags'] == ['--js-flags=--wasm-revectorize']
+                  assert env['browser_xnnpack_revectorize_pthreads_after_warmup'] == 1
+                  assert env['browser_xnnpack_revectorize_verified_input_shapes'] == env['browser_mt_fixed_verified_input_shapes']
               assert measured['schedule_method'].startswith('seeded position-balanced')
               for mode in modes:
                   positions = [i % len(modes) for i, block in enumerate(measured['schedule']) if block['mode'] == mode['key']]
@@ -91,6 +102,14 @@ jobs:
               assert all(not row['cpu_incomplete'] for row in measured['trials']), 'Incomplete CPU observations'
               assert all(row['cpu_time_s'] > 0 and row['cpu_window_s'] > 0 for row in measured['trials'])
               assert measured['environment']['cpu_sample_interval_ms'] == 100
+              assert measured['environment']['cpu_padding_seconds'] == 1
+              for trial in measured['trials']:
+                  phases = {phase: [p for p in trial['cpu_trace'] if p['phase'] == phase] for phase in ('pre', 'action', 'post')}
+                  assert all(phases.values()) and all(not p['cpu_incomplete'] for p in trial['cpu_trace'])
+                  for phase in ('pre', 'post'):
+                      assert sum(p['end_s'] - p['start_s'] for p in phases[phase]) >= 1 - 1e-6
+                  assert abs(sum(p['cpu_time_s'] for p in phases['action']) - trial['cpu_time_s']) < 1e-8
+                  assert abs(sum(p['end_s'] - p['start_s'] for p in phases['action']) - trial['cpu_window_s']) < 1e-8
               assert 'separate Chromium' in measured['environment']['cpu_browser_scope']
               assert len(page.locator('#cpu-csv').text_content().strip().splitlines()) == 1 + sum(len(row['cpu_trace']) for row in measured['trials'])
               checks = measured['output_checks']
@@ -100,11 +119,17 @@ jobs:
               if 'browser_xnnpack' in keys:
                   assert checks['fixed_control_repeat']['pcm_exact'] and checks['fixed_control_repeat']['fp32_exact']
                   assert checks['xnnpack_vs_fixed_control']['finite'] and checks['xnnpack_vs_fixed_control']['fp32_samples'] > 0
+              if 'browser_xnnpack_revectorize' in keys:
+                  assert checks['xnnpack_reference_repeat']['pcm_exact'] and checks['xnnpack_reference_repeat']['fp32_exact']
+                  assert checks['combined_vs_xnnpack']['finite'] and checks['combined_vs_fixed_control']['finite']
               profiles = json.loads(page.locator('#cpu-profile-data').text_content())
               assert {profile['mode'] for profile in profiles} == keys
               for profile in profiles:
                   assert profile['complete_trials'] == 15
-                  assert all(0 < point['trial_count'] <= 15 and point['q25_percent'] <= point['median_percent'] <= point['q75_percent'] for point in profile['points'])
+                  assert profile['phase_complete_trials'] == {'pre': 15, 'action': 15, 'post': 15}
+                  assert profile['points'][0]['start_s'] == -1
+                  assert profile['post_points'][0]['start_s'] == 0 and profile['post_points'][-1]['end_s'] == 1
+                  assert all(0 < point['trial_count'] <= 15 and point['q25_percent'] <= point['median_percent'] <= point['q75_percent'] for point in profile['points'] + profile['post_points'])
               for mode in modes:
                   chart = page.locator('svg.cpu-profile[data-mode="' + mode['key'] + '"]')
                   assert mode['label'] in chart.locator('title').first.text_content()
