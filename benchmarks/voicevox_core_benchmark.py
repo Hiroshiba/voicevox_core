@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["playwright==1.63.0", "platformdirs==4.12.3", "cmake==4.4.4", "ninja==1.13.2", "libclang==18.1.1"]
+# dependencies = ["playwright==1.63.0", "platformdirs==4.12.3", "cmake==4.4.4", "ninja==1.13.2", "libclang==18.1.1", "psutil==7.2.2"]
 # ///
 """Reproducible VOICEVOX CORE CPU/browser benchmark (one-file distribution).
 
@@ -50,7 +50,7 @@ ORT_BUILDER_COMMIT = "117593885cd2a66e9cf17b4059e6424d7ea528c9"
 ORT_VERSION = "1.23.2"
 TRIALS_PER_BLOCK = 5
 BLOCKS_PER_MODE = 3
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -71,12 +71,174 @@ class Trial:
     elapsed_s: float
     audio_s: float
     rtf: float
+    cpu_time_s: float
+    cpu_window_s: float
+    cpu_avg_cores: float
+    cpu_percent: float
+    cpu_samples: int
+    cpu_processes: int
+    cpu_incomplete: bool
 
 
 @dataclass(frozen=True)
 class Block:
     mode: str
     number: int
+
+
+CPU_SAMPLE_INTERVAL_S = 0.1
+PROGRESS_INTERVAL_S = 15.0
+
+
+def progress(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+
+
+@dataclass(frozen=True)
+class CpuMeasurement:
+    cpu_time_s: float
+    cpu_window_s: float
+    cpu_avg_cores: float
+    cpu_percent: float
+    cpu_samples: int
+    cpu_processes: int
+    cpu_incomplete: bool
+
+
+class ProcessCpuSampler:
+    """Sum user+system CPU for one explicitly selected process tree.
+
+    The CPU window surrounds the request/response and counter reads, separately
+    from the existing internal synthesis timer. CPU times include all threads.
+    Never add children_user/system: descendant processes are counted directly.
+    Lost/late processes mark CPU data incomplete; those rows remain in CSV but
+    are excluded from the report's CPU average. Polling cannot observe a child
+    that starts and exits entirely between samples.
+    """
+    def __init__(self, root_pid: int, label: str, interval: float = CPU_SAMPLE_INTERVAL_S):
+        import psutil
+        import threading
+        if root_pid == os.getpid():
+            raise ValueError("Refusing to include the Python orchestrator in target CPU")
+        if interval <= 0 or not math.isfinite(interval):
+            raise ValueError("CPU sample interval must be positive")
+        self.psutil = psutil
+        self.root = psutil.Process(root_pid)
+        self.root_identity = (root_pid, self.root.create_time())
+        self.label, self.interval = label, interval
+        self.stop = threading.Event()
+        self.processes: dict[tuple[int, float], Any] = {}
+        self.previous: dict[tuple[int, float], float] = {}
+        self.lost: set[tuple[int, float]] = set()
+        self.total = 0.0
+        self.samples = 0
+        self.incomplete = False
+        self.error: Exception | None = None
+        self.started_epoch = 0.0
+        self.started_wall = 0.0
+
+    def _sample(self, initial: bool = False) -> None:
+        try:
+            if not self.root.is_running():
+                raise RuntimeError("Target CPU root exited or its PID was reused")
+            candidates = [self.root] + self.root.children(recursive=True)
+            for process in candidates:
+                try:
+                    identity = (process.pid, process.create_time())
+                    self.processes.setdefault(identity, process)
+                except self.psutil.NoSuchProcess:
+                    self.incomplete = True
+            for identity, process in list(self.processes.items()):
+                if identity in self.lost:
+                    continue
+                try:
+                    # cpu_times alone does not guard against PID reuse.
+                    if not process.is_running():
+                        raise self.psutil.NoSuchProcess(process.pid)
+                    times = process.cpu_times()
+                    value = float(times.user + times.system)
+                    if not math.isfinite(value) or value < 0:
+                        raise RuntimeError("Invalid process CPU counter")
+                    if identity not in self.previous:
+                        if initial:
+                            self.previous[identity] = value
+                            continue
+                        if identity[1] < self.started_epoch:
+                            # Existing process first seen after the initial snapshot:
+                            # do not attribute its earlier lifetime CPU to this trial.
+                            self.previous[identity] = value
+                            self.incomplete = True
+                            continue
+                        self.previous[identity] = 0.0
+                    delta = value - self.previous[identity]
+                    if delta < -1e-6:
+                        raise RuntimeError("Process CPU counter moved backwards")
+                    self.total += max(0.0, delta)
+                    self.previous[identity] = value
+                except self.psutil.NoSuchProcess:
+                    if identity == self.root_identity:
+                        raise RuntimeError("Target CPU root disappeared before the final sample")
+                    self.lost.add(identity)
+                    self.incomplete = True
+            self.samples += 1
+        except Exception as error:
+            self.error = error
+            self.stop.set()
+
+    def measure(self, action: Callable[[], tuple[float, float]]) -> tuple[float, float, CpuMeasurement]:
+        import threading
+        self.started_wall = time.perf_counter()
+        self.started_epoch = time.time()
+        self._sample(initial=True)
+        if self.error:
+            raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
+        def sample_loop() -> None:
+            last_heartbeat = time.perf_counter()
+            while not self.stop.wait(self.interval):
+                self._sample()
+                now = time.perf_counter()
+                if now - last_heartbeat >= 30:
+                    progress(f"{self.label}: synthesis still running ({now - self.started_wall:.0f}s)")
+                    last_heartbeat = now
+        worker = threading.Thread(target=sample_loop, name="benchmark-cpu-sampler", daemon=True)
+        worker.start()
+        try:
+            elapsed, duration = action()
+        finally:
+            self.stop.set()
+            worker.join(timeout=5)
+            if worker.is_alive():
+                self.error = RuntimeError("CPU sampler did not stop")
+            elif self.error is None:
+                self._sample()
+            window = time.perf_counter() - self.started_wall
+        if self.error:
+            raise RuntimeError(f"CPU sampling failed for {self.label}: {self.error}") from self.error
+        cores = self.total / window
+        return elapsed, duration, CpuMeasurement(self.total, window, cores, 100 * cores,
+                                                self.samples, len(self.processes), self.incomplete)
+
+
+def chromium_process_id(browser: Any) -> int:
+    """Use the public browser-level CDP API, never Playwright internals."""
+    session = browser.new_browser_cdp_session()
+    try:
+        response = session.send("SystemInfo.getProcessInfo")
+    except Exception as error:
+        raise RuntimeError("This Chromium does not provide browser process IDs for CPU sampling; use the bundled Chromium") from error
+    finally:
+        session.detach()
+    roots = [int(process["id"]) for process in response["processInfo"] if process.get("type") == "browser"]
+    if len(roots) != 1 or roots[0] <= 0 or roots[0] == os.getpid():
+        raise RuntimeError("Could not identify the benchmark Chromium process safely")
+    return roots[0]
+
+
+def weighted_cpu_percent(trials: list[dict[str, Any]]) -> float | None:
+    complete = [row for row in trials if not row["cpu_incomplete"]]
+    if not complete:
+        return None
+    return 100 * sum(row["cpu_time_s"] for row in complete) / sum(row["cpu_window_s"] for row in complete)
 
 
 def make_schedule(modes: list[Mode], seed: int) -> list[Block]:
@@ -150,7 +312,7 @@ def cached_download(url: str, root: Path, filename: str, *,
             saved = json.loads(receipt.read_text("utf-8"))
             expected = expected_sha256 or saved["sha256"]
             if saved["url"] == url and target.stat().st_size == saved["bytes"] and sha256_file(target) == expected:
-                print(f"Cache hit: {filename}", flush=True)
+                progress(f"Cache hit: {filename}")
                 return target
         except (OSError, ValueError, KeyError):
             pass
@@ -160,7 +322,8 @@ def cached_download(url: str, root: Path, filename: str, *,
         request = urllib.request.Request(url, headers={"User-Agent": "voicevox-core-benchmark/1"})
         digest = hashlib.sha256()
         total = 0
-        print(f"Downloading {filename}…", flush=True)
+        progress(f"Downloading {filename}")
+        last_progress = time.monotonic()
         with os.fdopen(descriptor, "wb") as out, urllib.request.urlopen(request, timeout=120) as response:
             if not response.geturl().startswith("https://"):
                 raise RuntimeError("Download redirected away from HTTPS")
@@ -169,11 +332,17 @@ def cached_download(url: str, root: Path, filename: str, *,
                 out.write(chunk)
                 digest.update(chunk)
                 total += len(chunk)
+                now = time.monotonic()
+                if now - last_progress >= 5:
+                    size = f" / {int(length) / 2**20:.1f} MiB" if length else " MiB"
+                    progress(f"{filename}: {total / 2**20:.1f}{size} downloaded")
+                    last_progress = now
             if length is not None and total != int(length):
                 raise RuntimeError(f"Incomplete download: {filename}")
             out.flush()
             os.fsync(out.fileno())
         actual = digest.hexdigest()
+        progress(f"Downloaded {filename}: {total / 2**20:.1f} MiB; verifying checksum")
         if expected_sha256 and actual != expected_sha256:
             raise RuntimeError(f"SHA-256 mismatch: {filename}")
         os.replace(partial, target)
@@ -200,12 +369,63 @@ def cache_root() -> Path:
 
 def checked_run(command: list[str], *, cwd: Path | None = None,
                 env: dict[str, str] | None = None) -> str:
-    result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if result.returncode:
-        # Local diagnostic only; command output is not copied into the HTML log.
-        raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)}\n{result.stdout[-5000:]}\n{result.stderr[-5000:]}")
-    return result.stdout.strip()
-
+    """Capture output for errors/return values while keeping long work visible."""
+    import queue
+    import threading
+    started = time.monotonic()
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    messages: queue.Queue[str | None] = queue.Queue()
+    def read_output() -> None:
+        try:
+            for line in process.stdout:
+                messages.put(line)
+        finally:
+            messages.put(None)
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    output: list[str] = []
+    last_line = ""
+    last_report = started
+    label = Path(command[0]).name
+    if len(command) > 1:
+        label += " " + Path(command[1]).name
+    try:
+        finished = False
+        while not finished:
+            try:
+                line = messages.get(timeout=1.0)
+                if line is None:
+                    finished = True
+                else:
+                    output.append(line)
+                    if line.strip():
+                        last_line = line.strip()[-180:]
+            except queue.Empty:
+                pass
+            now = time.monotonic()
+            if not finished and now - last_report >= PROGRESS_INTERVAL_S:
+                progress(f"{label}: running {now - started:.0f}s" + (f"; {last_line}" if last_line else ""))
+                last_report = now
+        code = process.wait()
+    except BaseException:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        raise
+    finally:
+        reader.join(timeout=5)
+        process.stdout.close()
+    text_output = "".join(output)
+    duration = time.monotonic() - started
+    if code:
+        raise RuntimeError(f"Command failed ({code}): {' '.join(command)}\n{text_output[-10000:]}")
+    if duration >= 5:
+        progress(f"{label}: completed in {duration:.1f}s")
+    return text_output.strip()
 
 def command_version(command: list[str]) -> str | None:
     try:
@@ -320,6 +540,18 @@ def validate_results(result: dict[str, Any]) -> None:
                 raise ValueError(f"Invalid {field}")
         if not math.isclose(trial["rtf"], trial["elapsed_s"] / trial["audio_s"], rel_tol=1e-9):
             raise ValueError("RTF does not match measured duration")
+        for field in ("cpu_time_s", "cpu_window_s", "cpu_avg_cores", "cpu_percent"):
+            if not isinstance(trial[field], (float, int)) or not math.isfinite(trial[field]) or trial[field] < 0:
+                raise ValueError(f"Invalid {field}")
+        if trial["cpu_window_s"] <= 0 or type(trial["cpu_incomplete"]) is not bool:
+            raise ValueError("Invalid CPU observation window/coverage")
+        for field in ("cpu_samples", "cpu_processes"):
+            if type(trial[field]) is not int or trial[field] < 1:
+                raise ValueError(f"Invalid {field}")
+        if not math.isclose(trial["cpu_avg_cores"], trial["cpu_time_s"] / trial["cpu_window_s"], rel_tol=1e-9, abs_tol=1e-12):
+            raise ValueError("CPU core equivalent does not match the observation window")
+        if not math.isclose(trial["cpu_percent"], 100 * trial["cpu_avg_cores"], rel_tol=1e-9, abs_tol=1e-12):
+            raise ValueError("CPU percent does not match the one-core normalization")
         by_block.setdefault((trial["mode"], trial["block"]), []).append(trial)
         orders.append(trial["order"])
     if sorted(orders) != list(range(1, len(orders) + 1)):
@@ -337,7 +569,7 @@ def validate_results(result: dict[str, Any]) -> None:
 
 
 def run_schedule(modes: list[Mode], seed: int,
-                 synthesize: Callable[[Mode], tuple[float, float]],
+                 synthesize: Callable[[Mode], tuple[float, float, CpuMeasurement]],
                  log: list[dict[str, Any]]) -> list[Trial]:
     """Only one callback runs at a time; all model initialization is external."""
     schedule = make_schedule(modes, seed)
@@ -345,13 +577,15 @@ def run_schedule(modes: list[Mode], seed: int,
     trials = []
     for block in schedule:
         mode = indexed[block.mode]
-        print(f"{mode.label}: block {block.number}/{BLOCKS_PER_MODE}", flush=True)
+        progress(f"{mode.label}: block {block.number}/{BLOCKS_PER_MODE}")
         for repetition in range(1, TRIALS_PER_BLOCK + 1):
-            elapsed, duration = synthesize(mode)
+            elapsed, duration, cpu = synthesize(mode)
             if not (math.isfinite(elapsed) and elapsed > 0 and math.isfinite(duration) and duration > 0):
                 raise RuntimeError(f"{mode.label} returned an invalid measurement")
             trials.append(Trial(len(trials) + 1, mode.key, block.number, repetition,
-                                mode.threads, elapsed, duration, elapsed / duration))
+                                mode.threads, elapsed, duration, elapsed / duration, **asdict(cpu)))
+            coverage = " (CPU incomplete)" if cpu.cpu_incomplete else ""
+            progress(f"Trial {len(trials)}/{len(modes) * BLOCKS_PER_MODE * TRIALS_PER_BLOCK}: {mode.label}, block {block.number}, {repetition}/{TRIALS_PER_BLOCK}; synthesis {elapsed:.3f}s, CPU {cpu.cpu_percent:.1f}%{coverage}")
         log.append({"event": "block_completed", "mode": mode.key,
                     "block": block.number, "samples": TRIALS_PER_BLOCK})
     return trials
@@ -414,15 +648,21 @@ def render_report(result: dict[str, Any], target: Path) -> None:
     summaries = []
     for mode in result["modes"]:
         trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
+        cpu_percent = weighted_cpu_percent(trials)
         summaries.append("<tr>" + "".join(f"<td>{html.escape(str(value))}</td>" for value in (
             mode["label"], mode["threads"], len(trials),
             f'{statistics.median(row["elapsed_s"] for row in trials):.3f}',
             f'{statistics.median(row["rtf"] for row in trials):.3f}',
+            "—" if cpu_percent is None else f"{cpu_percent:.1f}%",
             f'{min(row["elapsed_s"] for row in trials):.3f}–{max(row["elapsed_s"] for row in trials):.3f}',
         )) + "</tr>")
     env_rows = "".join(f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value))}</td></tr>" for key, value in result["environment"].items())
     mode_rows = "".join(f'<li>{html.escape(mode["label"])}: {mode["threads"]} inference thread(s), {html.escape(mode["backend"])}</li>' for mode in result["modes"])
-    notes = "".join(f"<li>{html.escape(note)}</li>" for note in result.get("notes", []))
+    note_values = list(result.get("notes", []))
+    incomplete = sum(row["cpu_incomplete"] for row in result["trials"])
+    if incomplete:
+        note_values.append(f"CPU追跡が不完全な{incomplete}試行はCPU平均から除外。CSVのCPU値は観測できた下限値。")
+    notes = "".join(f"<li>{html.escape(note)}</li>" for note in note_values)
     duration = result["audio_s"]
     log_lines = "\n".join(json.dumps(event, ensure_ascii=False) for event in result.get("log", []))
     document = f'''<!doctype html>
@@ -433,14 +673,16 @@ def render_report(result: dict[str, Any], target: Path) -> None:
 </style>
 <h1>VOICEVOX CORE benchmark</h1>
 <p>{html.escape(result["created_at"])} · 音声 {duration:.3f} 秒 · 各モード 5 回 × 3 ブロック</p>
-<div class="scroll"><table><thead><tr><th>モード</th><th>スレッド</th><th>回数</th><th>中央値（秒）</th><th>中央値 RTF</th><th>最小–最大（秒）</th></tr></thead><tbody>{''.join(summaries)}</tbody></table></div>
+<div class="scroll"><table><thead><tr><th>モード</th><th>スレッド</th><th>回数</th><th>中央値（秒）</th><th>中央値 RTF</th><th>平均 CPU</th><th>最小–最大（秒）</th></tr></thead><tbody>{''.join(summaries)}</tbody></table></div>
 <figure>{svg_results(result)}<figcaption>点は各試行、太線は中央値。RTF = 合成時間 ÷ 出力音声の長さ</figcaption></figure>
 <figure>{svg_sequence(result)}</figure>
 <h2>測定条件</h2>
 <ul><li>同一 sample.vvm・Style ID {result["style_id"]}・準備済み AudioQuery JSON を使用。CPU 推論のみ、辞書・テキスト解析なし</li>
 <li>モデル初期化・ダウンロード・ビルド・AudioQuery 作成・ウォームアップ・音声保存は測定外。合成から WAV 生成までを測定</li>
 <li>各ラウンドでモード順をシャッフルし、1 ブロック内は 5 回連続。3 ラウンド、seed = {result["seed"]}。モード間の同時実行なし</li>
-<li>表示スレッド数は推論に設定した値。Web Worker 数ではない</li>{mode_rows}{notes}</ul>
+<li>表示スレッド数は推論に設定した値。Web Worker 数ではない</li>
+<li>CPU は対象プロセスと子孫の user＋system 時間 ÷ 外側の観測時間。100%＝論理1コア、各試行の時間で重み付けした平均</li>
+<li>browser はモード別 Chromium 全体を集計（Python・制御用 Node は除外）。100ms ごとに追跡し、短命プロセスは取りこぼす場合あり</li>{mode_rows}{notes}</ul>
 <details><summary>実行環境・ログ</summary><table class="environment">{env_rows}</table><pre>{html.escape(log_lines)}</pre></details>
 <details><summary>生データ（CSV）</summary><button id="save-csv" type="button">CSV を保存</button><pre id="raw-csv">{html.escape(raw_csv)}</pre></details>
 <script>
@@ -957,6 +1199,8 @@ def verify_archive_sidecar(archive: Path) -> str:
 
 def run_benchmark(args: argparse.Namespace) -> None:
     from playwright.sync_api import sync_playwright
+    import psutil
+    progress("Preparing benchmark inputs and cached tools")
     if not 0 <= args.style_id <= 2**32 - 1:
         raise ValueError("--style-id must be an unsigned 32-bit integer")
     query = json.loads(args.audio_query.read_text("utf-8")) if args.audio_query else prepared_query(args.target_seconds)
@@ -969,7 +1213,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if not args.baseline_only and not threaded_url and not args.threaded_ort_archive:
         raise RuntimeError("The unsigned multithreaded ORT release is not yet configured. Supply its verified archive URL using --threaded-ort-url; single-thread results are not a substitute for this mode.")
     begin = time.monotonic()
+    progress(f"Preparing Rust {RUST_VERSION} and Emscripten {EMSDK_VERSION}")
     env = ensure_toolchains(root)
+    progress("Preparing CORE source and ONNX Runtime archives")
     core_archive = cached_download(f"https://github.com/yamachu/voicevox_core/archive/{CORE_COMMIT}.tar.gz", root, f"core-{CORE_COMMIT}.tar.gz")
     core_tree = unpack_cached(core_archive, root / f"source-{CORE_COMMIT}")
     source = next(path.parent for path in core_tree.glob("*/Cargo.toml"))
@@ -1016,6 +1262,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
         modes.append(Mode("browser_mt", f"Browser pthreads ×{args.threads}", args.threads, "WebAssembly SIMD + pthreads, global thread pool"))
     log: list[dict[str, Any]] = [{"event": "assets_ready", "seconds": round(time.monotonic() - begin, 3)}]
     environment = environment_info()
+    environment.update({"cpu_metric": "sum target-tree user+system CPU seconds / matching outer observation seconds; 100%=one logical CPU", "cpu_sample_interval_ms": CPU_SAMPLE_INTERVAL_S * 1000,
+                        "cpu_browser_scope": "separate Chromium instance per mode; root and descendants; Python/Playwright Node excluded", "psutil": psutil.__version__})
     environment.update({"rust": checked_run([str(root / "cargo/bin" / ("rustc.exe" if sys.platform == "win32" else "rustc")), f"+{RUST_VERSION}", "--version"], env=env),
                         "emscripten": EMSDK_VERSION, "sample_vvm_sha256": sha256_file(model),
                         "audio_query_sha256": hashlib.sha256(query_bytes).hexdigest(),
@@ -1034,6 +1282,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(root / "playwright")
     try:
         if not args.browser_path:
+            progress("Preparing cached Chromium")
             checked_run([sys.executable, "-m", "playwright", "install", "chromium"], env=dict(os.environ))
         with tempfile.TemporaryDirectory(prefix="voicevox-benchmark-") as temporary:
             work = Path(temporary)
@@ -1053,31 +1302,45 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 options: dict[str, Any] = {"headless": not args.headed}
                 if args.browser_path:
                     options["executable_path"] = str(args.browser_path)
-                browser = playwright.chromium.launch(**options)
-                environment["browser"] = browser.version
                 environment["browser_headless"] = not args.headed
                 runners: dict[str, Any] = {}
+                browsers: dict[str, Any] = {}
+                cpu_roots: dict[str, int] = {}
                 try:
+                    progress("Initializing native CORE")
                     started = time.monotonic()
                     runners["native"] = NativeRunner(native_binary, native_runtime, model, work / "query.json", args.threads, args.style_id, work / "native.wav")
+                    cpu_roots["native"] = runners["native"].process.pid
                     log.append({"event": "initialized", "mode": "native", "seconds": round(time.monotonic() - started, 3)})
                     browser_modes = [("browser", "/st/voicevox_benchmark.js", 1, False)]
                     if browser_mt:
                         browser_modes.append(("browser_mt", "/mt/voicevox_benchmark.js", args.threads, True))
                     for key, module, threads, threaded in browser_modes:
+                        progress(f"Initializing isolated {key} Chromium and CORE")
                         started = time.monotonic()
+                        browser = playwright.chromium.launch(**options)
+                        browsers[key] = browser
+                        cpu_roots[key] = chromium_process_id(browser)
+                        if "browser" in environment and environment["browser"] != browser.version:
+                            raise RuntimeError("Browser versions differ between modes")
+                        environment["browser"] = browser.version
                         runners[key] = BrowserRunner(browser, url, module, threads, threaded, args.style_id, work / f"{key}.wav")
                         log.append({"event": "initialized", "mode": key, "seconds": round(time.monotonic() - started, 3)})
                     if "browser_mt" in runners:
                         environment["browser_mt_pthreads_created"] = runners["browser_mt"].pthreads_created
                     environment.update(runners["browser"].page.evaluate("() => ({browser_hardware_concurrency:navigator.hardwareConcurrency,cross_origin_isolated:crossOriginIsolated,user_agent:navigator.userAgent})"))
                     for mode in modes:
+                        progress(f"Warmup: {mode.label} (excluded from latency and CPU measurements)")
                         elapsed, duration = runners[mode.key].synthesize(save=True)
                         log.append({"event": "warmup_excluded", "mode": mode.key, "seconds": elapsed, "audio_s": duration})
                     durations = [runner.duration for runner in runners.values()]
                     if max(durations) - min(durations) > 1 / query["outputSamplingRate"]:
                         raise RuntimeError("Native/browser output lengths differ; refusing a misleading comparison")
-                    trials = run_schedule(modes, args.seed, lambda mode: runners[mode.key].synthesize(), log)
+                    progress(f"Starting {len(modes) * BLOCKS_PER_MODE * TRIALS_PER_BLOCK} serial trials with target-process CPU sampling")
+                    def measured_synthesis(mode: Mode) -> tuple[float, float, CpuMeasurement]:
+                        sampler = ProcessCpuSampler(cpu_roots[mode.key], mode.label)
+                        return sampler.measure(runners[mode.key].synthesize)
+                    trials = run_schedule(modes, args.seed, measured_synthesis, log)
                     result = {"schema_version": SCHEMA_VERSION, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                               "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials],
                               "environment": environment, "audio_s": durations[0], "style_id": args.style_id, "seed": args.seed, "log": log,
@@ -1085,13 +1348,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     if args.baseline_only:
                         result["notes"].append("この先行検証はnativeとブラウザ単一スレッドのみ。マルチスレッドは未実施。")
                     validate_results(result)
+                    progress("Writing measured HTML and raw JSON")
                     render_report(result, args.output)
                     atomic_write(args.output.with_suffix(".json"), json.dumps(result, ensure_ascii=False, indent=2).encode())
                     print(f"Report: {args.output.resolve()}")
                 finally:
                     for runner in runners.values():
-                        runner.close()
-                    browser.close()
+                        with contextlib.suppress(Exception):
+                            runner.close()
+                    for browser in browsers.values():
+                        with contextlib.suppress(Exception):
+                            browser.close()
     finally:
         if previous_browser_path is None:
             os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
@@ -1127,6 +1394,7 @@ def argument_parser() -> argparse.ArgumentParser:
 
 
 def self_test() -> None:
+    progress("Self-test fixtures only; no real synthesis or CPU measurements")
     modes = [Mode("native", "Native", 2, "native CPU"), Mode("browser", "Browser", 1, "WebAssembly SIMD")]
     a = make_schedule(modes, 42)
     assert a == make_schedule(modes, 42)
@@ -1135,7 +1403,7 @@ def self_test() -> None:
     # Explicit test fixture, confined to a temporary directory and never delivered
     # as benchmark measurements.
     log: list[dict[str, Any]] = []
-    trials = run_schedule(modes, 42, lambda mode: (0.1 * mode.threads, 10.0), log)
+    trials = run_schedule(modes, 42, lambda mode: (0.1 * mode.threads, 10.0, CpuMeasurement(0.1 * mode.threads, 0.2, 0.5 * mode.threads, 50.0 * mode.threads, 2, 1, False)), log)
     result = {"schema_version": SCHEMA_VERSION, "created_at": "SELF-TEST FIXTURE", "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials], "environment": {"test": "<>&"}, "audio_s": 10.0, "style_id": 302, "seed": 42, "log": log}
     validate_results(result)
     assert len(list(csv.DictReader(io.StringIO(trial_csv(result["trials"]))))) == 30

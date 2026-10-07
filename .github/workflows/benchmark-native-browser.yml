@@ -64,6 +64,11 @@ jobs:
               measured = json.loads(Path('results/benchmark.json').read_text())
               assert len(page.locator('#raw-csv').text_content().strip().splitlines()) == len(measured['trials']) + 1
               assert page.locator('svg').count() == 2
+              assert measured['schema_version'] == 2 and len(measured['trials']) == 45
+              assert all(not row['cpu_incomplete'] for row in measured['trials']), 'Incomplete CPU observations'
+              assert all(row['cpu_time_s'] > 0 and row['cpu_window_s'] > 0 for row in measured['trials'])
+              assert measured['environment']['cpu_sample_interval_ms'] == 100
+              assert 'separate Chromium' in measured['environment']['cpu_browser_scope']
               page.screenshot(path='results/report.png', full_page=True)
               browser.close()
           PYREPORT
