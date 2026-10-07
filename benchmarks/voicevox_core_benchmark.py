@@ -49,7 +49,7 @@ from typing import Any, Callable, Iterator
 CORE_COMMIT = "9b539761f3e152b966e08c2de0784129fe8cf68d"
 ORT_BUILDER_COMMIT = "117593885cd2a66e9cf17b4059e6424d7ea528c9"
 ORT_VERSION = "1.23.2"
-DECODE_MODEL_SHA256 = "37e5e70519417f742e7a044c22ae52f0264c7c7bd6f74cb2cd960d441f0b84a5"
+VOCODER_MODEL_SHA256 = "80a81fd0598b6e7d4e21fef74e03fed14e22f111c6b0f4c4454561baae075820"
 TRIALS_PER_BLOCK = 5
 BLOCKS_PER_MODE = 3
 SCHEMA_VERSION = 3
@@ -1007,7 +1007,7 @@ static MODEL_ID: OnceLock<VoiceModelId> = OnceLock::new();
 fn setup(runtime: &'static Onnxruntime, model: &str, query: &str, threads: u16, fixed_shape: bool, xnn_threads: u16, profile: bool) -> anyhow::Result<()> {
     let query: AudioQuery = serde_json::from_slice(&std::fs::read(query)?)?;
     query.validate()?;
-    let padded_length = if fixed_shape { Some(Synthesizer::<()>::benchmark_decode_padded_length(&query)?) } else { None };
+    let padded_length = if fixed_shape { Some(Synthesizer::<()>::benchmark_vocoder_length(&query)?) } else { None };
     voicevox_core::__benchmark_fixed_shape::configure(padded_length, xnn_threads.into(), profile)?;
     let synth = Synthesizer::builder(runtime).acceleration_mode(AccelerationMode::Cpu).cpu_num_threads(if xnn_threads > 0 { 1 } else { threads }).build()?;
     let model = VoiceModelFile::open(model)?;
@@ -1245,7 +1245,7 @@ def prepared_query(target_seconds: float) -> dict[str, Any]:
     return {"accent_phrases": phrases, "speedScale": total / target_seconds, "pitchScale": 0.0, "intonationScale": 1.0, "volumeScale": 1.0, "prePhonemeLength": .1, "postPhonemeLength": .1, "outputSamplingRate": 24000, "outputStereo": False}
 
 
-CORE_BENCH_HELPER = '''        // Untimed diagnostic only: mirrors the pinned TalkDomain synthesis path
+CORE_BENCH_HELPER = '''        // Untimed diagnostic only: uses the pinned Talk/StreamingTalk domain dispatch
         // up to decode(), before PCM conversion/resampling. Not called by synthesis().
         #[doc(hidden)]
         pub fn benchmark_raw_synthesis(&self, audio_query: &AudioQuery, style_id: StyleId) -> crate::Result<Vec<f32>> {
@@ -1265,10 +1265,10 @@ pub mod __benchmark_fixed_shape {
         atomic::{AtomicUsize, Ordering},
     };
 
-    pub const DECODE_SHA256_HEX: &str =
-        "37e5e70519417f742e7a044c22ae52f0264c7c7bd6f74cb2cd960d441f0b84a5";
-    pub(crate) const DECODE_SHA256: [u8; 32] = [0x37, 0xe5, 0xe7, 0x05, 0x19, 0x41, 0x7f, 0x74, 0x2e, 0x7a, 0x04, 0x4c, 0x22, 0xae, 0x52, 0xf0, 0x26, 0x4c, 0x7c, 0x7b, 0xd6, 0xf7, 0x4c, 0xb2, 0xcd, 0x96, 0x0d, 0x44, 0x1f, 0x0b, 0x84, 0xa5];
-    pub(crate) const DECODE_BYTES: usize = 57_149_888;
+    pub const VOCODER_SHA256_HEX: &str =
+        "80a81fd0598b6e7d4e21fef74e03fed14e22f111c6b0f4c4454561baae075820";
+    pub(crate) const VOCODER_SHA256: [u8; 32] = [0x80, 0xa8, 0x1f, 0xd0, 0x59, 0x8b, 0x6e, 0x7d, 0x4e, 0x21, 0xfe, 0xf7, 0x4e, 0x03, 0xfe, 0xd1, 0x4e, 0x22, 0xf1, 0x11, 0xc6, 0xb0, 0xf4, 0xc4, 0x45, 0x45, 0x61, 0xba, 0xae, 0x07, 0x58, 0x20];
+    pub(crate) const VOCODER_BYTES: usize = 55_734_297;
 
     static REQUESTED: OnceLock<Option<usize>> = OnceLock::new();
     static VERIFIED_SESSIONS: AtomicUsize = AtomicUsize::new(0);
@@ -1277,9 +1277,9 @@ pub mod __benchmark_fixed_shape {
     static XNN_SESSIONS: AtomicUsize = AtomicUsize::new(0);
 
     pub fn configure(padded_length: Option<usize>, xnn_threads: usize, profile: bool) -> anyhow::Result<()> {
-        anyhow::ensure!((xnn_threads == 0 && !profile) || padded_length.is_some(), "Provider diagnostics require verified fixed decode shape");
+        anyhow::ensure!((xnn_threads == 0 && !profile) || padded_length.is_some(), "Provider diagnostics require verified fixed vocoder shape");
         if let Some(n) = padded_length {
-            anyhow::ensure!(n > 0, "Fixed decode length must be positive");
+            anyhow::ensure!(n > 0, "Fixed vocoder length must be positive");
             let _ = i64::try_from(n)?;
         }
         REQUESTED
@@ -1304,7 +1304,7 @@ pub mod __benchmark_fixed_shape {
 
     pub(crate) fn record_verified_session() -> anyhow::Result<()> {
         let old = VERIFIED_SESSIONS.fetch_add(1, Ordering::SeqCst);
-        anyhow::ensure!(old == 0, "More than one fixed-shape decode session matched");
+        anyhow::ensure!(old == 0, "More than one fixed-shape vocoder session matched");
         Ok(())
     }
 
@@ -1319,11 +1319,11 @@ pub mod __benchmark_fixed_shape {
         let expected = usize::from(requested.is_some());
         anyhow::ensure!(
             verified_sessions() == expected,
-            "Expected {} verified fixed-shape decode session(s), got {}",
+            "Expected {} verified fixed-shape vocoder session(s), got {}",
             expected,
             verified_sessions()
         );
-        anyhow::ensure!(xnn_sessions() == usize::from(xnn_threads() > 0), "XNNPACK decode registration count mismatch");
+        anyhow::ensure!(xnn_sessions() == usize::from(xnn_threads() > 0), "XNNPACK vocoder registration count mismatch");
         Ok(())
     }
 }
@@ -1331,7 +1331,7 @@ pub mod __benchmark_fixed_shape {
 
 CORE_FIXED_HELPER = r'''
         #[doc(hidden)]
-        pub fn benchmark_decode_padded_length(audio_query: &AudioQuery) -> anyhow::Result<usize> {
+        pub fn benchmark_vocoder_length(audio_query: &AudioQuery) -> anyhow::Result<usize> {
             let audio_query = audio_query.to_validated()?;
             let super::DecoderFeature { f0, phoneme } =
                 audio_query.decoder_feature(super::DEFAULT_ENABLE_INTERROGATIVE_UPSPEAK);
@@ -1340,22 +1340,10 @@ CORE_FIXED_HELPER = r'''
             anyhow::ensure!(length > 0 && phoneme_size == 45, "Unexpected decoder query shape");
             anyhow::ensure!(phoneme.len() == length, "f0/phoneme frame count differs");
 
-            let f0 = ndarray::Array1::from(f0);
-            let phoneme = ndarray::Array2::from_shape_vec(
-                (length, phoneme_size),
-                phoneme.into_iter().flatten().collect(),
-            )?;
-            let (n, f0_padded, phoneme_padded) =
-                super::pad_decoder_feature::<{ super::PADDING_FRAME_LENGTH }>(f0, phoneme);
-            anyhow::ensure!(
-                n == length + 2 * super::PADDING_FRAME_LENGTH,
-                "Unexpected padding length"
-            );
-            anyhow::ensure!(f0_padded.shape() == [n], "Unexpected padded f0 shape");
-            anyhow::ensure!(
-                phoneme_padded.shape() == [n, phoneme_size],
-                "Unexpected padded phoneme shape"
-            );
+            // Full-range streaming synthesis passes all intermediate rows,
+            // including MARGIN frames at each end, to the pinned vocoder.
+            let n = length.checked_add(2 * super::MARGIN)
+                .ok_or_else(|| anyhow::anyhow!("Vocoder length overflow"))?;
             let _ = i64::try_from(n)?;
             Ok(n)
         }
@@ -1366,17 +1354,19 @@ CORE_FIXED_OPTION = r'''
         let benchmark_fixed_length =
             match (crate::__benchmark_fixed_shape::requested_length(), model) {
                 (Some(n), ModelBytes::Onnx(bytes))
-                    if bytes.len() == crate::__benchmark_fixed_shape::DECODE_BYTES =>
+                    if bytes.len() == crate::__benchmark_fixed_shape::VOCODER_BYTES =>
                 {
                     use sha2::{Digest as _, Sha256};
                     let digest: [u8; 32] = Sha256::digest(bytes).into();
-                    (digest == crate::__benchmark_fixed_shape::DECODE_SHA256).then_some(n)
+                    (digest == crate::__benchmark_fixed_shape::VOCODER_SHA256).then_some(n)
                 }
                 _ => None,
             };
         if let Some(n) = benchmark_fixed_length {
             builder = builder
                 .with_dimension_override("length", i64::try_from(n)?)
+                .map_err(ort::Error::<()>::from)?
+                .with_dimension_override("feats", 80)
                 .map_err(ort::Error::<()>::from)?;
             if let Some(threads) = std::num::NonZeroUsize::new(crate::__benchmark_fixed_shape::xnn_threads()) {
                 // Direct register calls the real C API and propagates errors;
@@ -1393,33 +1383,31 @@ CORE_FIXED_OPTION = r'''
 CORE_FIXED_VERIFY = r'''
         if let Some(n) = benchmark_fixed_length {
             let n = i64::try_from(n)?;
-            ensure!(sess.inputs().len() == 3, "Unexpected fixed decode input count");
+            ensure!(sess.inputs().len() == 1, "Unexpected fixed vocoder input count");
             for (name, expected_type, expected_shape) in [
-                ("f0", TensorElementType::Float32, vec![n, 1]),
-                ("phoneme", TensorElementType::Float32, vec![n, 45]),
-                ("speaker_id", TensorElementType::Int64, vec![1]),
+                ("spec", TensorElementType::Float32, vec![n, 80]),
             ] {
                 let info = sess.inputs().iter()
                     .find(|input| input.name() == name)
-                    .with_context(|| format!("Missing fixed decode input {name}"))?;
+                    .with_context(|| format!("Missing fixed vocoder input {name}"))?;
                 let ValueType::Tensor { ty, shape, .. } = info.dtype() else {
-                    bail!("Fixed decode input {name} is not a tensor");
+                    bail!("Fixed vocoder input {name} is not a tensor");
                 };
-                ensure!(*ty == expected_type, "Unexpected fixed decode dtype for {name}");
+                ensure!(*ty == expected_type, "Unexpected fixed vocoder dtype for {name}");
                 ensure!(
                     &shape[..] == expected_shape.as_slice(),
-                    "Fixed decode shape mismatch for {}: expected {:?}, got {:?}",
+                    "Fixed vocoder shape mismatch for {}: expected {:?}, got {:?}",
                     name, expected_shape, shape
                 );
             }
             ensure!(
                 sess.outputs().len() == 1 && sess.outputs()[0].name() == "wave",
-                "Unexpected fixed decode output"
+                "Unexpected fixed vocoder output"
             );
             let ValueType::Tensor { ty, .. } = sess.outputs()[0].dtype() else {
-                bail!("Fixed decode output is not a tensor");
+                bail!("Fixed vocoder output is not a tensor");
             };
-            ensure!(*ty == TensorElementType::Float32, "Unexpected fixed decode output dtype");
+            ensure!(*ty == TensorElementType::Float32, "Unexpected fixed vocoder output dtype");
             crate::__benchmark_fixed_shape::record_verified_session()?;
             if crate::__benchmark_fixed_shape::xnn_threads() > 0 {
                 crate::__benchmark_fixed_shape::record_xnn_session()?;
@@ -1459,11 +1447,11 @@ def patch_fixed_shape(source: Path) -> None:
         library.write_text(content + "\n" + CORE_FIXED_CONFIG, encoding="utf-8")
     elif CORE_FIXED_CONFIG not in content:
         raise RuntimeError("Cached CORE fixed-shape configuration differs from this script")
-    insert(crate / "src/synthesizer.rs", "        // Untimed diagnostic only: mirrors the pinned TalkDomain synthesis path\n",
-           CORE_FIXED_HELPER, "pub fn benchmark_decode_padded_length")
+    insert(crate / "src/synthesizer.rs", "        // Untimed diagnostic only: uses the pinned Talk/StreamingTalk domain dispatch\n",
+           CORE_FIXED_HELPER, "pub fn benchmark_vocoder_length")
     runtime = crate / "src/core/infer/runtimes/onnxruntime.rs"
     insert(runtime, "        let sess = match model {\n", CORE_FIXED_OPTION, "let benchmark_fixed_length =")
-    insert(runtime, "        let input_param_infos = sess\n", CORE_FIXED_VERIFY, "Unexpected fixed decode input count")
+    insert(runtime, "        let input_param_infos = sess\n", CORE_FIXED_VERIFY, "Unexpected fixed vocoder input count")
 
 
 def write_wrapper(source: Path) -> None:
@@ -1594,11 +1582,11 @@ class BrowserRunner:
         self.xnn_threads, self.xnn_sessions = message["xnn_threads"], message["xnn_sessions"]
         if self.xnn_threads != xnn_threads or self.xnn_sessions != int(xnn_threads > 0):
             self.page.close()
-            raise RuntimeError("XNNPACK was not registered for exactly the requested decode session")
+            raise RuntimeError("XNNPACK was not registered for exactly the requested vocoder session")
         self.fixed_length, self.fixed_matches = message["fixed_length"], message["fixed_matches"]
         if (fixed_shape and (self.fixed_length <= 0 or self.fixed_matches != 1)) or (not fixed_shape and (self.fixed_length != 0 or self.fixed_matches != 0)):
             self.page.close()
-            raise RuntimeError("Fixed decode shape was not applied to exactly the requested session")
+            raise RuntimeError("Fixed vocoder shape was not applied to exactly the requested session")
 
     def synthesize(self, save: bool = False) -> tuple[float, float]:
         message = self.page.evaluate("data => request(data)", {"command": "synthesize", "style": self.style, "save": save})
@@ -1750,7 +1738,8 @@ EMSDK_COMMIT = "419021fa040428bc69ef1559b325addb8e10211f"
 BASE_RELEASE = "https://github.com/yamachu/onnxruntime-builder/releases/download/onnxruntime-1.23.2"
 ORT_ARCHIVE_SHA256 = {'onnxruntime-linux-arm64-1.23.2.tgz': '121888dc9d8c6267f6373df150eed9cd2da5dfd4e277d99b22e092533790f61a', 'onnxruntime-linux-x64-1.23.2.tgz': '2e147a06354a4b75362d4a26e6c55b126d05e25dc19c609c1733aedb7156e8a2', 'onnxruntime-osx-arm64-1.23.2.tgz': 'a80514d3ecf04f8c7e8e8c2d0f1dd603bee0c383e84c1ca01e40bf7807c3d0ce', 'onnxruntime-osx-x86_64-1.23.2.tgz': '0c6489e161ea803e52e8153bdba4ea1541252c171776925f0f230091e1a5a949', 'onnxruntime-wasm-static-1.23.2.tgz': '2dc2c5073337b0e77e08314ca9936f5b9a355ff4e237c16294b969e7f2db6593', 'onnxruntime-win-arm64-1.23.2.tgz': '119b1e2fefde9b139c8a43d3e7ef1817b7ff8d551209916d5f1f8528dd451829', 'onnxruntime-win-x64-1.23.2.tgz': '9db1a87c4502e435319d24602ebd280c98d3d62f7c2b31f16e34de2143732bde'}
 THREADED_ORT_URL = "https://github.com/Hiroshiba/onnxruntime-builder/releases/download/onnxruntime-wasm-static-simd-threaded-1.23.2/onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"
-XNNPACK_ORT_URL: str | None = None  # Set only after the fork's strict-FP archive is validated and published.
+XNNPACK_ORT_URL = "https://github.com/Hiroshiba/onnxruntime-builder/releases/download/onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2/onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2.tgz"
+ORT_ARCHIVE_SHA256["onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2.tgz"] = "76182743b15a31e0d361432d8db297a78e3da64aad356730fe93576993af5a2a"
 ORT_ARCHIVE_SHA256["onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"] = "bdc024237b8303feb24c237bc7c8c07fdabd12a2bb7049684ed2894c580a63d1"
 
 
@@ -1975,6 +1964,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if sum(map(bool, (args.experiments, args.baseline_only, args.backend_experiments))) > 1:
         raise ValueError("Choose only one of --experiments, --baseline-only, or --backend-experiments")
     use_xnnpack = args.backend_experiments == "all"
+    if use_xnnpack and args.style_id != 302:
+        raise ValueError("XNNPACK experiments target sample.vvm streaming Style302; use --style-id 302")
     if args.experiments and args.experimental_threads > logical_cpu_count():
         progress(f"Warning: experimental threads={args.experimental_threads} exceeds available logical CPUs={logical_cpu_count()}")
     if not 0 <= args.style_id <= 2**32 - 1:
@@ -1996,7 +1987,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
     env = ensure_toolchains(root)
     progress("Preparing CORE source and ONNX Runtime archives")
     core_archive = cached_download(f"https://github.com/yamachu/voicevox_core/archive/{CORE_COMMIT}.tar.gz", root, f"core-{CORE_COMMIT}.tar.gz")
-    core_tree = unpack_cached(core_archive, root / f"source-{CORE_COMMIT}")
+    source_patch_key = hashlib.sha256((CORE_BENCH_HELPER + CORE_FIXED_CONFIG + CORE_FIXED_HELPER + CORE_FIXED_OPTION + CORE_FIXED_VERIFY).encode()).hexdigest()[:16]
+    core_tree = unpack_cached(core_archive, root / f"source-{CORE_COMMIT}-{source_patch_key}")
     source = next(path.parent for path in core_tree.glob("*/Cargo.toml"))
     platform_name, _ = native_platform()
     runtime_archives = {}
@@ -2060,8 +2052,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
         ])
     if use_xnnpack:
         modes.extend([
-            Mode("browser_mt_fixed", f"CPU ×{args.threads} fixed shape", args.threads, "matching CPU control for XNNPACK: query-derived decode-only fixed length", fixed_shape=True),
-            Mode("browser_xnnpack", f"実験 XNNPACK ×{args.threads}", args.threads, "XNNPACK decode-only pool; ORT global fallback intra=1/inter=1, spin disabled; compare with fixed-shape CPU control", experimental=True, fixed_shape=True, spin_off=True, execution_provider="XNNPACK"),
+            Mode("browser_mt_fixed", f"CPU ×{args.threads} fixed shape", args.threads, "matching CPU control for XNNPACK: query-derived vocoder-only fixed length", fixed_shape=True),
+            Mode("browser_xnnpack", f"実験 XNNPACK ×{args.threads}", args.threads, "XNNPACK vocoder-only pool; ORT global fallback intra=1/inter=1, spin disabled; compare with fixed-shape CPU control", experimental=True, fixed_shape=True, spin_off=True, execution_provider="XNNPACK"),
         ])
     if args.backend_experiments:
         modes.append(Mode("browser_revectorize", f"実験 V8 revectorize ×{args.threads}", args.threads, "same dynamic-shape CPU WASM as MT control; only --js-flags=--wasm-revectorize", experimental=True, revectorize=True))
@@ -2091,7 +2083,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                                                "execution_provider": mode.execution_provider, "revectorize": mode.revectorize} for mode in modes}
     if xnnpack_info:
         environment["xnnpack_builder_commit"] = xnnpack_info["builder_commit"]
-        environment["xnnpack_thread_ownership"] = f"XNNPACK intra={args.threads}; ORT global intra=1/inter=1; only one SHA-matched decode session registers XNNPACK"
+        environment["xnnpack_thread_ownership"] = f"XNNPACK intra={args.threads}; ORT global intra=1/inter=1; only one SHA-matched vocoder session registers XNNPACK"
     environment["wasm_bytes"] = {key: binary.with_suffix(".wasm").stat().st_size for key, binary in browser_binaries.items()}
     environment["precision_flags"] = "FP32 model; unchanged strict FP/SIMD flags; no fast-math, relaxed SIMD, FP16 or quantization"
     environment["block_order"] = [block.mode for block in make_schedule(modes, args.seed, balanced=args.backend_experiments)]
@@ -2212,8 +2204,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
                         if configured.fixed_shape:
                             environment[f"{key}_fixed_length"] = runners[key].fixed_length
                             environment[f"{key}_fixed_matches"] = runners[key].fixed_matches
-                            environment[f"{key}_decode_sha256"] = DECODE_MODEL_SHA256
-                            environment[f"{key}_verified_input_shapes"] = {"f0": [runners[key].fixed_length, 1], "phoneme": [runners[key].fixed_length, 45], "speaker_id": [1]}
+                            environment[f"{key}_vocoder_sha256"] = VOCODER_MODEL_SHA256
+                            environment[f"{key}_verified_input_shapes"] = {"spec": [runners[key].fixed_length, 80]}
                         log.append({"event": "initialized", "mode": key, "seconds": round(time.monotonic() - started, 3)})
                     if "browser_mt" in runners:
                         environment["browser_mt_pthreads_created"] = runners["browser_mt"].pthreads_created

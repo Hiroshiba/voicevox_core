@@ -40,13 +40,13 @@ jobs:
       - name: Check the standalone script
         shell: bash
         run: uv run benchmarks/voicevox_core_benchmark.py --self-test
-      - name: Preflight V8 revectorization with existing runtime
+      - name: Verify and measure XNNPACK and V8 revectorization
         shell: bash
         run: |
           mkdir -p results
           uv run benchmarks/voicevox_core_benchmark.py \
             --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
-            --threads 2 --backend-experiments v8 \
+            --threads 2 --backend-experiments \
             --seed 20261007 --output results/benchmark.html
       - name: Validate and screenshot the report
         shell: bash
@@ -69,7 +69,7 @@ jobs:
               assert page.locator('svg').count() == 2 + len(modes)
               assert page.locator('svg.cpu-profile').count() == len(modes)
               assert measured['schema_version'] == 3 and len(measured['trials']) == 15 * len(modes)
-              assert keys == {'browser_mt', 'browser_revectorize'} and len(measured['trials']) == 30
+              assert 2 <= len(modes) <= 4 and 'browser_mt' in keys
               env = measured['environment']
               assert ('browser_xnnpack' in keys) == env['xnnpack_diagnostic']['verified']
               assert ('browser_mt_fixed' in keys) == ('browser_xnnpack' in keys)
@@ -97,6 +97,9 @@ jobs:
               assert checks['reference_mode'] == 'browser_mt' and checks['reference_deterministic']
               assert set(checks['modes']) == {mode['key'] for mode in measured['modes']}
               assert all(row['finite'] and row['fp32_samples'] > 0 for row in checks['modes'].values())
+              if 'browser_xnnpack' in keys:
+                  assert checks['fixed_control_repeat']['pcm_exact'] and checks['fixed_control_repeat']['fp32_exact']
+                  assert checks['xnnpack_vs_fixed_control']['finite'] and checks['xnnpack_vs_fixed_control']['fp32_samples'] > 0
               profiles = json.loads(page.locator('#cpu-profile-data').text_content())
               assert {profile['mode'] for profile in profiles} == keys
               for profile in profiles:
