@@ -49,6 +49,7 @@ from typing import Any, Callable, Iterator
 CORE_COMMIT = "9b539761f3e152b966e08c2de0784129fe8cf68d"
 ORT_BUILDER_COMMIT = "117593885cd2a66e9cf17b4059e6424d7ea528c9"
 ORT_VERSION = "1.23.2"
+DECODE_MODEL_SHA256 = "37e5e70519417f742e7a044c22ae52f0264c7c7bd6f74cb2cd960d441f0b84a5"
 TRIALS_PER_BLOCK = 5
 BLOCKS_PER_MODE = 3
 SCHEMA_VERSION = 3
@@ -63,6 +64,10 @@ class Mode:
     core_optimization: str = "z"
     graph_optimization: int = 1
     experimental: bool = False
+    fixed_shape: bool = False
+    spin_off: bool = False
+    execution_provider: str = "CPU"
+    revectorize: bool = False
 
 
 @dataclass(frozen=True)
@@ -282,11 +287,25 @@ def weighted_cpu_percent(trials: list[dict[str, Any]]) -> float | None:
     return 100 * sum(row["cpu_time_s"] for row in complete) / sum(row["cpu_window_s"] for row in complete)
 
 
-def make_schedule(modes: list[Mode], seed: int) -> list[Block]:
+def make_schedule(modes: list[Mode], seed: int, *, balanced: bool = False) -> list[Block]:
     """Three shuffled rounds, each containing one five-trial block per mode."""
     if not modes or len({mode.key for mode in modes}) != len(modes):
         raise ValueError("Mode keys must be nonempty and unique")
     rng = random.Random(seed)
+    if balanced:
+        if len(modes) not in (2, 3, 4) or BLOCKS_PER_MODE != 3:
+            raise ValueError("Balanced experiments require two to four modes and three rounds")
+        base = list(modes)
+        rng.shuffle(base)
+        if len(modes) == 4:
+            indices = ((0, 1, 2, 3), (1, 0, 3, 2), (2, 3, 0, 1))
+            rotations = [[base[index] for index in row] for row in indices]
+        elif len(modes) == 3:
+            rotations = [base[i:] + base[:i] for i in range(3)]
+        else:
+            rotations = [base[:], base[::-1], base[::rng.choice((1, -1))]]
+        rng.shuffle(rotations)
+        return [Block(mode.key, number) for number, row in enumerate(rotations, 1) for mode in row]
     schedule = []
     for block_number in range(1, BLOCKS_PER_MODE + 1):
         round_modes = list(modes)
@@ -591,12 +610,22 @@ def verify_outputs(runners: dict[str, Any], reference: str, log: list[dict[str, 
     runners[reference].synthesize(save=True)
     repeated = waveform_comparison(reference_wav, reference_raw, runners[reference].wav.read_bytes(), runners[reference].raw_wave())
     comparisons = {}
+    raw_outputs = {reference: reference_raw}
+    wav_outputs = {key: runner.wav.read_bytes() for key, runner in runners.items()}
     for key, runner in runners.items():
         raw = reference_raw if key == reference else runner.raw_wave()
+        raw_outputs[key] = raw
         comparisons[key] = waveform_comparison(reference_wav, reference_raw, runner.wav.read_bytes(), raw)
         progress(f"Output {key}: PCM {'exact' if comparisons[key]['pcm_exact'] else 'DIFFERS'}, FP32 {'exact' if comparisons[key]['fp32_exact'] else 'DIFFERS'}")
     result = {"reference_mode": reference, "reference_deterministic": repeated["pcm_exact"] and repeated["fp32_exact"],
               "reference_repeat": repeated, "modes": comparisons}
+    if "browser_xnnpack" in runners:
+        fixed = "browser_mt_fixed"
+        runners[fixed].synthesize(save=True)
+        repeat_fixed = waveform_comparison(wav_outputs[fixed], raw_outputs[fixed], runners[fixed].wav.read_bytes(), runners[fixed].raw_wave())
+        result["fixed_control_repeat"] = repeat_fixed
+        result["reference_deterministic"] = result["reference_deterministic"] and repeat_fixed["pcm_exact"] and repeat_fixed["fp32_exact"]
+        result["xnnpack_vs_fixed_control"] = waveform_comparison(wav_outputs[fixed], raw_outputs[fixed], wav_outputs["browser_xnnpack"], raw_outputs["browser_xnnpack"])
     log.append({"event": "untimed_output_checks", "reference": reference, "reference_deterministic": result["reference_deterministic"]})
     return result
 
@@ -643,7 +672,8 @@ def validate_results(result: dict[str, Any]) -> None:
             raise ValueError("Output checks do not match measured modes")
         if type(checks["reference_deterministic"]) is not bool:
             raise ValueError("Invalid output repeatability result")
-        for check in [checks["reference_repeat"], *checks["modes"].values()]:
+        optional_checks = [checks[key] for key in ("fixed_control_repeat", "xnnpack_vs_fixed_control") if key in checks]
+        for check in [checks["reference_repeat"], *checks["modes"].values(), *optional_checks]:
             if check["finite"] is not True or check["fp32_samples"] <= 0:
                 raise ValueError("Invalid FP32 output check")
             for field in ("pcm_exact", "fp32_exact"):
@@ -717,13 +747,23 @@ def validate_results(result: dict[str, Any]) -> None:
                 raise ValueError("Trials within a block must be consecutive")
     if len(by_block) != len(modes) * BLOCKS_PER_MODE:
         raise ValueError("Unexpected block")
+    if "schedule" in result:
+        actual = [{"mode": row["mode"], "number": row["block"]} for row in sorted(result["trials"], key=lambda row: row["order"]) if row["trial"] == 1]
+        if actual != result["schedule"]:
+            raise ValueError("Recorded block schedule differs from actual trials")
+        if result.get("schedule_method", "").startswith("seeded position-balanced"):
+            for mode in modes:
+                positions = [index % len(modes) for index, block in enumerate(actual) if block["mode"] == mode]
+                counts = [positions.count(position) for position in range(len(modes))]
+                if max(counts) - min(counts) > 1:
+                    raise ValueError("Settings pass is not position-balanced")
 
 
 def run_schedule(modes: list[Mode], seed: int,
                  synthesize: Callable[[Mode], tuple[float, float, CpuMeasurement]],
-                 log: list[dict[str, Any]]) -> list[Trial]:
+                 log: list[dict[str, Any]], *, balanced: bool = False) -> list[Trial]:
     """Only one callback runs at a time; all model initialization is external."""
-    schedule = make_schedule(modes, seed)
+    schedule = make_schedule(modes, seed, balanced=balanced)
     indexed = {mode.key: mode for mode in modes}
     trials = []
     for block in schedule:
@@ -793,48 +833,90 @@ def svg_sequence(result: dict[str, Any]) -> str:
     return "".join(output)
 
 
+def aggregate_cpu_profiles(result: dict[str, Any], bin_seconds: float = 0.25) -> list[dict[str, Any]]:
+    """Overlap-weighted interval rates; ended trials are absent, never zero-padded."""
+    if not math.isfinite(bin_seconds) or bin_seconds <= 0:
+        raise ValueError("CPU profile bin duration must be positive")
+    profiles = []
+    for mode in result["modes"]:
+        all_trials = [row for row in result["trials"] if row["mode"] == mode["key"]]
+        trials = [row for row in all_trials if not row["cpu_incomplete"]]
+        maximum = max((row["cpu_trace"][-1]["end_s"] for row in trials), default=0.0)
+        count = math.ceil(maximum / bin_seconds)
+        contributions: list[list[tuple[float, float]]] = [[] for _ in range(count)]
+        for trial in trials:
+            cpu, observed = [0.0] * count, [0.0] * count
+            for interval in trial["cpu_trace"]:
+                start, end = max(0.0, interval["start_s"]), interval["end_s"]
+                rate = interval["cpu_time_s"] / (interval["end_s"] - interval["start_s"])
+                index = max(0, math.floor(start / bin_seconds))
+                while index < count and index * bin_seconds < end:
+                    overlap = max(0.0, min(end, (index + 1) * bin_seconds) - max(start, index * bin_seconds))
+                    cpu[index] += rate * overlap
+                    observed[index] += overlap
+                    index += 1
+            for index, seconds in enumerate(observed):
+                if seconds > 0:
+                    contributions[index].append((cpu[index], seconds))
+        points = []
+        for index, entries in enumerate(contributions):
+            if not entries:
+                continue
+            cpu = math.fsum(pair[0] for pair in entries)
+            seconds = math.fsum(pair[1] for pair in entries)
+            percents = [100 * pair[0] / pair[1] for pair in entries]
+            quartiles = statistics.quantiles(percents, n=4, method="inclusive") if len(percents) > 1 else [percents[0]] * 3
+            points.append({"start_s": index * bin_seconds, "end_s": min(maximum, (index + 1) * bin_seconds),
+                           "cpu_percent": 100 * cpu / seconds, "min_percent": min(percents), "max_percent": max(percents),
+                           "median_percent": statistics.median(percents), "q25_percent": quartiles[0], "q75_percent": quartiles[2],
+                           "cpu_time_s": cpu, "observed_s": seconds, "trial_count": len(entries)})
+        profiles.append({"mode": mode["key"], "label": mode["label"], "complete_trials": len(trials),
+                         "total_trials": len(all_trials), "bin_seconds": bin_seconds, "points": points})
+    return profiles
+
+
 def cpu_profile_html(result: dict[str, Any]) -> str:
     if result["schema_version"] < 3:
         return ""
-    groups = []
-    for mode in result["modes"]:
-        choices = []
-        for index, trial in enumerate(result["trials"]):
-            if trial["mode"] == mode["key"]:
-                choices.append(f'<option value="{index}">#{trial["order"]} · block {trial["block"]} / {trial["trial"]} · {trial["elapsed_s"]:.3f}s</option>')
-        groups.append(f'<optgroup label="{html.escape(mode["label"], quote=True)}">{"".join(choices)}</optgroup>')
-    first_mode = result["modes"][0]["key"]
-    median = statistics.median(row["elapsed_s"] for row in result["trials"] if row["mode"] == first_mode)
-    default = min((index for index, row in enumerate(result["trials"]) if row["mode"] == first_mode),
-                  key=lambda index: abs(result["trials"][index]["elapsed_s"] - median))
-    labels = {mode["key"]: mode["label"] for mode in result["modes"]}
-    data = [{"label": labels[row["mode"]], "order": row["order"], "incomplete": row["cpu_incomplete"], "trace": row["cpu_trace"]}
-            for row in result["trials"]]
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
-    return f'''<h2>CPU 使用率の時間推移</h2>
-<label for="cpu-profile-trial">表示する試行 </label><select id="cpu-profile-trial" data-default="{default}">{''.join(groups)}</select>
-<figure><svg id="cpu-profile" viewBox="0 0 880 250" role="img" aria-labelledby="cpu-profile-title"><title id="cpu-profile-title">区間平均CPU使用率</title></svg>
-<figcaption>区間平均、100%＝論理1コア。横軸0は合成要求開始（初期カウンター採取は直前）。内部フェーズは未計測。短い区間はカウンター粒度の影響を受ける</figcaption></figure>
-<script id="cpu-profile-data" type="application/json">{payload}</script>''' + r'''
-<script>
-(() => {
- const trials=JSON.parse(document.getElementById('cpu-profile-data').textContent), select=document.getElementById('cpu-profile-trial'), svg=document.getElementById('cpu-profile');
- const add=(tag,attrs={},text='')=>{const e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text)e.textContent=text;svg.appendChild(e);return e;};
- function draw(){
-  const trial=trials[Number(select.value)], points=trial.trace, xmin=Math.min(0,points[0].start_s), xmax=points[points.length-1].end_s;
-  const ymax=Math.max(100,Math.ceil(Math.max(...points.map(p=>p.cpu_percent))/100)*100), left=70,top=35,w=780,h=165;
-  const x=t=>left+(t-xmin)/(xmax-xmin)*w,y=v=>top+h-v/ymax*h;
-  svg.replaceChildren();add('title',{id:'cpu-profile-title'},`${trial.label} 試行 #${trial.order} の区間平均CPU使用率`);
-  add('text',{x:left,y:18},`${trial.label} · #${trial.order}${trial.incomplete?' · CPU追跡不完全':''}`);
-  for(let i=0;i<=4;i++){const v=ymax*i/4;add('line',{x1:left,y1:y(v),x2:left+w,y2:y(v),stroke:'#e2e6ec'});add('text',{x:left-10,y:y(v)+4,'text-anchor':'end'},`${v.toFixed(0)}%`);}
-  for(let i=0;i<=4;i++){const v=xmin+(xmax-xmin)*i/4;add('text',{x:x(v),y:221,'text-anchor':'middle'},v.toFixed(2));}
-  const path=points.map((p,i)=>`${i?'L':'M'}${x(p.start_s).toFixed(2)},${y(p.cpu_percent).toFixed(2)}L${x(p.end_s).toFixed(2)},${y(p.cpu_percent).toFixed(2)}`).join('');
-  add('path',{d:path,fill:'none',stroke:'#2563ad','stroke-width':1.6});
-  add('text',{x:left+w/2,y:245,'text-anchor':'middle'},'合成要求開始からの時間（秒）');
- }
- select.value=select.dataset.default;select.addEventListener('change',draw);draw();
-})();
-</script>'''
+    profiles = aggregate_cpu_profiles(result)
+    xmax = max((point["end_s"] for row in profiles for point in row["points"]), default=0.25)
+    ymax = max(100, math.ceil(max((point["q75_percent"] for row in profiles for point in row["points"]), default=0) / 100) * 100)
+    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873"]
+    figures = []
+    for index, profile in enumerate(profiles):
+        left, top, width, height = 52, 30, 365, 140
+        def x(value: float) -> float:
+            return left + value / xmax * width
+        def y(value: float) -> float:
+            return top + height - value / ymax * height
+        color = colors[index % len(colors)]
+        parts = [f'<svg class="cpu-profile" data-mode="{profile["mode"]}" viewBox="0 0 440 215" role="img" aria-label="{html.escape(profile["label"], quote=True)} CPU時系列集計"><title>{html.escape(profile["label"])}: 完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回</title>',
+                 f'<text x="{left}" y="16">{html.escape(profile["label"])}</text>']
+        for tick in range(3):
+            value = ymax * tick / 2
+            parts.append(f'<line x1="{left}" y1="{y(value):.2f}" x2="{left+width}" y2="{y(value):.2f}" stroke="#e2e6ec"/><text x="{left-7}" y="{y(value)+4:.2f}" text-anchor="end">{value:.0f}%</text>')
+        for tick in range(5):
+            value = xmax * tick / 4
+            parts.append(f'<text x="{x(value):.2f}" y="190" text-anchor="middle">{value:.1f}</text>')
+        previous = None
+        for point in profile["points"]:
+            low_count = point["trial_count"] < profile["complete_trials"]
+            opacity = "0.45" if low_count else "1"
+            dash = ' stroke-dasharray="3 2"' if low_count else ""
+            a, b = x(point["start_s"]), x(point["end_s"])
+            parts.append(f'<rect x="{a:.2f}" y="{y(point["q75_percent"]):.2f}" width="{b-a:.2f}" height="{y(point["q25_percent"])-y(point["q75_percent"]):.2f}" fill="{color}" fill-opacity="{0.07 if low_count else 0.15}"/>')
+            path = f'M{a:.2f},{y(point["median_percent"]):.2f}L{b:.2f},{y(point["median_percent"]):.2f}'
+            if previous is not None:
+                path = f'M{a:.2f},{y(previous):.2f}L{a:.2f},{y(point["median_percent"]):.2f}' + path
+            parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="1.6" opacity="{opacity}"{dash}/>')
+            title = f'{point["start_s"]:.2f}–{point["end_s"]:.2f}秒: 中央値 {point["median_percent"]:.1f}%, 四分位 {point["q25_percent"]:.1f}–{point["q75_percent"]:.1f}%, 寄与試行数 {point["trial_count"]}'
+            parts.append(f'<rect x="{a:.2f}" y="{top}" width="{max(1,b-a):.2f}" height="{height}" fill="transparent"><title>{html.escape(title)}</title></rect>')
+            previous = point["median_percent"]
+        parts.append(f'<text x="{left+width/2}" y="211" text-anchor="middle">合成要求開始からの秒数（共通軸）</text></svg>')
+        tail = profile["points"][-1]["trial_count"] if profile["points"] else 0
+        figures.append('<figure>' + ''.join(parts) + f'<figcaption>完全追跡 {profile["complete_trials"]}/{profile["total_trials"]}回 · 最終区間の寄与 {tail}回</figcaption></figure>')
+    payload = json.dumps(profiles, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
+    return '<h2>CPU 使用率の時間推移（モード別集計）</h2><div class="cpu-grid">' + ''.join(figures) + '</div><p class="cpu-caption">線は完全追跡できた試行の中央値、帯は四分位範囲。共通0.25秒ビンへ区間内一定と仮定して重なり時間で配分した後、試行間で集計。100%＝論理1コア。終了後は0埋めせず除外し、寄与試行数が減る末尾は薄い破線。各区間にカーソルを重ねると寄与数を表示</p><script id="cpu-profile-data" type="application/json">' + payload + '</script>'
 
 
 def render_report(result: dict[str, Any], target: Path) -> None:
@@ -876,11 +958,13 @@ def render_report(result: dict[str, Any], target: Path) -> None:
     notes = "".join(f"<li>{html.escape(note)}</li>" for note in note_values)
     duration = result["audio_s"]
     log_lines = "\n".join(json.dumps(event, ensure_ascii=False) for event in result.get("log", []))
+    ordering = ("乱数で基本順とラウンド順を決め、各位置の回数差を最大1に制限。各ペアの前後順は両方を含む" if result.get("schedule_method", "").startswith("seeded position-balanced")
+                else "各ラウンドでモード順をシャッフル")
     document = f'''<!doctype html>
 <html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VOICEVOX CORE benchmark</title>
 <style>
-:root{{font-family:system-ui,-apple-system,sans-serif;color:#202936;background:#fff;font-size:15px;line-height:1.5}}body{{max-width:960px;margin:36px auto;padding:0 24px}}h1{{font-size:24px;letter-spacing:-.03em;margin:0 0 6px}}h2{{font-size:17px;margin:28px 0 10px}}p{{margin:6px 0 18px;color:#546170}}table{{border-collapse:collapse;width:100%;font-size:14px}}th,td{{padding:9px 12px;border-bottom:1px solid #e2e6ec;text-align:right}}th:first-child,td:first-child{{text-align:left}}th{{font-weight:600;background:#f6f8fa}}figure{{margin:18px 0}}figcaption{{color:#546170;font-size:13px}}svg{{width:100%;height:auto}}svg text{{font-size:12px;fill:#546170}}details{{margin:18px 0;border-top:1px solid #d8dee7;padding-top:12px}}summary{{cursor:pointer;font-weight:600}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f6f8fa;padding:14px;max-height:420px;overflow:auto}}button{{font:inherit;background:#fff;border:1px solid #a8b4c4;border-radius:4px;padding:6px 12px;cursor:pointer;margin-top:12px}}.scroll{{overflow-x:auto}}.environment th{{text-align:left;width:34%}}.environment td{{text-align:left;overflow-wrap:anywhere}}ul{{padding-left:22px}}@media(max-width:600px){{body{{margin:20px auto;padding:0 14px}}th,td{{padding:7px}}}}
+:root{{font-family:system-ui,-apple-system,sans-serif;color:#202936;background:#fff;font-size:15px;line-height:1.5}}body{{max-width:960px;margin:36px auto;padding:0 24px}}h1{{font-size:24px;letter-spacing:-.03em;margin:0 0 6px}}h2{{font-size:17px;margin:28px 0 10px}}p{{margin:6px 0 18px;color:#546170}}table{{border-collapse:collapse;width:100%;font-size:14px}}th,td{{padding:9px 12px;border-bottom:1px solid #e2e6ec;text-align:right}}th:first-child,td:first-child{{text-align:left}}th{{font-weight:600;background:#f6f8fa}}figure{{margin:18px 0}}figcaption{{color:#546170;font-size:13px}}svg{{width:100%;height:auto}}svg text{{font-size:12px;fill:#546170}}details{{margin:18px 0;border-top:1px solid #d8dee7;padding-top:12px}}summary{{cursor:pointer;font-weight:600}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f6f8fa;padding:14px;max-height:420px;overflow:auto}}button{{font:inherit;background:#fff;border:1px solid #a8b4c4;border-radius:4px;padding:6px 12px;cursor:pointer;margin-top:12px}}.cpu-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}}.cpu-grid figure{{margin:0}}.cpu-caption{{font-size:12px;margin-top:12px}}.scroll{{overflow-x:auto}}.environment th{{text-align:left;width:34%}}.environment td{{text-align:left;overflow-wrap:anywhere}}ul{{padding-left:22px}}@media(max-width:600px){{.cpu-grid{{grid-template-columns:1fr}}body{{margin:20px auto;padding:0 14px}}th,td{{padding:7px}}}}
 </style>
 <h1>VOICEVOX CORE benchmark</h1>
 <p>{html.escape(result["created_at"])} · 音声 {duration:.3f} 秒 · 各モード 5 回 × 3 ブロック</p>
@@ -891,7 +975,7 @@ def render_report(result: dict[str, Any], target: Path) -> None:
 <h2>測定条件</h2>
 <ul><li>同一 sample.vvm・Style ID {result["style_id"]}・準備済み AudioQuery JSON を使用。CPU 推論のみ、辞書・テキスト解析なし</li>
 <li>モデル初期化・ダウンロード・ビルド・AudioQuery 作成・ウォームアップ・音声保存は測定外。合成から WAV 生成までを測定</li>
-<li>各ラウンドでモード順をシャッフルし、1 ブロック内は 5 回連続。3 ラウンド、seed = {result["seed"]}。モード間の同時実行なし</li>
+<li>{ordering}。1 ブロック内は 5 回連続。3 ラウンド、seed = {result["seed"]}。モード間の同時実行なし</li>
 <li>表示スレッド数は推論に設定した値。Web Worker 数ではない</li>
 <li>CPU は対象プロセスと子孫の user＋system 時間 ÷ カウンター採取間の観測時間。100%＝論理1コア、各試行の時間で重み付けした平均</li>
 <li>browser はモード別 Chromium 全体を集計（Python・制御用 Node は除外）。100ms ごとに追跡し、短命プロセスは取りこぼす場合あり</li>{mode_rows}{notes}</ul>
@@ -912,16 +996,25 @@ document.querySelectorAll('button[data-csv]').forEach(button=>button.addEventLis
 RUST_SOURCE = r'''
 use anyhow::{Context as _, ensure};
 use std::{io::{self, BufRead, Write}, sync::{Mutex, OnceLock}};
-use voicevox_core::{AccelerationMode, AudioQuery, StyleId, blocking::{Onnxruntime, Synthesizer, VoiceModelFile}};
+use voicevox_core::{AccelerationMode, AudioQuery, StyleId, VoiceModelId, blocking::{Onnxruntime, Synthesizer, VoiceModelFile}};
 static SYNTH: OnceLock<Synthesizer<()>> = OnceLock::new();
 static QUERY: OnceLock<AudioQuery> = OnceLock::new();
 static WAV: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 static RAW: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-fn setup(runtime: &'static Onnxruntime, model: &str, query: &str, threads: u16) -> anyhow::Result<()> {
-    let synth = Synthesizer::builder(runtime).acceleration_mode(AccelerationMode::Cpu).cpu_num_threads(threads).build()?;
-    synth.load_voice_model(&VoiceModelFile::open(model)?).perform()?;
+static SPIN_OFF: OnceLock<bool> = OnceLock::new();
+static FIXED_LENGTH: OnceLock<usize> = OnceLock::new();
+static MODEL_ID: OnceLock<VoiceModelId> = OnceLock::new();
+fn setup(runtime: &'static Onnxruntime, model: &str, query: &str, threads: u16, fixed_shape: bool, xnn_threads: u16, profile: bool) -> anyhow::Result<()> {
     let query: AudioQuery = serde_json::from_slice(&std::fs::read(query)?)?;
     query.validate()?;
+    let padded_length = if fixed_shape { Some(Synthesizer::<()>::benchmark_decode_padded_length(&query)?) } else { None };
+    voicevox_core::__benchmark_fixed_shape::configure(padded_length, xnn_threads.into(), profile)?;
+    let synth = Synthesizer::builder(runtime).acceleration_mode(AccelerationMode::Cpu).cpu_num_threads(if xnn_threads > 0 { 1 } else { threads }).build()?;
+    let model = VoiceModelFile::open(model)?;
+    MODEL_ID.set(model.id()).map_err(|_| anyhow::anyhow!("Model ID already set"))?;
+    synth.load_voice_model(&model).perform()?;
+    voicevox_core::__benchmark_fixed_shape::verify_loaded()?;
+    FIXED_LENGTH.set(padded_length.unwrap_or(0)).map_err(|_| anyhow::anyhow!("Fixed-shape configuration already set"))?;
     SYNTH.set(synth).map_err(|_| anyhow::anyhow!("Already initialized"))?;
     QUERY.set(query).map_err(|_| anyhow::anyhow!("Already initialized"))?;
     Ok(())
@@ -943,12 +1036,12 @@ fn raw_wave(style: u32) -> anyhow::Result<()> {
 }
 #[cfg(target_os="emscripten")]
 #[unsafe(no_mangle)]
-pub extern "C" fn bench_init(threads: u16) -> i32 {
-    let result = browser_runtime(threads).and_then(|runtime| setup(runtime, "/sample.vvm", "/query.json", threads));
+pub extern "C" fn bench_init(threads: u16, spin_off: bool, fixed_shape: bool, xnn_threads: u16, profile: bool) -> i32 {
+    let result = browser_runtime(threads, spin_off, xnn_threads).and_then(|runtime| setup(runtime, "/sample.vvm", "/query.json", threads, fixed_shape, xnn_threads, profile));
     match result { Ok(()) => 0, Err(error) => { eprintln!("{error:#}"); 1 } }
 }
 #[cfg(target_os="emscripten")]
-fn browser_runtime(threads: u16) -> anyhow::Result<&'static Onnxruntime> {
+fn browser_runtime(threads: u16, spin_off: bool, xnn_threads: u16) -> anyhow::Result<&'static Onnxruntime> {
     #[cfg(feature="threaded")]
     {
         // ORT's pthread WASM build requires one global pool. Register it before
@@ -959,11 +1052,12 @@ fn browser_runtime(threads: u16) -> anyhow::Result<&'static Onnxruntime> {
         ensure!(!api.is_null(), "ORT API unavailable");
         ensure!(ort::set_api(unsafe { api.read() }), "ORT API already initialized");
         let pool = ort::environment::GlobalThreadPoolOptions::default()
-            .with_intra_threads(threads.into())?.with_inter_threads(1)?;
+            .with_intra_threads(if xnn_threads > 0 { 1 } else { threads.into() })?.with_inter_threads(1)?.with_spin_control(!spin_off)?;
         ensure!(ort::init().with_name("voicevox_benchmark").with_global_thread_pool(pool).commit(), "ORT environment already initialized");
+        SPIN_OFF.set(spin_off).map_err(|_| anyhow::anyhow!("Spin configuration already set"))?;
     }
     #[cfg(not(feature="threaded"))]
-    let _ = threads;
+    let _ = (threads, spin_off, xnn_threads);
     Ok(Onnxruntime::init_once()?)
 }
 #[cfg(target_os="emscripten")]
@@ -989,6 +1083,33 @@ pub extern "C" fn bench_raw_ptr() -> *const u8 { RAW.lock().unwrap().as_ptr() }
 #[unsafe(no_mangle)]
 pub extern "C" fn bench_raw_len() -> usize { RAW.lock().unwrap().len() }
 #[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_spin_off() -> i32 { i32::from(SPIN_OFF.get().copied().unwrap_or(false)) }
+#[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_fixed_length() -> usize { FIXED_LENGTH.get().copied().unwrap_or(0) }
+#[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_fixed_matches() -> usize { voicevox_core::__benchmark_fixed_shape::verified_sessions() }
+#[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_xnn_threads() -> usize { voicevox_core::__benchmark_fixed_shape::xnn_threads() }
+#[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_xnn_sessions() -> usize { voicevox_core::__benchmark_fixed_shape::xnn_sessions() }
+#[cfg(target_os="emscripten")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bench_finish_profile() -> i32 {
+    let result = (|| -> anyhow::Result<()> {
+        ensure!(voicevox_core::__benchmark_fixed_shape::profiling_enabled(), "Profiling is disabled");
+        println!("BENCH_PROFILE_BEGIN"); io::stdout().flush()?;
+        SYNTH.get().context("Not initialized")?.unload_voice_model(*MODEL_ID.get().context("No model ID")?)?;
+        println!("BENCH_PROFILE_END"); io::stdout().flush()?;
+        Ok(())
+    })();
+    match result { Ok(()) => 0, Err(error) => { eprintln!("{error:#}"); 1 } }
+}
+#[cfg(target_os="emscripten")]
 fn main() {}
 #[cfg(not(target_os="emscripten"))]
 fn main() -> anyhow::Result<()> {
@@ -997,7 +1118,7 @@ fn main() -> anyhow::Result<()> {
     let runtime = Onnxruntime::load_once().filename(&args[1]).perform()?;
     let threads = args[4].parse()?;
     let style = args[5].parse()?;
-    setup(runtime, &args[2], &args[3], threads)?;
+    setup(runtime, &args[2], &args[3], threads, false, 0, false)?;
     println!("{}", serde_json::json!({"ready": true, "threads": threads}));
     io::stdout().flush()?;
     for line in io::stdin().lock().lines() {
@@ -1025,7 +1146,7 @@ fn main() -> anyhow::Result<()> {
 '''
 
 BROWSER_WORKER = r'''
-let configuredThreads=1, threaded=false, ready=false;
+let configuredThreads=1, threaded=false, ready=false, wasmStdout=[];
 function failure(error){postMessage({error:String(error && error.stack || error)});}
 onmessage=async ({data})=>{
  try{
@@ -1036,6 +1157,7 @@ onmessage=async ({data})=>{
    globalThis.Module={noInitialRun:true,benchmarkPoolSize:Math.max(1,configuredThreads),mainScriptUrlOrBlob:new URL(data.module,self.location).href,
     locateFile:(path)=>new URL(path,new URL(data.module,self.location)).href,
     printErr:(...values)=>postMessage({log:values.join(' ')}),
+    print:(...values)=>wasmStdout.push(values.join(' ')),
     onAbort:failure,
     onRuntimeInitialized:async()=>{
      try{
@@ -1043,12 +1165,12 @@ onmessage=async ({data})=>{
        const response=await fetch('/'+file);if(!response.ok)throw new Error('HTTP '+response.status+' '+file);
        Module.FS.writeFile('/'+file,new Uint8Array(await response.arrayBuffer()));
       }
-      if(Module._bench_init(configuredThreads)!==0)throw new Error('CORE initialization failed');
+      if(Module._bench_init(configuredThreads,Number(data.spin_off),Number(data.fixed_shape),data.xnn_threads||0,Number(data.profile))!==0)throw new Error('CORE initialization failed');
       Module.FS.unlink('/sample.vvm');Module.FS.unlink('/query.json');ready=true;
       const pthreads=threaded ? Module.PThread.runningWorkers.length : 0;
       if(threaded && configuredThreads>1 && pthreads<configuredThreads-1)
        throw new Error('ORT did not create the requested inference pthreads');
-      postMessage({ready:true,threads:configuredThreads,shared_memory:Module.HEAPU8.buffer instanceof SharedArrayBuffer,pthreads_created:pthreads});
+      postMessage({ready:true,threads:configuredThreads,shared_memory:Module.HEAPU8.buffer instanceof SharedArrayBuffer,pthreads_created:pthreads,spin_off:Boolean(Module._bench_spin_off()),fixed_length:Module._bench_fixed_length(),fixed_matches:Module._bench_fixed_matches(),xnn_threads:Module._bench_xnn_threads(),xnn_sessions:Module._bench_xnn_sessions()});
      }catch(error){failure(error);}
     }};
    importScripts(data.module);
@@ -1067,6 +1189,13 @@ onmessage=async ({data})=>{
    const ptr=Module._bench_raw_ptr(),length=Module._bench_raw_len();
    if(!ptr||length<4||length%4)throw new Error('Invalid FP32 output');
    const raw=Module.HEAPU8.slice(ptr,ptr+length).buffer;postMessage({raw},[raw]);
+  }else if(data.command==='finish-profile'){
+   const start=wasmStdout.length;
+   if(Module._bench_finish_profile()!==0)throw new Error('Failed to flush untimed provider profile');
+   ready=false;postMessage({profile_text:wasmStdout.slice(start).join('\n')});
+  }else if(data.command==='thread-state'){
+   if(!ready)throw new Error('CORE not ready');
+   postMessage({pthreads:threaded ? Module.PThread.runningWorkers.length : 0});
   }
  }catch(error){failure(error);}
 };
@@ -1128,6 +1257,215 @@ CORE_BENCH_HELPER = '''        // Untimed diagnostic only: mirrors the pinned Ta
 '''
 
 
+CORE_FIXED_CONFIG = r'''
+#[doc(hidden)]
+pub mod __benchmark_fixed_shape {
+    use std::sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    pub const DECODE_SHA256_HEX: &str =
+        "37e5e70519417f742e7a044c22ae52f0264c7c7bd6f74cb2cd960d441f0b84a5";
+    pub(crate) const DECODE_SHA256: [u8; 32] = [0x37, 0xe5, 0xe7, 0x05, 0x19, 0x41, 0x7f, 0x74, 0x2e, 0x7a, 0x04, 0x4c, 0x22, 0xae, 0x52, 0xf0, 0x26, 0x4c, 0x7c, 0x7b, 0xd6, 0xf7, 0x4c, 0xb2, 0xcd, 0x96, 0x0d, 0x44, 0x1f, 0x0b, 0x84, 0xa5];
+    pub(crate) const DECODE_BYTES: usize = 57_149_888;
+
+    static REQUESTED: OnceLock<Option<usize>> = OnceLock::new();
+    static VERIFIED_SESSIONS: AtomicUsize = AtomicUsize::new(0);
+    static XNN_THREADS: OnceLock<usize> = OnceLock::new();
+    static PROFILE: OnceLock<bool> = OnceLock::new();
+    static XNN_SESSIONS: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn configure(padded_length: Option<usize>, xnn_threads: usize, profile: bool) -> anyhow::Result<()> {
+        anyhow::ensure!((xnn_threads == 0 && !profile) || padded_length.is_some(), "Provider diagnostics require verified fixed decode shape");
+        if let Some(n) = padded_length {
+            anyhow::ensure!(n > 0, "Fixed decode length must be positive");
+            let _ = i64::try_from(n)?;
+        }
+        REQUESTED
+            .set(padded_length)
+            .map_err(|_| anyhow::anyhow!("Benchmark configuration already initialized"))?;
+        XNN_THREADS.set(xnn_threads).map_err(|_| anyhow::anyhow!("XNNPACK already configured"))?;
+        PROFILE.set(profile).map_err(|_| anyhow::anyhow!("Profiling already configured"))?;
+        Ok(())
+    }
+
+    pub fn xnn_threads() -> usize { XNN_THREADS.get().copied().unwrap_or(0) }
+    pub fn profiling_enabled() -> bool { PROFILE.get().copied().unwrap_or(false) }
+    pub fn xnn_sessions() -> usize { XNN_SESSIONS.load(Ordering::SeqCst) }
+    pub(crate) fn record_xnn_session() -> anyhow::Result<()> {
+        anyhow::ensure!(XNN_SESSIONS.fetch_add(1, Ordering::SeqCst) == 0, "Multiple XNNPACK sessions registered");
+        Ok(())
+    }
+
+    pub(crate) fn requested_length() -> Option<usize> {
+        REQUESTED.get().copied().flatten()
+    }
+
+    pub(crate) fn record_verified_session() -> anyhow::Result<()> {
+        let old = VERIFIED_SESSIONS.fetch_add(1, Ordering::SeqCst);
+        anyhow::ensure!(old == 0, "More than one fixed-shape decode session matched");
+        Ok(())
+    }
+
+    pub fn verified_sessions() -> usize {
+        VERIFIED_SESSIONS.load(Ordering::SeqCst)
+    }
+
+    pub fn verify_loaded() -> anyhow::Result<()> {
+        let requested = REQUESTED
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("Benchmark configuration was not initialized"))?;
+        let expected = usize::from(requested.is_some());
+        anyhow::ensure!(
+            verified_sessions() == expected,
+            "Expected {} verified fixed-shape decode session(s), got {}",
+            expected,
+            verified_sessions()
+        );
+        anyhow::ensure!(xnn_sessions() == usize::from(xnn_threads() > 0), "XNNPACK decode registration count mismatch");
+        Ok(())
+    }
+}
+'''
+
+CORE_FIXED_HELPER = r'''
+        #[doc(hidden)]
+        pub fn benchmark_decode_padded_length(audio_query: &AudioQuery) -> anyhow::Result<usize> {
+            let audio_query = audio_query.to_validated()?;
+            let super::DecoderFeature { f0, phoneme } =
+                audio_query.decoder_feature(super::DEFAULT_ENABLE_INTERROGATIVE_UPSPEAK);
+            let length = f0.len();
+            let phoneme_size = super::PhonemeCode::num_phoneme();
+            anyhow::ensure!(length > 0 && phoneme_size == 45, "Unexpected decoder query shape");
+            anyhow::ensure!(phoneme.len() == length, "f0/phoneme frame count differs");
+
+            let f0 = ndarray::Array1::from(f0);
+            let phoneme = ndarray::Array2::from_shape_vec(
+                (length, phoneme_size),
+                phoneme.into_iter().flatten().collect(),
+            )?;
+            let (n, f0_padded, phoneme_padded) =
+                super::pad_decoder_feature::<{ super::PADDING_FRAME_LENGTH }>(f0, phoneme);
+            anyhow::ensure!(
+                n == length + 2 * super::PADDING_FRAME_LENGTH,
+                "Unexpected padding length"
+            );
+            anyhow::ensure!(f0_padded.shape() == [n], "Unexpected padded f0 shape");
+            anyhow::ensure!(
+                phoneme_padded.shape() == [n, phoneme_size],
+                "Unexpected padded phoneme shape"
+            );
+            let _ = i64::try_from(n)?;
+            Ok(n)
+        }
+
+'''
+
+CORE_FIXED_OPTION = r'''
+        let benchmark_fixed_length =
+            match (crate::__benchmark_fixed_shape::requested_length(), model) {
+                (Some(n), ModelBytes::Onnx(bytes))
+                    if bytes.len() == crate::__benchmark_fixed_shape::DECODE_BYTES =>
+                {
+                    use sha2::{Digest as _, Sha256};
+                    let digest: [u8; 32] = Sha256::digest(bytes).into();
+                    (digest == crate::__benchmark_fixed_shape::DECODE_SHA256).then_some(n)
+                }
+                _ => None,
+            };
+        if let Some(n) = benchmark_fixed_length {
+            builder = builder
+                .with_dimension_override("length", i64::try_from(n)?)
+                .map_err(ort::Error::<()>::from)?;
+            if let Some(threads) = std::num::NonZeroUsize::new(crate::__benchmark_fixed_shape::xnn_threads()) {
+                // Direct register calls the real C API and propagates errors;
+                // the pinned binding's platform hint omits WASM.
+                ort::ep::XNNPACK::default().with_intra_op_num_threads(threads).register(&mut builder)?;
+            }
+            if crate::__benchmark_fixed_shape::profiling_enabled() {
+                builder = builder.with_profiling("bench-ep").map_err(ort::Error::<()>::from)?;
+            }
+        }
+
+'''
+
+CORE_FIXED_VERIFY = r'''
+        if let Some(n) = benchmark_fixed_length {
+            let n = i64::try_from(n)?;
+            ensure!(sess.inputs().len() == 3, "Unexpected fixed decode input count");
+            for (name, expected_type, expected_shape) in [
+                ("f0", TensorElementType::Float32, vec![n, 1]),
+                ("phoneme", TensorElementType::Float32, vec![n, 45]),
+                ("speaker_id", TensorElementType::Int64, vec![1]),
+            ] {
+                let info = sess.inputs().iter()
+                    .find(|input| input.name() == name)
+                    .with_context(|| format!("Missing fixed decode input {name}"))?;
+                let ValueType::Tensor { ty, shape, .. } = info.dtype() else {
+                    bail!("Fixed decode input {name} is not a tensor");
+                };
+                ensure!(*ty == expected_type, "Unexpected fixed decode dtype for {name}");
+                ensure!(
+                    &shape[..] == expected_shape.as_slice(),
+                    "Fixed decode shape mismatch for {}: expected {:?}, got {:?}",
+                    name, expected_shape, shape
+                );
+            }
+            ensure!(
+                sess.outputs().len() == 1 && sess.outputs()[0].name() == "wave",
+                "Unexpected fixed decode output"
+            );
+            let ValueType::Tensor { ty, .. } = sess.outputs()[0].dtype() else {
+                bail!("Fixed decode output is not a tensor");
+            };
+            ensure!(*ty == TensorElementType::Float32, "Unexpected fixed decode output dtype");
+            crate::__benchmark_fixed_shape::record_verified_session()?;
+            if crate::__benchmark_fixed_shape::xnn_threads() > 0 {
+                crate::__benchmark_fixed_shape::record_xnn_session()?;
+            }
+        }
+
+'''
+
+
+def patch_fixed_shape(source: Path) -> None:
+    def insert(path: Path, marker: str, addition: str, token: str) -> None:
+        content = path.read_text("utf-8")
+        if token in content:
+            if addition not in content or content.count(token) != 1:
+                raise RuntimeError("Cached CORE fixed-shape patch differs from this script")
+            return
+        if content.count(marker) != 1:
+            raise RuntimeError("Pinned CORE does not match a fixed-shape patch marker")
+        path.write_text(content.replace(marker, addition + marker, 1), encoding="utf-8")
+    crate = source / "crates/voicevox_core"
+    manifest = crate / "Cargo.toml"
+    content = manifest.read_text("utf-8")
+    if "sha2.workspace = true" not in content:
+        if content.count("[dependencies]\n") != 1 or re.search(r"^sha2\s*[.=]", content, re.M):
+            raise RuntimeError("Unexpected CORE sha2 dependency declaration")
+        manifest.write_text(content.replace("[dependencies]\n", "[dependencies]\nsha2.workspace = true\n", 1), encoding="utf-8")
+    content = manifest.read_text("utf-8")
+    ort_line = 'ort = { workspace = true, features = ["std", "ndarray", "tracing", "api-17", "alternative-backend"], default-features = false }'
+    ort_xnn_line = ort_line.replace('"alternative-backend"', '"alternative-backend", "xnnpack"')
+    if ort_xnn_line not in content:
+        if content.count(ort_line) != 1:
+            raise RuntimeError("Pinned CORE ort feature declaration differs")
+        manifest.write_text(content.replace(ort_line, ort_xnn_line, 1), encoding="utf-8")
+    library = crate / "src/lib.rs"
+    content = library.read_text("utf-8")
+    if "pub mod __benchmark_fixed_shape" not in content:
+        library.write_text(content + "\n" + CORE_FIXED_CONFIG, encoding="utf-8")
+    elif CORE_FIXED_CONFIG not in content:
+        raise RuntimeError("Cached CORE fixed-shape configuration differs from this script")
+    insert(crate / "src/synthesizer.rs", "        // Untimed diagnostic only: mirrors the pinned TalkDomain synthesis path\n",
+           CORE_FIXED_HELPER, "pub fn benchmark_decode_padded_length")
+    runtime = crate / "src/core/infer/runtimes/onnxruntime.rs"
+    insert(runtime, "        let sess = match model {\n", CORE_FIXED_OPTION, "let benchmark_fixed_length =")
+    insert(runtime, "        let input_param_infos = sess\n", CORE_FIXED_VERIFY, "Unexpected fixed decode input count")
+
+
 def write_wrapper(source: Path) -> None:
     synthesizer = source / "crates/voicevox_core/src/synthesizer.rs"
     contents = synthesizer.read_text("utf-8")
@@ -1138,6 +1476,7 @@ def write_wrapper(source: Path) -> None:
         synthesizer.write_text(contents.replace(marker, CORE_BENCH_HELPER + marker, 1), encoding="utf-8")
     elif CORE_BENCH_HELPER not in contents:
         raise RuntimeError("Cached CORE FP32 diagnostic patch differs from this script")
+    patch_fixed_shape(source)
     crate = source / "crates/voicevox_benchmark"
     (crate / "src").mkdir(parents=True, exist_ok=True)
     (crate / "Cargo.toml").write_text('''[package]
@@ -1239,17 +1578,27 @@ class NativeRunner:
 
 
 class BrowserRunner:
-    def __init__(self, browser: Any, url: str, module: str, threads: int, threaded: bool, style: int, wav: Path):
+    def __init__(self, browser: Any, url: str, module: str, threads: int, threaded: bool, style: int, wav: Path,
+                 *, fixed_shape: bool = False, spin_off: bool = False, xnn_threads: int = 0, profile: bool = False):
         self.page = browser.new_page()
         self.page.set_default_timeout(600_000)
         self.page.goto(url, wait_until="load")
-        message = self.page.evaluate("data => request(data)", {"command": "init", "module": module, "threads": threads, "threaded": threaded})
-        if not message.get("ready") or message.get("threads") != threads or message.get("shared_memory") != threaded:
+        message = self.page.evaluate("data => request(data)", {"command": "init", "module": module, "threads": threads, "threaded": threaded, "fixed_shape": fixed_shape, "spin_off": spin_off, "xnn_threads": xnn_threads, "profile": profile})
+        if not message.get("ready") or message.get("threads") != threads or message.get("shared_memory") != threaded or message.get("spin_off") != spin_off:
             self.page.close()
             raise RuntimeError("Browser did not confirm the required thread/shared-memory configuration")
         self.style, self.wav, self.duration, self.bytes = style, wav, 0.0, 0
         self.shared_memory = message["shared_memory"]
         self.pthreads_created = message.get("pthreads_created", 0)
+        self.spin_off = message["spin_off"]
+        self.xnn_threads, self.xnn_sessions = message["xnn_threads"], message["xnn_sessions"]
+        if self.xnn_threads != xnn_threads or self.xnn_sessions != int(xnn_threads > 0):
+            self.page.close()
+            raise RuntimeError("XNNPACK was not registered for exactly the requested decode session")
+        self.fixed_length, self.fixed_matches = message["fixed_length"], message["fixed_matches"]
+        if (fixed_shape and (self.fixed_length <= 0 or self.fixed_matches != 1)) or (not fixed_shape and (self.fixed_length != 0 or self.fixed_matches != 0)):
+            self.page.close()
+            raise RuntimeError("Fixed decode shape was not applied to exactly the requested session")
 
     def synthesize(self, save: bool = False) -> tuple[float, float]:
         message = self.page.evaluate("data => request(data)", {"command": "synthesize", "style": self.style, "save": save})
@@ -1268,6 +1617,110 @@ class BrowserRunner:
     def raw_wave(self) -> bytes:
         message = self.page.evaluate("data => request(data)", {"command": "raw", "style": self.style})
         return bytes(message["raw"])
+
+    def thread_state(self) -> int:
+        return int(self.page.evaluate("() => request({command:'thread-state'})")["pthreads"])
+
+    def finish_profile(self, profile_path: Path | None = None) -> dict[str, Any]:
+        message = self.page.evaluate("() => request({command:'finish-profile'})")
+        text = message["profile_text"]
+        if text.count("BENCH_PROFILE_BEGIN") != 1 or text.count("BENCH_PROFILE_END") != 1:
+            raise RuntimeError("Provider profile stdout markers are missing or ambiguous")
+        events = json.loads(text.split("BENCH_PROFILE_BEGIN", 1)[1].split("BENCH_PROFILE_END", 1)[0].strip())
+        if profile_path:
+            atomic_write(profile_path, json.dumps(events, ensure_ascii=False, indent=2).encode())
+        providers: dict[str, set[str]] = {}
+        for event in events:
+            if event.get("cat") == "Node" and event.get("name", "").endswith("_kernel_time") and event.get("args", {}).get("provider"):
+                providers.setdefault(event["args"]["provider"], set()).add(event["name"])
+        return {"verified": bool(providers.get("XnnpackExecutionProvider")),
+                "provider_kernel_counts": {key: len(nodes) for key, nodes in providers.items()},
+                "profile_events": len(events), "profiling_scope": "separate untimed diagnostic browser only"}
+
+
+def browser_engine_info(browser: Any) -> dict[str, Any]:
+    session = browser.new_browser_cdp_session()
+    try:
+        version = session.send("Browser.getVersion")
+        command = session.send("Browser.getBrowserCommandLine")["arguments"]
+        # Command lines contain temporary/user paths; keep only the explicit V8 flags.
+        return {"product": version["product"], "js_version": version["jsVersion"],
+                "js_flags": [item for item in command if item.startswith("--js-flags=")]}
+    finally:
+        session.detach()
+
+
+def revectorization_diagnostic_child(config_path: Path) -> None:
+    from playwright.sync_api import sync_playwright
+    config = json.loads(config_path.read_text("utf-8"))
+    with sync_playwright() as playwright:
+        options = dict(config["options"])
+        options["args"] = ["--js-flags=--wasm-revectorize,--trace-wasm-revectorize" if config["enable"] else "--js-flags=--trace-wasm-revectorize"]
+        browser = playwright.chromium.launch(**options)
+        runner = None
+        try:
+            info = browser_engine_info(browser)
+            runner = BrowserRunner(browser, config["url"], "/mt/voicevox_benchmark.js", config["threads"], True,
+                                   config["style"], Path(config["wav"]))
+            for _ in range(3):
+                runner.synthesize(save=True)
+            atomic_write(Path(config["result"]), json.dumps(info).encode())
+        finally:
+            if runner:
+                runner.close()
+            browser.close()
+
+
+def verify_revectorization(url: str, options: dict[str, Any], threads: int, style: int, work: Path,
+                          trace_dir: Path | None = None) -> dict[str, Any]:
+    records = {}
+    for enable, key in ((False, "control"), (True, "candidate")):
+        progress(f"Checking V8 {key} vector transformations in a separate untimed browser")
+        config_path, result_path = work / f"revec-{key}-config.json", work / f"revec-{key}-result.json"
+        atomic_write(config_path, json.dumps({"options": options, "url": url, "threads": threads, "style": style, "enable": enable,
+                                            "wav": str(work / f"revec-{key}.wav"), "result": str(result_path)}).encode())
+        env = dict(os.environ)
+        env["DEBUG"] = "pw:browser"
+        try:
+            output = checked_run([sys.executable, str(Path(__file__).resolve()), "--diagnostic-config", str(config_path)], env=env)
+        except RuntimeError as error:
+            if trace_dir:
+                atomic_write(trace_dir / f"{key}-failed-tail.log", str(error).encode())
+            raise
+        if trace_dir:
+            atomic_write(trace_dir / f"{key}.log", output.encode())
+        nodes = [int(value) for value in re.findall(r"Decided to vectorize, ([1-9][0-9]*) revectorizable nodes", output)]
+        rejected = bool(re.search(r"(?:unrecognized|unknown|unrecognised|contradictory) (?:command[- ]line )?flags?|Error:.*(?:wasm-revectorize|trace-wasm-revectorize)", output, re.I))
+        info = json.loads(result_path.read_text("utf-8"))
+        expected = "--js-flags=--wasm-revectorize,--trace-wasm-revectorize" if enable else "--js-flags=--trace-wasm-revectorize"
+        records[key] = {**info, "transformed_groups": len(nodes), "revectorizable_nodes": sum(nodes),
+                        "flag_rejected": rejected, "flags_verified": info["js_flags"] == [expected]}
+    control, candidate = records["control"], records["candidate"]
+    verified = (control["transformed_groups"] == 0 and candidate["transformed_groups"] > 0
+                and all(value["flags_verified"] and not value["flag_rejected"] for value in records.values())
+                and (control["product"], control["js_version"]) == (candidate["product"], candidate["js_version"]))
+    return {**records, "verified": verified,
+            "evidence": "no transformations in trace-only control; positive nonempty V8 optimizer transformations with revectorization; actual CORE WASM, three untimed syntheses each"}
+
+
+def verify_xnnpack(playwright: Any, url: str, options: dict[str, Any], threads: int, style: int, work: Path,
+                   profile_path: Path | None = None) -> dict[str, Any]:
+    progress("Checking XNNPACK kernel execution in a separate untimed profiled browser")
+    browser = playwright.chromium.launch(**options)
+    runner = None
+    try:
+        runner = BrowserRunner(browser, url, "/xnnpack/voicevox_benchmark.js", threads, True, style,
+                               work / "xnnpack-diagnostic.wav", fixed_shape=True, spin_off=True, xnn_threads=threads, profile=True)
+        runner.synthesize(save=True)
+        pthreads = runner.thread_state()
+        if pthreads != threads - 1:
+            raise RuntimeError("XNNPACK process created an unexpected number of inference pthreads")
+        return {**runner.finish_profile(profile_path), "pthreads_after_warmup": pthreads, "fixed_length": runner.fixed_length, "fixed_matches": runner.fixed_matches,
+                "xnn_threads": runner.xnn_threads, "xnn_sessions": runner.xnn_sessions}
+    finally:
+        if runner:
+            runner.close()
+        browser.close()
 
 
 @contextlib.contextmanager
@@ -1299,6 +1752,7 @@ EMSDK_COMMIT = "419021fa040428bc69ef1559b325addb8e10211f"
 BASE_RELEASE = "https://github.com/yamachu/onnxruntime-builder/releases/download/onnxruntime-1.23.2"
 ORT_ARCHIVE_SHA256 = {'onnxruntime-linux-arm64-1.23.2.tgz': '121888dc9d8c6267f6373df150eed9cd2da5dfd4e277d99b22e092533790f61a', 'onnxruntime-linux-x64-1.23.2.tgz': '2e147a06354a4b75362d4a26e6c55b126d05e25dc19c609c1733aedb7156e8a2', 'onnxruntime-osx-arm64-1.23.2.tgz': 'a80514d3ecf04f8c7e8e8c2d0f1dd603bee0c383e84c1ca01e40bf7807c3d0ce', 'onnxruntime-osx-x86_64-1.23.2.tgz': '0c6489e161ea803e52e8153bdba4ea1541252c171776925f0f230091e1a5a949', 'onnxruntime-wasm-static-1.23.2.tgz': '2dc2c5073337b0e77e08314ca9936f5b9a355ff4e237c16294b969e7f2db6593', 'onnxruntime-win-arm64-1.23.2.tgz': '119b1e2fefde9b139c8a43d3e7ef1817b7ff8d551209916d5f1f8528dd451829', 'onnxruntime-win-x64-1.23.2.tgz': '9db1a87c4502e435319d24602ebd280c98d3d62f7c2b31f16e34de2143732bde'}
 THREADED_ORT_URL = "https://github.com/Hiroshiba/onnxruntime-builder/releases/download/onnxruntime-wasm-static-simd-threaded-1.23.2/onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"
+XNNPACK_ORT_URL: str | None = None  # Set only after the fork's strict-FP archive is validated and published.
 ORT_ARCHIVE_SHA256["onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"] = "bdc024237b8303feb24c237bc7c8c07fdabd12a2bb7049684ed2894c580a63d1"
 
 
@@ -1389,7 +1843,7 @@ def ensure_toolchains(root: Path) -> dict[str, str]:
 
 
 def build_runner(source: Path, runtime: Path, root: Path, env: dict[str, str], *, threaded: bool | None, threads: int,
-                 optimization: str = "z", graph_level: int = 1) -> Path:
+                 optimization: str = "z", graph_level: int = 1, xnnpack: bool = False) -> Path:
     if optimization not in ("z", "3") or graph_level not in (1, 3):
         raise ValueError("Unsupported benchmark optimization variant")
     write_wrapper(source)
@@ -1398,13 +1852,16 @@ def build_runner(source: Path, runtime: Path, root: Path, env: dict[str, str], *
         kind += "-o3"
     if graph_level != 1:
         kind += "-graph3"
+    if xnnpack:
+        kind += "-xnnpack"
     pool = 'Module["benchmarkPoolSize"]' if threaded else 0
     import inspect
-    build_adapter = inspect.getsource(build_runner) + inspect.getsource(write_wrapper)
+    build_adapter = inspect.getsource(build_runner) + inspect.getsource(write_wrapper) + inspect.getsource(patch_fixed_shape)
     identity = {"build_adapter_sha256": hashlib.sha256(build_adapter.encode()).hexdigest(), "core": CORE_COMMIT, "rust": RUST_VERSION, "emscripten": EMSDK_VERSION,
                 "runtime": sha256_file(runtime), "wrapper": hashlib.sha256(RUST_SOURCE.encode()).hexdigest(),
                 "core_diagnostic_patch": hashlib.sha256(CORE_BENCH_HELPER.encode()).hexdigest(),
-                "kind": kind, "optimization": optimization, "graph_level": graph_level,
+                "core_fixed_shape_patch": hashlib.sha256((CORE_FIXED_CONFIG + CORE_FIXED_HELPER + CORE_FIXED_OPTION + CORE_FIXED_VERIFY + "sha2.workspace = true; ort/xnnpack").encode()).hexdigest(),
+                "kind": kind, "optimization": optimization, "graph_level": graph_level, "xnnpack": xnnpack,
                 "pool": pool, "rebuild_std": bool(threaded), "platform": native_platform()[1]}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
     folder = root / "builds" / key
@@ -1435,10 +1892,10 @@ def build_runner(source: Path, runtime: Path, root: Path, env: dict[str, str], *
     else:
         command += ["--features", "browser,threaded" if threaded else "browser", "--target", "wasm32-unknown-emscripten"]
         features = "+simd128,+atomics,+bulk-memory,+mutable-globals" if threaded else "+simd128"
-        flags = ["-C", f"target-feature={features}", "-C", "link-arg=-msimd128", "-C", "link-arg=-fwasm-exceptions", "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
+        flags = ["-C", f"target-feature={features}", "-C", "link-arg=-msimd128", "-C", "link-arg=-fwasm-exceptions", "-C", "link-arg=-fno-fast-math", "-C", "link-arg=-ffp-contract=off", "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
                  "-C", "link-arg=-sINITIAL_MEMORY=1073741824", "-C", "link-arg=-sSTACK_SIZE=8388608",
                  "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=FS,HEAPU8" + (",PThread" if threaded else ""),
-                 "-C", "link-arg=-sEXPORTED_FUNCTIONS=_main,_bench_init,_bench_synthesize,_bench_wav_ptr,_bench_wav_len,_bench_raw,_bench_raw_ptr,_bench_raw_len",
+                 "-C", "link-arg=-sEXPORTED_FUNCTIONS=_main,_bench_init,_bench_synthesize,_bench_wav_ptr,_bench_wav_len,_bench_raw,_bench_raw_ptr,_bench_raw_len,_bench_spin_off,_bench_fixed_length,_bench_fixed_matches,_bench_xnn_threads,_bench_xnn_sessions,_bench_finish_profile",
                  "-L", f"native={runtime.parent}"]
         if optimization == "3":
             flags += ["-C", "link-arg=-O3"]
@@ -1479,17 +1936,23 @@ def build_runner(source: Path, runtime: Path, root: Path, env: dict[str, str], *
     return binary
 
 
-def verify_threaded_runtime(folder: Path) -> dict[str, Any]:
+def verify_threaded_runtime(folder: Path, *, xnnpack: bool = False) -> dict[str, Any]:
     info_path = find_one(folder, "BUILD_INFO.json")
     info = json.loads(info_path.read_text("utf-8"))
     expected = {"schema_version": 1, "library": "onnxruntime", "version": ORT_VERSION,
                 "source_commit": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
                 "emscripten_version": EMSDK_VERSION, "target": "wasm32-unknown-emscripten",
                 "simd": True, "pthreads": True, "signed": False, "exception_abi": "wasm", "thread_pool_scope": "global"}
+    if xnnpack:
+        expected.update({"xnnpack": True, "relaxed_simd": False, "fast_math": False, "fp_contract": "off",
+                         "thread_pool_scope": "global_ort_plus_per_session_xnnpack", "pthreadpool_backend": "pthreads",
+                         "pthreadpool_execution_smoke_passed": True})
     if any(info.get(key) != value for key, value in expected.items()):
         raise RuntimeError("The threaded archive does not match the required generic ORT/SIMD/pthread build")
     if not info.get("smoke_test", {}).get("passed"):
         raise RuntimeError("The threaded runtime's build smoke test did not pass")
+    if xnnpack and not all(info["smoke_test"].get(key) for key in ("profile_verified", "numerical_reference_verified")):
+        raise RuntimeError("XNNPACK build lacks verified provider activity and numerical smoke checks")
     runtime = find_one(folder, "libonnxruntime_webassembly.a")
     sums = (info_path.parent / "SHA256SUMS").read_text("utf-8")
     entry = next((line.split()[0] for line in sums.splitlines() if line.split() and line.split()[-1].lstrip("*") == "lib/libonnxruntime_webassembly.a"), None)
@@ -1511,8 +1974,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
     from playwright.sync_api import sync_playwright
     import psutil
     progress("Preparing benchmark inputs and cached tools")
-    if args.experiments and args.baseline_only:
-        raise ValueError("--experiments requires the multithreaded browser reference")
+    if sum(map(bool, (args.experiments, args.baseline_only, args.backend_experiments))) > 1:
+        raise ValueError("Choose only one of --experiments, --baseline-only, or --backend-experiments")
+    use_xnnpack = args.backend_experiments == "all"
     if args.experiments and args.experimental_threads > logical_cpu_count():
         progress(f"Warning: experimental threads={args.experimental_threads} exceeds available logical CPUs={logical_cpu_count()}")
     if not 0 <= args.style_id <= 2**32 - 1:
@@ -1524,6 +1988,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
     root = args.cache_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
     threaded_url = args.threaded_ort_url or THREADED_ORT_URL
+    xnnpack_url = args.xnnpack_ort_url or XNNPACK_ORT_URL
+    if use_xnnpack and not xnnpack_url and not args.xnnpack_ort_archive:
+        raise RuntimeError("The XNNPACK runtime is not configured until its validated release is available; no XNNPACK measurement was made")
     if not args.baseline_only and not threaded_url and not args.threaded_ort_archive:
         raise RuntimeError("The unsigned multithreaded ORT release is not yet configured. Supply its verified archive URL using --threaded-ort-url; single-thread results are not a substitute for this mode.")
     begin = time.monotonic()
@@ -1535,15 +2002,18 @@ def run_benchmark(args: argparse.Namespace) -> None:
     source = next(path.parent for path in core_tree.glob("*/Cargo.toml"))
     platform_name, _ = native_platform()
     runtime_archives = {}
-    urls = {
+    urls = {} if args.backend_experiments else {
         "native": f"{BASE_RELEASE}/onnxruntime-{platform_name}-{ORT_VERSION}.tgz",
         "browser": f"{BASE_RELEASE}/onnxruntime-wasm-static-{ORT_VERSION}.tgz",
     }
     if not args.baseline_only:
         urls["browser_mt"] = threaded_url
+    if use_xnnpack:
+        urls["browser_xnnpack"] = xnnpack_url or "local-xnnpack-archive"
     for name, url in urls.items():
-        if name == "browser_mt" and args.threaded_ort_archive:
-            archive = args.threaded_ort_archive.resolve()
+        local_archive = args.threaded_ort_archive if name == "browser_mt" else (args.xnnpack_ort_archive if name == "browser_xnnpack" else None)
+        if local_archive:
+            archive = local_archive.resolve()
             verify_archive_sidecar(archive)
         else:
             from urllib.parse import urlparse
@@ -1554,15 +2024,19 @@ def run_benchmark(args: argparse.Namespace) -> None:
         runtime_archives[name] = (archive, extracted)
     library_name = "onnxruntime.dll" if sys.platform == "win32" else (f"libonnxruntime.{ORT_VERSION}.dylib" if sys.platform == "darwin" else f"libonnxruntime.so.{ORT_VERSION}")
     threaded_info = verify_threaded_runtime(runtime_archives["browser_mt"][1]) if not args.baseline_only else None
-    native_runtime = find_one(runtime_archives["native"][1], library_name)
-    st_runtime = find_one(runtime_archives["browser"][1], "libonnxruntime_webassembly.a")
+    xnnpack_info = verify_threaded_runtime(runtime_archives["browser_xnnpack"][1], xnnpack=True) if use_xnnpack else None
+    native_runtime = find_one(runtime_archives["native"][1], library_name) if not args.backend_experiments else None
+    st_runtime = find_one(runtime_archives["browser"][1], "libonnxruntime_webassembly.a") if not args.backend_experiments else None
     mt_runtime = find_one(runtime_archives["browser_mt"][1], "libonnxruntime_webassembly.a") if not args.baseline_only else None
-    native_binary = build_runner(source, native_runtime, root, env, threaded=None, threads=args.threads)
-    browser_st = build_runner(source, st_runtime, root, env, threaded=False, threads=1)
+    native_binary = build_runner(source, native_runtime, root, env, threaded=None, threads=args.threads) if native_runtime else None
+    browser_st = build_runner(source, st_runtime, root, env, threaded=False, threads=1) if st_runtime else None
     browser_mt = build_runner(source, mt_runtime, root, env, threaded=True, threads=args.threads) if mt_runtime else None
-    browser_binaries = {"st": browser_st}
+    browser_binaries = {"st": browser_st} if browser_st else {}
     if browser_mt:
         browser_binaries["mt"] = browser_mt
+    if use_xnnpack:
+        xnn_runtime = find_one(runtime_archives["browser_xnnpack"][1], "libonnxruntime_webassembly.a")
+        browser_binaries["xnnpack"] = build_runner(source, xnn_runtime, root, env, threaded=True, threads=args.threads, xnnpack=True)
     if args.experiments:
         browser_binaries["o3"] = build_runner(source, mt_runtime, root, env, threaded=True, threads=args.threads, optimization="3")
         browser_binaries["graph3"] = build_runner(source, mt_runtime, root, env, threaded=True, threads=args.threads, graph_level=3)
@@ -1576,7 +2050,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             os.replace(temporary, model)
         finally:
             temporary.unlink(missing_ok=True)
-    modes = [Mode("native", f"Native ×{args.threads}", args.threads, "native CPU, per-session thread pools"),
+    modes = [] if args.backend_experiments else [Mode("native", f"Native ×{args.threads}", args.threads, "native CPU, per-session thread pools"),
              Mode("browser", "Browser ×1", 1, "WebAssembly SIMD, unshared memory")]
     if not args.baseline_only:
         modes.append(Mode("browser_mt", f"Browser pthreads ×{args.threads}", args.threads, "WebAssembly SIMD + pthreads, global thread pool"))
@@ -1586,10 +2060,19 @@ def run_benchmark(args: argparse.Namespace) -> None:
             Mode("browser_mt_o3", f"実験 MT ×{args.threads} O3", args.threads, "experimental: CORE opt-level=3 + final Emscripten -O3; existing LTO retained", core_optimization="3", experimental=True),
             Mode("browser_mt_graph3", f"実験 MT ×{args.threads} Graph L3", args.threads, "experimental: ORT GraphOptimizationLevel::Level3 (ORT_ENABLE_LAYOUT)", graph_optimization=3, experimental=True),
         ])
+    if use_xnnpack:
+        modes.extend([
+            Mode("browser_mt_fixed", f"CPU ×{args.threads} fixed shape", args.threads, "matching CPU control for XNNPACK: query-derived decode-only fixed length", fixed_shape=True),
+            Mode("browser_xnnpack", f"実験 XNNPACK ×{args.threads}", args.threads, "XNNPACK decode-only pool; ORT global fallback intra=1/inter=1, spin disabled; compare with fixed-shape CPU control", experimental=True, fixed_shape=True, spin_off=True, execution_provider="XNNPACK"),
+        ])
+    if args.backend_experiments:
+        modes.append(Mode("browser_revectorize", f"実験 V8 revectorize ×{args.threads}", args.threads, "same dynamic-shape CPU WASM as MT control; only --js-flags=--wasm-revectorize", experimental=True, revectorize=True))
     log: list[dict[str, Any]] = [{"event": "assets_ready", "seconds": round(time.monotonic() - begin, 3)}]
     environment = environment_info()
+    environment["requested_backend_experiments"] = args.backend_experiments or "none"
     environment.update({"cpu_metric": "sum target-tree user+system CPU seconds / baseline-to-final snapshot seconds; 100%=one logical CPU", "cpu_sample_interval_ms": CPU_SAMPLE_INTERVAL_S * 1000,
                         "cpu_trace_clock": "actual snapshot-completion times relative to synthesis request start; baseline may be slightly negative; no internal phase attribution",
+                        "cpu_plot_aggregation": "common 0.25s request-relative bins; overlap-weighted interval rates per complete trial, then across-trial median and inclusive quartiles; ended trials omitted",
                         "cpu_browser_scope": "separate Chromium instance per mode; root and descendants; Python/Playwright Node excluded", "psutil": psutil.__version__})
     environment.update({"rust": checked_run([str(root / "cargo/bin" / ("rustc.exe" if sys.platform == "win32" else "rustc")), f"+{RUST_VERSION}", "--version"], env=env),
                         "emscripten": EMSDK_VERSION, "sample_vvm_sha256": sha256_file(model),
@@ -1605,9 +2088,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
     for name, (archive, _) in runtime_archives.items():
         environment[f"{name}_ort_archive_sha256"] = sha256_file(archive)
     environment["core_variants"] = {mode.key: {"opt_level": mode.core_optimization, "graph_level": mode.graph_optimization,
-                                               "threads": mode.threads, "experimental": mode.experimental} for mode in modes}
+                                               "threads": mode.threads, "experimental": mode.experimental,
+                                               "fixed_shape": mode.fixed_shape, "global_spin_off": mode.spin_off,
+                                               "execution_provider": mode.execution_provider, "revectorize": mode.revectorize} for mode in modes}
+    if xnnpack_info:
+        environment["xnnpack_builder_commit"] = xnnpack_info["builder_commit"]
+        environment["xnnpack_thread_ownership"] = f"XNNPACK intra={args.threads}; ORT global intra=1/inter=1; only one SHA-matched decode session registers XNNPACK"
     environment["wasm_bytes"] = {key: binary.with_suffix(".wasm").stat().st_size for key, binary in browser_binaries.items()}
     environment["precision_flags"] = "FP32 model; unchanged strict FP/SIMD flags; no fast-math, relaxed SIMD, FP16 or quantization"
+    environment["block_order"] = [block.mode for block in make_schedule(modes, args.seed, balanced=args.backend_experiments)]
     # Browser cache is scoped to this script, including on a second run.
     previous_browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(root / "playwright")
@@ -1632,16 +2121,50 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 if args.browser_path:
                     options["executable_path"] = str(args.browser_path)
                 environment["browser_headless"] = not args.headed
+                skipped: dict[str, str] = {}
+                if args.backend_experiments:
+                    environment["xnnpack_diagnostic"] = {"requested": use_xnnpack, "verified": False}
+                    if use_xnnpack:
+                        try:
+                            environment["xnnpack_diagnostic"] = verify_xnnpack(playwright, url, options, args.threads, args.style_id, work,
+                                                                            args.output.parent / "xnnpack-diagnostic-profile.json")
+                        except Exception as error:
+                            reason = str(error).replace(str(work), "<temporary>").replace(str(root), "<cache>").replace(str(Path(__file__).resolve()), "<script>").replace(str(Path.home()), "<home>")
+                            environment["xnnpack_diagnostic"] = {"verified": False, "error": reason[-1500:]}
+                    try:
+                        environment["revectorization_diagnostic"] = verify_revectorization(url, options, args.threads, args.style_id, work,
+                                                                                          args.output.parent / "v8-diagnostic-traces")
+                    except Exception as error:
+                        reason = str(error).replace(str(work), "<temporary>").replace(str(root), "<cache>").replace(str(Path(__file__).resolve()), "<script>").replace(str(Path.home()), "<home>")
+                        environment["revectorization_diagnostic"] = {"verified": False, "error": reason[-1500:]}
+                    if use_xnnpack and not environment["xnnpack_diagnostic"]["verified"]:
+                        skipped["browser_xnnpack"] = "XNNPACKは実行プロファイルで対象カーネルを確認できず、未測定。"
+                        modes = [mode for mode in modes if mode.key not in {"browser_xnnpack", "browser_mt_fixed"}]
+                    if not environment["revectorization_diagnostic"]["verified"]:
+                        skipped["browser_revectorize"] = "V8再ベクトル化は基準との差を示す変換ログを確認できず、未測定。"
+                        modes = [mode for mode in modes if mode.key != "browser_revectorize"]
+                    environment["skipped_candidates"] = skipped
+                    requested = environment["core_variants"]
+                    measured_keys = {mode.key for mode in modes}
+                    if skipped:
+                        environment["requested_but_unmeasured"] = {key: value for key, value in requested.items() if key not in measured_keys}
+                    environment["core_variants"] = {key: value for key, value in requested.items() if key in measured_keys}
+                    atomic_write(args.output.with_suffix(".diagnostics.json"), json.dumps({key: environment[key] for key in ("xnnpack_diagnostic", "revectorization_diagnostic", "skipped_candidates")}, ensure_ascii=False, indent=2).encode())
+                    if len(modes) < 2:
+                        raise RuntimeError("Neither requested backend passed activation diagnostics; diagnostics saved, no purported optimized timings measured")
+                    environment["block_order"] = [block.mode for block in make_schedule(modes, args.seed, balanced=True)]
+                    progress("Balanced block order: " + " → ".join(environment["block_order"]))
                 runners: dict[str, Any] = {}
                 browsers: dict[str, Any] = {}
                 cpu_roots: dict[str, int] = {}
                 try:
-                    progress("Initializing native CORE")
-                    started = time.monotonic()
-                    runners["native"] = NativeRunner(native_binary, native_runtime, model, work / "query.json", args.threads, args.style_id, work / "native.wav")
-                    cpu_roots["native"] = runners["native"].process.pid
-                    log.append({"event": "initialized", "mode": "native", "seconds": round(time.monotonic() - started, 3)})
-                    browser_modes = [("browser", "/st/voicevox_benchmark.js", 1, False)]
+                    if native_binary:
+                        progress("Initializing native CORE")
+                        started = time.monotonic()
+                        runners["native"] = NativeRunner(native_binary, native_runtime, model, work / "query.json", args.threads, args.style_id, work / "native.wav")
+                        cpu_roots["native"] = runners["native"].process.pid
+                        log.append({"event": "initialized", "mode": "native", "seconds": round(time.monotonic() - started, 3)})
+                    browser_modes = [("browser", "/st/voicevox_benchmark.js", 1, False)] if browser_st else []
                     if browser_mt:
                         browser_modes.append(("browser_mt", "/mt/voicevox_benchmark.js", args.threads, True))
                     if args.experiments:
@@ -1650,24 +2173,62 @@ def run_benchmark(args: argparse.Namespace) -> None:
                             ("browser_mt_o3", "/o3/voicevox_benchmark.js", args.threads, True),
                             ("browser_mt_graph3", "/graph3/voicevox_benchmark.js", args.threads, True),
                         ])
+                    if args.backend_experiments:
+                        browser_modes.extend([
+                            ("browser_mt_fixed", "/mt/voicevox_benchmark.js", args.threads, True),
+                            ("browser_xnnpack", "/xnnpack/voicevox_benchmark.js", args.threads, True),
+                            ("browser_revectorize", "/mt/voicevox_benchmark.js", args.threads, True),
+                        ])
+                        browser_modes = [row for row in browser_modes if any(mode.key == row[0] for mode in modes)]
                     for key, module, threads, threaded in browser_modes:
                         progress(f"Initializing isolated {key} Chromium and CORE")
                         started = time.monotonic()
-                        browser = playwright.chromium.launch(**options)
+                        configured = next(mode for mode in modes if mode.key == key)
+                        launch_options = dict(options)
+                        if configured.revectorize:
+                            launch_options["args"] = ["--js-flags=--wasm-revectorize"]
+                        browser = playwright.chromium.launch(**launch_options)
                         browsers[key] = browser
                         cpu_roots[key] = chromium_process_id(browser)
                         if "browser" in environment and environment["browser"] != browser.version:
                             raise RuntimeError("Browser versions differ between modes")
                         environment["browser"] = browser.version
-                        runners[key] = BrowserRunner(browser, url, module, threads, threaded, args.style_id, work / f"{key}.wav")
+                        runners[key] = BrowserRunner(browser, url, module, threads, threaded, args.style_id, work / f"{key}.wav",
+                                                     fixed_shape=configured.fixed_shape, spin_off=configured.spin_off,
+                                                     xnn_threads=threads if configured.execution_provider == "XNNPACK" else 0)
+                        if configured.revectorize:
+                            info = browser_engine_info(browser)
+                            if info["js_flags"] != ["--js-flags=--wasm-revectorize"]:
+                                raise RuntimeError("Timed browser did not confirm the exact revectorization flag without trace flags")
+                            checked_engine = environment["revectorization_diagnostic"]["candidate"]
+                            if (info["product"], info["js_version"]) != (checked_engine["product"], checked_engine["js_version"]):
+                                raise RuntimeError("Timed V8 version differs from its activation diagnostic")
+                            environment["timed_revectorization_engine"] = info
                         environment[f"{key}_pthreads_created"] = runners[key].pthreads_created
+                        environment[f"{key}_global_spin_off"] = runners[key].spin_off
+                        if configured.execution_provider == "XNNPACK":
+                            environment[f"{key}_xnn_threads"] = runners[key].xnn_threads
+                            environment[f"{key}_xnn_sessions"] = runners[key].xnn_sessions
+                            environment[f"{key}_ort_global_threads"] = 1
+                        if configured.fixed_shape:
+                            environment[f"{key}_fixed_length"] = runners[key].fixed_length
+                            environment[f"{key}_fixed_matches"] = runners[key].fixed_matches
+                            environment[f"{key}_decode_sha256"] = DECODE_MODEL_SHA256
+                            environment[f"{key}_verified_input_shapes"] = {"f0": [runners[key].fixed_length, 1], "phoneme": [runners[key].fixed_length, 45], "speaker_id": [1]}
                         log.append({"event": "initialized", "mode": key, "seconds": round(time.monotonic() - started, 3)})
                     if "browser_mt" in runners:
                         environment["browser_mt_pthreads_created"] = runners["browser_mt"].pthreads_created
-                    environment.update(runners["browser"].page.evaluate("() => ({browser_hardware_concurrency:navigator.hardwareConcurrency,cross_origin_isolated:crossOriginIsolated,user_agent:navigator.userAgent})"))
+                    environment.update(runners["browser_mt" if args.backend_experiments else "browser"].page.evaluate("() => ({browser_hardware_concurrency:navigator.hardwareConcurrency,cross_origin_isolated:crossOriginIsolated,user_agent:navigator.userAgent})"))
                     for mode in modes:
                         progress(f"Warmup: {mode.label} (excluded from latency and CPU measurements)")
                         elapsed, duration = runners[mode.key].synthesize(save=True)
+                        if isinstance(runners[mode.key], BrowserRunner):
+                            pthreads = runners[mode.key].thread_state()
+                            environment[f"{mode.key}_pthreads_after_warmup"] = pthreads
+                            if mode.execution_provider == "XNNPACK" and pthreads != mode.threads - 1:
+                                raise RuntimeError("Timed XNNPACK process has unexpected thread-pool ownership")
+                        if mode.fixed_shape:
+                            environment[f"{mode.key}_warmup_with_ort_shape_validation"] = True
                         log.append({"event": "warmup_excluded", "mode": mode.key, "seconds": elapsed, "audio_s": duration})
                     durations = [runner.duration for runner in runners.values()]
                     if max(durations) - min(durations) > 1 / query["outputSamplingRate"]:
@@ -1677,14 +2238,23 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     def measured_synthesis(mode: Mode) -> tuple[float, float, CpuMeasurement]:
                         sampler = ProcessCpuSampler(cpu_roots[mode.key], mode.label)
                         return sampler.measure(runners[mode.key].synthesize)
-                    trials = run_schedule(modes, args.seed, measured_synthesis, log)
+                    trials = run_schedule(modes, args.seed, measured_synthesis, log, balanced=args.backend_experiments)
                     result = {"schema_version": SCHEMA_VERSION, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                               "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials],
                               "environment": environment, "audio_s": durations[0], "style_id": args.style_id, "seed": args.seed, "log": log,
                               "output_checks": output_checks,
+                              "schedule_method": "seeded position-balanced and pair-order-balanced design; randomized labels and round order" if args.backend_experiments else "seeded independent shuffle in each round",
+                              "schedule": [asdict(block) for block in make_schedule(modes, args.seed, balanced=args.backend_experiments)],
                               "notes": ["出力検証は測定外。同じ実行のブラウザMT基準とPCM・PCM化前FP32を照合。非一致を精度維持とは判定しない。" if browser_mt else "出力検証は測定外。ブラウザST基準とPCM・PCM化前FP32を照合。"]}
                     if args.baseline_only:
                         result["notes"].append("この先行検証はnativeとブラウザ単一スレッドのみ。マルチスレッドは未実施。")
+                    if args.backend_experiments:
+                        if use_xnnpack:
+                            result["notes"].append("XNNPACKの速度は同じ固定shapeのCPU対照と比較。")
+                        else:
+                            result["notes"].append("この実行はV8候補のみ。XNNPACKは測定対象外。")
+                        result["notes"].append("V8再ベクトル化は同じ通常MT WASMとの比較。診断用プロファイル・トレースは時間測定とは別のブラウザで実行。")
+                        result["notes"].extend(skipped.values())
                     validate_results(result)
                     progress("Writing measured HTML and raw JSON")
                     render_report(result, args.output)
@@ -1724,12 +2294,16 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--report-from", type=Path, help="regenerate HTML from a completed measurement JSON")
     parser.add_argument("--baseline-only", action="store_true", help="explicitly measure only native and browser single-thread (MT is not measured)")
     parser.add_argument("--experiments", action="store_true", help="add isolated MT thread-count, CORE O3, and ORT graph-Level3 candidates (90 trials total)")
+    parser.add_argument("--backend-experiments", nargs="?", const="all", choices=("all", "v8"), help="all: MT/fixed-shape controls, XNNPACK and V8; v8: only MT control and V8; balanced blocks")
     parser.add_argument("--experimental-threads", type=positive_int, default=4, help="thread-count candidate used with --experiments; default: 4")
     parser.add_argument("--threaded-ort-archive", type=Path, help="local verified MT archive with adjacent .sha256 sidecar")
     parser.add_argument("--threaded-ort-url", help="verified unsigned threaded ORT archive from the fork release")
+    parser.add_argument("--xnnpack-ort-archive", type=Path, help="local verified XNNPACK archive with adjacent .sha256 sidecar")
+    parser.add_argument("--xnnpack-ort-url", help="verified strict-FP XNNPACK runtime archive from the fork release")
     parser.add_argument("--browser-path", type=Path, help="optional installed Chromium executable")
     parser.add_argument("--headed", action="store_true", help="show the otherwise identical browser runner")
     parser.add_argument("--self-test", action="store_true", help="check scheduling, validation and reporting without synthesizing")
+    parser.add_argument("--diagnostic-config", type=Path, help=argparse.SUPPRESS)
     return parser
 
 
@@ -1760,7 +2334,7 @@ def self_test() -> None:
         assert '<details><summary>生データ（CSV）</summary>' in content
         assert '<details open' not in content
         assert '<summary>CPU 時系列（CSV）</summary>' in content
-        assert 'id="cpu-profile-trial"' in content
+        assert 'class="cpu-grid"' in content
         assert '&lt;&gt;&amp;' in content
         assert 'https://' not in content  # Standalone report requires no CDN.
         first = Path(folder) / "atomic.txt"
@@ -1780,6 +2354,9 @@ def self_test() -> None:
 
 def main() -> None:
     args = argument_parser().parse_args()
+    if args.diagnostic_config:
+        revectorization_diagnostic_child(args.diagnostic_config)
+        return
     if args.output.suffix.lower() not in {".html", ".htm"}:
         raise ValueError("--output must end with .html or .htm")
     if args.self_test:
