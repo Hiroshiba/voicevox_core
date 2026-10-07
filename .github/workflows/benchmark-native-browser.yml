@@ -1,0 +1,82 @@
+# New branch in Hiroshiba's fork only. Production and upstream workflows are untouched.
+name: Benchmark native and browser VOICEVOX CORE
+on:
+  push:
+    branches: ['benchmark/native-browser-*']
+    paths:
+      - benchmarks/voicevox_core_benchmark.py
+      - .github/workflows/benchmark-native-browser.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: voicevox-browser-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  benchmark:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: benchmarks
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Restore downloaded tools and compiled CORE
+        id: benchmark-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/voicevox-core-benchmark
+          key: ${{ runner.os }}-voicevox-core-v1-${{ hashFiles('benchmarks/voicevox_core_benchmark.py') }}
+          restore-keys: ${{ runner.os }}-voicevox-core-v1-
+      - name: Install runner dependencies
+        shell: bash
+        run: |
+          python -m pip install 'uv==0.12.19' 'playwright==1.63.0'
+          python -m playwright install-deps chromium
+      - name: Check the standalone script
+        shell: bash
+        run: uv run benchmarks/voicevox_core_benchmark.py --self-test
+      - name: Measure the native and browser single-thread baseline
+        shell: bash
+        run: |
+          mkdir -p results
+          uv run benchmarks/voicevox_core_benchmark.py \
+            --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
+            --baseline-only --threads 2 --seed 20261007 --output results/benchmark.html
+      - name: Validate and screenshot the report
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/voicevox-core-benchmark/playwright
+        run: |
+          python - <<'PYREPORT'
+          from pathlib import Path
+          import json
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page(viewport={"width": 1200, "height": 1000})
+              page.goto(Path('results/benchmark.html').resolve().as_uri())
+              assert page.locator('details[open]').count() == 0
+              measured = json.loads(Path('results/benchmark.json').read_text())
+              assert len(page.locator('#raw-csv').text_content().strip().splitlines()) == len(measured['trials']) + 1
+              assert page.locator('svg').count() == 2
+              page.screenshot(path='results/report.png', full_page=True)
+              browser.close()
+          PYREPORT
+      - name: Upload measured results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: voicevox-core-browser-benchmark
+          path: results/
+          if-no-files-found: warn
+      - name: Save downloaded tools and compiled CORE even if measurement failed
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: always() && steps.benchmark-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/voicevox-core-benchmark
+          key: ${{ steps.benchmark-cache.outputs.cache-primary-key }}
