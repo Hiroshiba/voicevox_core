@@ -437,8 +437,8 @@ def render_report(result: dict[str, Any], target: Path) -> None:
 <figure>{svg_results(result)}<figcaption>点は各試行、太線は中央値。RTF = 合成時間 ÷ 出力音声の長さ</figcaption></figure>
 <figure>{svg_sequence(result)}</figure>
 <h2>測定条件</h2>
-<ul><li>同一 sample.vvm・Style ID {result["style_id"]}・AudioQuery JSON を使用。CPU 推論のみ</li>
-<li>モデル初期化・ダウンロード・AudioQuery 作成・ウォームアップ・音声保存は測定外。合成から WAV 生成までを測定</li>
+<ul><li>同一 sample.vvm・Style ID {result["style_id"]}・準備済み AudioQuery JSON を使用。CPU 推論のみ、辞書・テキスト解析なし</li>
+<li>モデル初期化・ダウンロード・ビルド・AudioQuery 作成・ウォームアップ・音声保存は測定外。合成から WAV 生成までを測定</li>
 <li>各ラウンドでモード順をシャッフルし、1 ブロック内は 5 回連続。3 ラウンド、seed = {result["seed"]}。モード間の同時実行なし</li>
 <li>表示スレッド数は推論に設定した値。Web Worker 数ではない</li>{mode_rows}{notes}</ul>
 <details><summary>実行環境・ログ</summary><table class="environment">{env_rows}</table><pre>{html.escape(log_lines)}</pre></details>
@@ -776,8 +776,8 @@ EMSDK_VERSION = "4.0.8"
 EMSDK_COMMIT = "419021fa040428bc69ef1559b325addb8e10211f"
 BASE_RELEASE = "https://github.com/yamachu/onnxruntime-builder/releases/download/onnxruntime-1.23.2"
 ORT_ARCHIVE_SHA256 = {'onnxruntime-linux-arm64-1.23.2.tgz': '121888dc9d8c6267f6373df150eed9cd2da5dfd4e277d99b22e092533790f61a', 'onnxruntime-linux-x64-1.23.2.tgz': '2e147a06354a4b75362d4a26e6c55b126d05e25dc19c609c1733aedb7156e8a2', 'onnxruntime-osx-arm64-1.23.2.tgz': 'a80514d3ecf04f8c7e8e8c2d0f1dd603bee0c383e84c1ca01e40bf7807c3d0ce', 'onnxruntime-osx-x86_64-1.23.2.tgz': '0c6489e161ea803e52e8153bdba4ea1541252c171776925f0f230091e1a5a949', 'onnxruntime-wasm-static-1.23.2.tgz': '2dc2c5073337b0e77e08314ca9936f5b9a355ff4e237c16294b969e7f2db6593', 'onnxruntime-win-arm64-1.23.2.tgz': '119b1e2fefde9b139c8a43d3e7ef1817b7ff8d551209916d5f1f8528dd451829', 'onnxruntime-win-x64-1.23.2.tgz': '9db1a87c4502e435319d24602ebd280c98d3d62f7c2b31f16e34de2143732bde'}
-# Set to the pinned unsigned threaded release after its build is verified.
-THREADED_ORT_URL = ""
+THREADED_ORT_URL = "https://github.com/Hiroshiba/onnxruntime-builder/releases/download/onnxruntime-wasm-static-simd-threaded-1.23.2/onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"
+ORT_ARCHIVE_SHA256["onnxruntime-wasm-static-simd-threaded-1.23.2.tgz"] = "bdc024237b8303feb24c237bc7c8c07fdabd12a2bb7049684ed2894c580a63d1"
 
 
 def unpack_cached(archive: Path, destination: Path) -> Path:
@@ -933,7 +933,7 @@ def verify_threaded_runtime(folder: Path) -> dict[str, Any]:
     expected = {"schema_version": 1, "library": "onnxruntime", "version": ORT_VERSION,
                 "source_commit": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
                 "emscripten_version": EMSDK_VERSION, "target": "wasm32-unknown-emscripten",
-                "simd": True, "pthreads": True, "signed": False, "exception_abi": "wasm"}
+                "simd": True, "pthreads": True, "signed": False, "exception_abi": "wasm", "thread_pool_scope": "global"}
     if any(info.get(key) != value for key, value in expected.items()):
         raise RuntimeError("The threaded archive does not match the required generic ORT/SIMD/pthread build")
     if not info.get("smoke_test", {}).get("passed"):
@@ -1013,7 +1013,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     modes = [Mode("native", f"Native ×{args.threads}", args.threads, "native CPU, per-session thread pools"),
              Mode("browser", "Browser ×1", 1, "WebAssembly SIMD, unshared memory")]
     if not args.baseline_only:
-        modes.append(Mode("browser_mt", f"Browser ×{args.threads}", args.threads, "WebAssembly SIMD + pthreads, global thread pool"))
+        modes.append(Mode("browser_mt", f"Browser pthreads ×{args.threads}", args.threads, "WebAssembly SIMD + pthreads, global thread pool"))
     log: list[dict[str, Any]] = [{"event": "assets_ready", "seconds": round(time.monotonic() - begin, 3)}]
     environment = environment_info()
     environment.update({"rust": checked_run([str(root / "cargo/bin" / ("rustc.exe" if sys.platform == "win32" else "rustc")), f"+{RUST_VERSION}", "--version"], env=env),
@@ -1022,6 +1022,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
                         "browser_thread_support": "single-threaded baseline" if args.baseline_only else "shared WASM memory + global ORT pool verified at initialization"})
     if threaded_info:
         environment.update({"threaded_builder_commit": threaded_info["builder_commit"],
+                            "threaded_validation_commit": threaded_info["validation_commit"],
+                            "threaded_validation_run_id": threaded_info["validation_run_id"],
                             "threaded_rust_std": "Rust 1.96.0 rebuilt with atomics (build-std)",
                             "threaded_pthread_pool_size": args.threads,
                             "browser_mt_thread_pool": "global; intra-op=requested threads, inter-op=1"})
@@ -1079,7 +1081,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     result = {"schema_version": SCHEMA_VERSION, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                               "modes": [asdict(mode) for mode in modes], "trials": [asdict(trial) for trial in trials],
                               "environment": environment, "audio_s": durations[0], "style_id": args.style_id, "seed": args.seed, "log": log,
-                              "notes": ["準備済みAudioQueryを使用し、辞書・テキスト解析は実行しない。", "ビルド／ダウンロード時間は性能比較に含めない。", "同じ入力・音声長を検証。浮動小数点実装差があるためWAVのバイト一致は要求しない。"]}
+                              "notes": ["同じ入力・音声長を検証。浮動小数点実装差があるためWAVのバイト一致は要求しない。"]}
                     if args.baseline_only:
                         result["notes"].append("この先行検証はnativeとブラウザ単一スレッドのみ。マルチスレッドは未実施。")
                     validate_results(result)

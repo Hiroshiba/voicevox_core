@@ -40,13 +40,13 @@ jobs:
       - name: Check the standalone script
         shell: bash
         run: uv run benchmarks/voicevox_core_benchmark.py --self-test
-      - name: Measure the native and browser single-thread baseline
+      - name: Measure native, browser SIMD, and browser SIMD pthreads
         shell: bash
         run: |
           mkdir -p results
           uv run benchmarks/voicevox_core_benchmark.py \
             --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
-            --baseline-only --threads 2 --seed 20261007 --output results/benchmark.html
+            --threads 2 --seed 20261007 --output results/benchmark.html
       - name: Validate and screenshot the report
         shell: bash
         env:
