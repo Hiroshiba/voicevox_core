@@ -16,7 +16,7 @@ jobs:
   benchmark:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -40,13 +40,14 @@ jobs:
       - name: Check the standalone script
         shell: bash
         run: uv run benchmarks/voicevox_core_benchmark.py --self-test
-      - name: Measure native, browser SIMD, and browser SIMD pthreads
+      - name: Measure controls and isolated optimization candidates
         shell: bash
         run: |
           mkdir -p results
           uv run benchmarks/voicevox_core_benchmark.py \
             --cache-dir "$RUNNER_TEMP/voicevox-core-benchmark" \
-            --threads 2 --seed 20261007 --output results/benchmark.html
+            --threads 2 --experiments --experimental-threads 4 \
+            --seed 20261007 --output results/benchmark.html
       - name: Validate and screenshot the report
         shell: bash
         env:
@@ -63,12 +64,26 @@ jobs:
               assert page.locator('details[open]').count() == 0
               measured = json.loads(Path('results/benchmark.json').read_text())
               assert len(page.locator('#raw-csv').text_content().strip().splitlines()) == len(measured['trials']) + 1
-              assert page.locator('svg').count() == 2
-              assert measured['schema_version'] == 2 and len(measured['trials']) == 45
+              assert page.locator('svg').count() == 3
+              assert measured['schema_version'] == 3 and len(measured['trials']) == 90
+              assert len(measured['modes']) == 6
               assert all(not row['cpu_incomplete'] for row in measured['trials']), 'Incomplete CPU observations'
               assert all(row['cpu_time_s'] > 0 and row['cpu_window_s'] > 0 for row in measured['trials'])
               assert measured['environment']['cpu_sample_interval_ms'] == 100
               assert 'separate Chromium' in measured['environment']['cpu_browser_scope']
+              assert len(page.locator('#cpu-csv').text_content().strip().splitlines()) == 1 + sum(len(row['cpu_trace']) for row in measured['trials'])
+              checks = measured['output_checks']
+              assert checks['reference_mode'] == 'browser_mt' and checks['reference_deterministic']
+              assert set(checks['modes']) == {mode['key'] for mode in measured['modes']}
+              assert all(row['finite'] and row['fp32_samples'] > 0 for row in checks['modes'].values())
+              select = page.locator('#cpu-profile-trial')
+              original = select.input_value()
+              for mode in measured['modes']:
+                  index = next(i for i, row in enumerate(measured['trials']) if row['mode'] == mode['key'])
+                  select.select_option(str(index))
+                  assert mode['label'] in page.locator('#cpu-profile-title').text_content()
+                  assert page.locator('#cpu-profile path').get_attribute('d')
+              select.select_option(original)
               page.screenshot(path='results/report.png', full_page=True)
               browser.close()
           PYREPORT
