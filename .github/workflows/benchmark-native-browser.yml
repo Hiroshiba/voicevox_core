@@ -82,7 +82,7 @@ jobs:
               if 'browser_revectorize' in keys:
                   assert env['revectorization_diagnostic']['control']['transformed_groups'] == 0
                   assert env['revectorization_diagnostic']['candidate']['transformed_groups'] > 0
-                  assert env['timed_revectorization_engine']['js_flags'] == ['--js-flags=--wasm-revectorize']
+                  assert env['timed_revectorization_engine']['requested_js_flags'] == ['--js-flags=--wasm-revectorize']
               assert measured['schedule_method'].startswith('seeded position-balanced')
               for mode in modes:
                   positions = [i % len(modes) for i, block in enumerate(measured['schedule']) if block['mode'] == mode['key']]

@@ -1642,10 +1642,7 @@ def browser_engine_info(browser: Any) -> dict[str, Any]:
     session = browser.new_browser_cdp_session()
     try:
         version = session.send("Browser.getVersion")
-        command = session.send("Browser.getBrowserCommandLine")["arguments"]
-        # Command lines contain temporary/user paths; keep only the explicit V8 flags.
-        return {"product": version["product"], "js_version": version["jsVersion"],
-                "js_flags": [item for item in command if item.startswith("--js-flags=")]}
+        return {"product": version["product"], "js_version": version["jsVersion"]}
     finally:
         session.detach()
 
@@ -1660,6 +1657,7 @@ def revectorization_diagnostic_child(config_path: Path) -> None:
         runner = None
         try:
             info = browser_engine_info(browser)
+            info["requested_js_flags"] = options["args"]
             runner = BrowserRunner(browser, config["url"], "/mt/voicevox_benchmark.js", config["threads"], True,
                                    config["style"], Path(config["wav"]))
             for _ in range(3):
@@ -1694,13 +1692,13 @@ def verify_revectorization(url: str, options: dict[str, Any], threads: int, styl
         info = json.loads(result_path.read_text("utf-8"))
         expected = "--js-flags=--wasm-revectorize,--trace-wasm-revectorize" if enable else "--js-flags=--trace-wasm-revectorize"
         records[key] = {**info, "transformed_groups": len(nodes), "revectorizable_nodes": sum(nodes),
-                        "flag_rejected": rejected, "flags_verified": info["js_flags"] == [expected]}
+                        "flag_rejected": rejected, "launch_configuration_matches": info["requested_js_flags"] == [expected]}
     control, candidate = records["control"], records["candidate"]
     verified = (control["transformed_groups"] == 0 and candidate["transformed_groups"] > 0
-                and all(value["flags_verified"] and not value["flag_rejected"] for value in records.values())
+                and all(value["launch_configuration_matches"] and not value["flag_rejected"] for value in records.values())
                 and (control["product"], control["js_version"]) == (candidate["product"], candidate["js_version"]))
     return {**records, "verified": verified,
-            "evidence": "no transformations in trace-only control; positive nonempty V8 optimizer transformations with revectorization; actual CORE WASM, three untimed syntheses each"}
+            "evidence": "no transformations in trace-only control; positive nonempty V8 optimizer transformations with revectorization; actual CORE WASM, three untimed syntheses each; flags record supplied launch configuration, activation is established by traces"}
 
 
 def verify_xnnpack(playwright: Any, url: str, options: dict[str, Any], threads: int, style: int, work: Path,
@@ -2198,8 +2196,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
                                                      xnn_threads=threads if configured.execution_provider == "XNNPACK" else 0)
                         if configured.revectorize:
                             info = browser_engine_info(browser)
-                            if info["js_flags"] != ["--js-flags=--wasm-revectorize"]:
-                                raise RuntimeError("Timed browser did not confirm the exact revectorization flag without trace flags")
+                            info["requested_js_flags"] = launch_options["args"]
+                            if info["requested_js_flags"] != ["--js-flags=--wasm-revectorize"]:
+                                raise RuntimeError("Timed launch must use only the revectorization flag without trace flags")
                             checked_engine = environment["revectorization_diagnostic"]["candidate"]
                             if (info["product"], info["js_version"]) != (checked_engine["product"], checked_engine["js_version"]):
                                 raise RuntimeError("Timed V8 version differs from its activation diagnostic")
