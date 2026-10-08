@@ -5,7 +5,7 @@ p=argparse.ArgumentParser();p.add_argument('directory',type=Path);a=p.parse_args
 for path in sorted(a.directory.rglob('*.json')):
  data=json.loads(path.read_text())
  if isinstance(data,dict) and data.get('schema')=='voicevox-browser-paired-confirmation-v1':
-  print('CONFIRMATION_META '+json.dumps({'file':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),**{k:data.get(k) for k in ['schema','status','revectorization','manifest_sha256','harness_sha256','research_harness_sha256','query_sha256','provenance','diagnostics','notes','error']}}))
+  print('CONFIRMATION_META '+json.dumps({'file':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),**{k:data.get(k) for k in ['schema','status','revectorization','manifest_sha256','harness_sha256','research_harness_sha256','query_sha256','environment','initial_host','provenance','diagnostics','notes','error']}}))
   for group in data['process_sets']:
    print('CONFIRMATION_PROCESS_SET '+json.dumps(group))
   for row in data['trials']:

@@ -1,28 +1,20 @@
-name: WebCPU FP32 optimization research
+name: WebCPU FP32 revectorization ON confirmation
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
-    paths:
-      # Runtime and logging-only changes do not restart this bounded OFF study.
-      - 'benchmarks/webcpu-research/voicevox_webcpu_research.py'
-      - 'benchmarks/webcpu-research/test_validate_confirmation.py'
-      - 'benchmarks/webcpu-research/browser_confirmation.py'
-      - 'benchmarks/webcpu-research/validate_confirmation.py'
-      - 'benchmarks/webcpu-research/prepare_screen.py'
-      - 'benchmarks/webcpu-research/transform_convtranspose.py'
-      - 'benchmarks/webcpu-research/transform_fusion.py'
+    paths: ['.github/workflows/benchmark-webcpu-confirm-on.yml']
 permissions:
   contents: read
 concurrency:
-  group: webcpu-fp32-research-${{ github.ref }}
+  group: webcpu-fp32-confirm-on-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   browser-confirmation:
     strategy:
       fail-fast: false
       matrix:
-        # OFF guard repair; the preceding ON job remains running and is preserved.
-        revec: ['off']
+        # Retry the bounded ON study after correcting call-scoped pressure checks.
+        revec: ['on']
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
