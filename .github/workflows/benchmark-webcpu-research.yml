@@ -76,7 +76,7 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         run: |
           mkdir -p results "$RUNNER_TEMP/voicevox-research-private"
-          uv run --with onnx==1.19.1 python benchmarks/webcpu-research/prepare_screen.py --cache "$BENCH_CACHE" --output "$RUNNER_TEMP/voicevox-research-private/screen.json"
+          uv run --with onnx==1.19.1 --with numpy==2.3.5 --with protobuf==6.32.1 --with ml-dtypes==0.5.1 python benchmarks/webcpu-research/prepare_screen.py --cache "$BENCH_CACHE" --output "$RUNNER_TEMP/voicevox-research-private/screen.json"
           uv run benchmarks/webcpu-research/voicevox_webcpu_research.py --research-manifest "$RUNNER_TEMP/voicevox-research-private/screen.json" --research-screen --cache-dir "$BENCH_CACHE" --output results/screen.html
       - name: Check artifact privacy allowlist
         id: privacy

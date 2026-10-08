@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   benchmark:
-    if: github.repository == 'Hiroshiba/voicevox_core'
+    if: github.repository == 'Hiroshiba/voicevox_core' && github.ref != 'refs/heads/benchmark/native-browser-research-20261008'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
