@@ -1,4 +1,4 @@
-name: WebCPU strict FP32 runtime dispatch research
+name: WebCPU strict FP32 runtime dispatch confirmation
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -11,7 +11,7 @@ concurrency:
   group: webcpu-fp32-runtime-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  runtime-screen:
+  runtime-confirmation:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -64,34 +64,24 @@ jobs:
           node benchmarks/webcpu-research/runtime/test_dispatch_helper.cjs
           uv run --with psutil==7.2.2 --with platformdirs==4.12.2 --with cmake==4.4.3 --with ninja==1.13.2 --with libclang==18.1.1 python benchmarks/webcpu-research/runtime/prepare_vocoder_runtime.py --cache "$BENCH_CACHE" --output "$RUNNER_TEMP/voicevox-research-private/runtime.json" --harness benchmarks/webcpu-research/voicevox_webcpu_research.py --kernel-dir benchmarks/webcpu-research/kernel
           python benchmarks/webcpu-research/runtime/apply_browser_dispatch.py benchmarks/webcpu-research/voicevox_webcpu_research.py --output "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --helper benchmarks/webcpu-research/runtime/core_dispatch_check.js
-      - name: Screen actual CORE runtime dispatch with revectorization OFF
-        id: off
+      - name: Confirm actual CORE OFF runtime with fresh process sets
+        id: confirm
         if: always() && steps.runtime.outcome == 'success'
         run: |
-          uv run "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --research-manifest "$RUNNER_TEMP/voicevox-research-private/runtime.json" --research-screen --cache-dir "$BENCH_CACHE" --output results/runtime-off.html
-      - name: Check OFF CPU reference outputs and separate placement evidence
-        if: always() && steps.off.outcome == 'success'
+          python benchmarks/webcpu-research/runtime/test_runtime_confirmation.py
+          uv run benchmarks/webcpu-research/runtime/browser_runtime_confirmation.py --harness "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --manifest "$RUNNER_TEMP/voicevox-research-private/runtime.json" --cache "$BENCH_CACHE" --revec off --output results/runtime-confirmation-off.json
+      - name: Check same-run CPU reference and separate provider placement
+        if: always() && steps.confirm.outcome == 'success'
         run: |
-          CPU_JS=$(python -c 'import json,os; from pathlib import Path; print(json.loads((Path(os.environ["BENCH_CACHE"])/"research-assets.json").read_text())["binaries"]["mt"])')
-          uv run --with playwright==1.63.0 --with psutil==7.2.2 python benchmarks/webcpu-research/runtime/browser_reference_and_profile.py --harness "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --manifest "$RUNNER_TEMP/voicevox-research-private/runtime.json" --cpu-binary "$CPU_JS" --cpu-receipt "$(dirname "$CPU_JS")/complete.json" --activation-evidence results/runtime-off.diagnostics.json --revec off --output results/runtime-off-quality.json --profile-xnn
-      - name: Screen actual CORE runtime dispatch with revectorization ON
-        id: on
-        if: always() && steps.runtime.outcome == 'success'
-        run: |
-          python - <<'PYON'
-          import json,os
+          mkdir -p results/quality
+          python - <<'PYDIAG'
+          import json
           from pathlib import Path
-          p=Path(os.environ['RUNNER_TEMP'])/'voicevox-research-private/runtime.json'
-          d=json.loads(p.read_text())
-          for e in d['variants']:e['revectorize']=True
-          p.with_name('runtime-on.json').write_text(json.dumps(d,indent=2))
-          PYON
-          uv run "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --research-manifest "$RUNNER_TEMP/voicevox-research-private/runtime-on.json" --research-screen --cache-dir "$BENCH_CACHE" --output results/runtime-on.html
-      - name: Check ON CPU reference outputs and separate placement evidence
-        if: always() && steps.on.outcome == 'success'
-        run: |
+          p=Path('results/runtime-confirmation-off.json')
+          p.with_suffix('.diagnostics.json').write_text(json.dumps(json.loads(p.read_text())['diagnostics'],indent=2))
+          PYDIAG
           CPU_JS=$(python -c 'import json,os; from pathlib import Path; print(json.loads((Path(os.environ["BENCH_CACHE"])/"research-assets.json").read_text())["binaries"]["mt"])')
-          uv run --with playwright==1.63.0 --with psutil==7.2.2 python benchmarks/webcpu-research/runtime/browser_reference_and_profile.py --harness "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --manifest "$RUNNER_TEMP/voicevox-research-private/runtime-on.json" --cpu-binary "$CPU_JS" --cpu-receipt "$(dirname "$CPU_JS")/complete.json" --activation-evidence results/runtime-on.diagnostics.json --revec on --output results/runtime-on-quality.json 
+          uv run --with playwright==1.63.0 --with psutil==7.2.2 python benchmarks/webcpu-research/runtime/browser_reference_and_profile.py --harness "$RUNNER_TEMP/voicevox-research-private/browser_runtime.py" --manifest "$RUNNER_TEMP/voicevox-research-private/runtime.json" --cpu-binary "$CPU_JS" --cpu-receipt "$(dirname "$CPU_JS")/complete.json" --activation-evidence results/runtime-confirmation-off.diagnostics.json --revec off --output results/quality/runtime-confirmation-off-quality.json --profile-xnn
       - name: Check artifact privacy allowlist
         id: privacy
         if: always()
@@ -107,11 +97,15 @@ jobs:
           PY
       - name: Print privacy-checked numeric provenance and results
         if: always() && steps.privacy.outcome == 'success'
-        run: python benchmarks/webcpu-research/runtime/log_runtime_results.py results
+        run: |
+          if test -f results/runtime-confirmation-off.json; then
+            python benchmarks/webcpu-research/runtime/log_runtime_confirmation.py --input results/runtime-confirmation-off.json
+          fi
+          python benchmarks/webcpu-research/runtime/log_runtime_results.py results/quality
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always() && steps.privacy.outcome == 'success'
         with:
-          name: webcpu-fp32-runtime-screen
+          name: webcpu-fp32-runtime-confirmation
           path: results/
           if-no-files-found: warn
       - name: Remove private generated assets before tool cache save
