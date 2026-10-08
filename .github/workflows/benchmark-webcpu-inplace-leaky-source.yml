@@ -1,0 +1,83 @@
+name: WebCPU maintainable inplace source confirmation
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths:
+      - 'benchmarks/webcpu-research/inplace-leaky-source-distribution/**'
+      - '.github/workflows/benchmark-webcpu-inplace-leaky-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: webcpu-inplace-leaky-source-confirm-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-confirmation:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Configure private cache paths
+        run: |
+          echo "BENCH_CACHE=$RUNNER_TEMP/voicevox-core-benchmark" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/voicevox-core-benchmark/playwright" >> "$GITHUB_ENV"
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          sparse-checkout: benchmarks/webcpu-research
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: cache
+        with:
+          path: |
+            ${{ runner.temp }}/voicevox-core-benchmark/builds
+            ${{ runner.temp }}/voicevox-core-benchmark/cargo-target
+            ${{ runner.temp }}/voicevox-core-benchmark/cargo/bin
+            ${{ runner.temp }}/voicevox-core-benchmark/rustup
+            ${{ runner.temp }}/voicevox-core-benchmark/runtimes
+            ${{ runner.temp }}/voicevox-core-benchmark/playwright
+            ${{ runner.temp }}/voicevox-core-benchmark/emsdk-4.0.8
+          key: Linux-voicevox-research-${{ github.sha }}
+          restore-keys: Linux-voicevox-research-
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.cache.outputs.cache-matched-key == ''
+        with:
+          path: ${{ runner.temp }}/voicevox-core-benchmark
+          key: Linux-voicevox-research-legacy-${{ github.sha }}
+          restore-keys: Linux-voicevox-core-v1-
+      - name: Install pinned tools and browser
+        run: |
+          python -m pip install uv==0.11.23 playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: Pin and isolate actual standalone file
+        run: |
+          echo "SOURCE_DISTRIBUTION_SHA=7f0fc364c3cb3fa8a753b029ba510f87954ca59aaae4e05677e0a11ac3f865be" >> "$GITHUB_ENV"
+          echo "SOURCE_MEASURE_DIR=$RUNNER_TEMP/source-measured-distribution" >> "$GITHUB_ENV"
+          mkdir "$RUNNER_TEMP/source-measured-distribution"
+          cp benchmarks/webcpu-research/inplace-leaky-source-distribution/voicevox_core_benchmark.py "$RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py"
+          echo "7f0fc364c3cb3fa8a753b029ba510f87954ca59aaae4e05677e0a11ac3f865be  $RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py" | sha256sum --check
+          python -m py_compile "$RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py"
+      - name: Validate actual updated file without inference
+        run: |
+          cd "$SOURCE_MEASURE_DIR"
+          uv run voicevox_core_benchmark.py --help
+          uv run voicevox_core_benchmark.py --self-test
+      - name: Prepare source controls and run exactly45 primary browser calls
+        run: |
+          cd "$SOURCE_MEASURE_DIR"
+          mkdir results
+          uv run voicevox_core_benchmark.py --inplace-leaky-experiments --threads 2 --seed 1729 --cache-dir "$BENCH_CACHE" --output results/inplace-leaky-source.html
+      - name: Strictly revalidate evidence and reproduce exact native HTML
+        id: privacy
+        run: |
+          uv run benchmarks/webcpu-research/inplace-leaky-source-distribution/log_source_measurement.py --distribution "$SOURCE_MEASURE_DIR/voicevox_core_benchmark.py" --sha256 "$SOURCE_DISTRIBUTION_SHA" --result "$SOURCE_MEASURE_DIR/results/inplace-leaky-source.json" --html "$SOURCE_MEASURE_DIR/results/inplace-leaky-source.html" --output "$RUNNER_TEMP/source-validated-artifacts"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success() && steps.privacy.outcome == 'success'
+        with:
+          name: webcpu-maintainable-source-confirmation
+          path: |
+            ${{ runner.temp }}/source-validated-artifacts/measured.html
+            ${{ runner.temp }}/source-validated-artifacts/confirmation.json
+            ${{ runner.temp }}/source-validated-artifacts/receipt.json
+          if-no-files-found: error
