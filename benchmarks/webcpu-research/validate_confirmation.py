@@ -25,3 +25,14 @@ def validate(result,sets,pairs,warmups):
  if len(result['cpu_companion'])!=sets*2:raise ValueError('Missing CPU companion')
  for row in result['cpu_companion']:positive(row)
  if len({(x['process_set'],x['mode']) for x in result['cpu_companion']})!=sets*2:raise ValueError('Duplicate CPU companion')
+
+
+def pressure_during_call(before,after):
+ if after['host']['available_bytes'] < 1024**3:return 'Available memory below1GiB'
+ for key in ['swap_in','swap_out']:
+  if after['host'][key] > before['host'][key]:return 'Host swap activity during measured call'
+ old={(x['pid'],x['created']):x for x in before['processes']}
+ for x in after['processes']:
+  previous=old.get((x['pid'],x['created']))
+  if previous is not None and x.get('major_faults') is not None and previous.get('major_faults') is not None and x['major_faults']>previous['major_faults']:return 'Target process major faults during measured call'
+ return None
