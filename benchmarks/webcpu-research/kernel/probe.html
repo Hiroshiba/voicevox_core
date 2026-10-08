@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>XNNPACK kernel probe</title>
+<script>
+window.runProbe=(validateOnly=false)=>new Promise((resolve,reject)=>{
+ const worker=new Worker('probe_worker.js');
+ worker.onerror=e=>reject(new Error(e.message));
+ worker.onmessage=({data})=>{if(data.error){worker.terminate();reject(new Error(data.error));}else if(data.done){worker.terminate();resolve(data);}};
+ worker.postMessage({validateOnly});
+});
+</script>
+<script>
+window.runDispatch=script=>new Promise((resolve,reject)=>{
+ const worker=new Worker('dispatch_worker.js');
+ worker.onerror=e=>reject(new Error(e.message));
+ worker.onmessage=({data})=>{worker.terminate();data.error?reject(new Error(data.error)):resolve(data);};
+ worker.postMessage({script});
+});
+</script>
