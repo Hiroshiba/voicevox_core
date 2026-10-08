@@ -1,0 +1,2 @@
+<!doctype html><title>Untimed XNN macro correctness</title>
+<script>window.run=(args)=>new Promise((resolve,reject)=>{let w=new Worker('worker.js'),results=[];w.onmessage=e=>{if(e.data.error){w.terminate();reject(e.data)}else if(e.data.done){w.terminate();resolve(results)}else{results.push(e.data);console.log(JSON.stringify(e.data))}};w.onerror=e=>reject(e.message);w.postMessage(args)});</script>

@@ -1,0 +1,7 @@
+# Strict FP32 XNN macro correctness gate
+
+Only source files for an untimed real-XNN operator experiment. Conditions A/B/C preserve MR4 loadsplat arithmetic and pinned pthreadpool: original callbacks, M8 whole-N grouping, M8 NC32-first traversal. Uses synthetic finite inputs. No models, speech, external uploads, full CORE build or speed claim.
+
+The workflow is scoped only to Hiroshiba/voicevox_core, benchmark/native-browser-research-20261008 and the macro paths. Read-only token, non-canceling distinct concurrency, restore-only cache. SDK4.0.8 and released archive hashes are verified; pinned XNN source is freshly extracted. Original source LLVM identity gates precede builds. Dedicated browser Worker verifies shared memory/isolation, actual two-thread callbacks, exact hashes, tails, guards, packed-weight equality, persistent indirection mapping, changed input address and ownership.
+
+75 cases × three conditions × three invocations = 675 untimed runs. Actual widths61568 d1/d3/d5 and two seeds must show A/B/C callbacks15392/1924/1924 and kernel calls15392/15392/61568. Hash sequence means input0/repeat-input0/input1, not A/B/C. Width32/33 A retains its original NC8 scheduling, so those are correctness-only controls. Width1 remains MR1; C128K7, C64K11, C256K11 stay unchanged. Output64-byte alignment is checked; host cache-line size is unverified. Guards do not imply complete archive ASan coverage. No timing is authorized by this gate.
