@@ -1,0 +1,431 @@
+[
+  [
+    [
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      }
+    ],
+    [
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      }
+    ],
+    [
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      }
+    ]
+  ],
+  [
+    [
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      }
+    ],
+    [
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      }
+    ],
+    [
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      }
+    ]
+  ],
+  [
+    [
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      }
+    ],
+    [
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      }
+    ],
+    [
+      {
+        "condition": 2,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 1,
+        "q": 1,
+        "dilation": 3
+      },
+      {
+        "condition": 0,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 2,
+        "q": 2,
+        "dilation": 5
+      },
+      {
+        "condition": 1,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 2,
+        "q": 0,
+        "dilation": 1
+      },
+      {
+        "condition": 0,
+        "q": 0,
+        "dilation": 1
+      }
+    ]
+  ]
+]

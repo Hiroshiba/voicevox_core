@@ -1,0 +1,7 @@
+<!doctype html><title>Bounded strict XNN operator screen</title><script>
+const workers=new Map();let nextId=0;
+window.rpc=(condition,action,args={})=>new Promise((resolve,reject)=>{
+ if(action==='init'){const w=new Worker('worker.js');w.pending=new Map();w.onmessage=e=>{const p=w.pending.get(e.data.id);w.pending.delete(e.data.id);if(e.data.error)p.reject(e.data);else p.resolve(e.data.result)};w.onerror=e=>{for(const p of w.pending.values())p.reject(e.message)};workers.set(condition,w)}
+ const w=workers.get(condition),id=++nextId;w.pending.set(id,{resolve,reject});w.postMessage({id,action,condition,...args});
+});window.stopAll=()=>{for(const w of workers.values())w.terminate();workers.clear()};
+</script>
