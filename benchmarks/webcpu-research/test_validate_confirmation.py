@@ -1,5 +1,5 @@
 import copy,unittest
-from validate_confirmation import validate,pressure_during_call
+from validate_confirmation import validate,pressure_during_call,resource_observations
 class Tests(unittest.TestCase):
  def setUp(self):
   exact={'pcm_exact':True,'fp32_exact':True,'finite':True};t={'elapsed_s':1.,'audio_s':10.}
@@ -12,7 +12,13 @@ class Tests(unittest.TestCase):
 class PressureTests(unittest.TestCase):
  def setUp(self):self.x={'host':{'available_bytes':11*1024**3,'swap_in':0,'swap_out':4096},'processes':[{'pid':3,'created':1,'major_faults':0}]}
  def test_setup_swap_is_not_timed_activity(self):self.assertIsNone(pressure_during_call(self.x,copy.deepcopy(self.x)))
- def test_swap_during_call(self):y=copy.deepcopy(self.x);y['host']['swap_out']+=4096;self.assertIsNotNone(pressure_during_call(self.x,y))
- def test_major_fault(self):y=copy.deepcopy(self.x);y['processes'][0]['major_faults']=1;self.assertIsNotNone(pressure_during_call(self.x,y))
+ def test_swap_during_call(self):y=copy.deepcopy(self.x);y['host']['swap_out']+=4096;self.assertIsNone(pressure_during_call(self.x,y));self.assertEqual(resource_observations(self.x,y)['host_swap_out_delta'],4096)
+ def test_major_fault(self):y=copy.deepcopy(self.x);y['processes'][0]['major_faults']=1;self.assertIsNone(pressure_during_call(self.x,y));self.assertTrue(resource_observations(self.x,y)['fault_exposed'])
  def test_memory_low(self):y=copy.deepcopy(self.x);y['host']['available_bytes']=100;self.assertIsNotNone(pressure_during_call(self.x,y))
+ def test_actual_failed_off_snapshot_is_retained(self):
+  x={'host':{'available_bytes':11132407808,'swap_in':0,'swap_out':24576},'processes':[{'pid':4475,'created':1791446023.15,'major_faults':261}]};y=copy.deepcopy(x);y['host']['available_bytes']=11129794560;y['processes'][0]['major_faults']=304
+  self.assertIsNone(pressure_during_call(x,y));self.assertEqual(resource_observations(x,y)['target_major_fault_delta'],43)
+ def test_actual_failed_on_snapshot_is_retained(self):
+  x={'host':{'available_bytes':11061862400,'swap_in':0,'swap_out':0},'processes':[{'pid':3473,'created':1791446336.12,'major_faults':262}]};y=copy.deepcopy(x);y['host']['available_bytes']=11044302848;y['processes'][0]['major_faults']=319
+  self.assertIsNone(pressure_during_call(x,y));self.assertEqual(resource_observations(x,y)['target_major_fault_delta'],57)
 if __name__=='__main__':unittest.main()

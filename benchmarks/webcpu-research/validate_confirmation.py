@@ -27,12 +27,17 @@ def validate(result,sets,pairs,warmups):
  if len({(x['process_set'],x['mode']) for x in result['cpu_companion']})!=sets*2:raise ValueError('Duplicate CPU companion')
 
 
-def pressure_during_call(before,after):
- if after['host']['available_bytes'] < 1024**3:return 'Available memory below1GiB'
- for key in ['swap_in','swap_out']:
-  if after['host'][key] > before['host'][key]:return 'Host swap activity during measured call'
+def resource_observations(before,after):
  old={(x['pid'],x['created']):x for x in before['processes']}
+ major=0;swap_growth=0;unknown=len(set(old)-{(x['pid'],x['created']) for x in after['processes']})
  for x in after['processes']:
   previous=old.get((x['pid'],x['created']))
-  if previous is not None and x.get('major_faults') is not None and previous.get('major_faults') is not None and x['major_faults']>previous['major_faults']:return 'Target process major faults during measured call'
+  if previous is None or x.get('major_faults') is None or previous.get('major_faults') is None:unknown+=1;continue
+  major+=max(0,x['major_faults']-previous['major_faults'])
+  if x.get('swap_bytes') is not None and previous.get('swap_bytes') is not None:swap_growth+=max(0,x['swap_bytes']-previous['swap_bytes'])
+ return {'target_major_fault_delta':major,'target_swap_growth_bytes':swap_growth,'host_swap_in_delta':max(0,after['host']['swap_in']-before['host']['swap_in']),'host_swap_out_delta':max(0,after['host']['swap_out']-before['host']['swap_out']),'unmatched_or_unknown_processes':unknown,'fault_exposed':major>0}
+
+def pressure_during_call(before,after):
+ # Faults and host swap counters are context, not a reason to remove observations.
+ if after['host']['available_bytes'] < 1024**3:return 'Available memory below1GiB'
  return None

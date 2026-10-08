@@ -7,7 +7,7 @@
 import argparse,contextlib,hashlib,importlib.util,json,os,random,shutil,sys,tempfile,time
 from pathlib import Path
 from dataclasses import asdict
-from validate_confirmation import validate,pressure_during_call
+from validate_confirmation import validate,pressure_during_call,resource_observations
 import psutil
 from playwright.sync_api import sync_playwright
 p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--cache',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--revec',choices=['off','on'],default='off');p.add_argument('--process-sets',type=int,default=3);p.add_argument('--pairs',type=int,default=5);p.add_argument('--warmups',type=int,default=5);a=p.parse_args();assert a.process_sets >= 1 and a.pairs >= 1 and a.warmups >= 1
@@ -16,16 +16,23 @@ spec=importlib.util.spec_from_file_location('bench',root/'voicevox_webcpu_resear
 man=json.loads(a.manifest.read_text());entries=[e for e in man['variants'] if e['key'] in ['original','combined']];assert [e['key'] for e in entries]==['original','combined']
 os.environ['PLAYWRIGHT_BROWSERS_PATH']=str(a.cache.resolve()/'playwright')
 modes=[b.Mode(e['key'],e['label'],e['threads'],'FP32 model-only confirmation',experimental=i>0,revectorize=a.revec=='on') for i,e in enumerate(entries)]
-result={'schema':'voicevox-browser-paired-confirmation-v1','status':'initializing','revectorization':a.revec,'manifest_sha256':b.sha256_file(a.manifest),'harness_sha256':b.sha256_file(Path(__file__)),'research_harness_sha256':b.sha256_file(root/'voicevox_webcpu_research.py'),'environment':b.environment_info(),'provenance':{},'diagnostics':{},'process_sets':[],'trials':[],'cpu_companion':[],'notes':['Primary latency is unsampled; separate CPU companion retains process-tree time series.','Five warmups are recorded, not a proof of tiering convergence.','Fifteen paired observations in three fresh browser-process sets; analyze paired effects and process-set clusters.','Memory pressure guard compares each measured call before/after; setup swap activity is recorded but is not attributed to a timed call.', 'Raw FP32 and PCM remain private and are removed after checks.']}
+result={'schema':'voicevox-browser-paired-confirmation-v1','status':'initializing','revectorization':a.revec,'manifest_sha256':b.sha256_file(a.manifest),'harness_sha256':b.sha256_file(Path(__file__)),'research_harness_sha256':b.sha256_file(root/'voicevox_webcpu_research.py'),'environment':b.environment_info(),'provenance':{},'diagnostics':{},'process_sets':[],'trials':[],'cpu_companion':[],'notes':['Primary latency is unsampled; separate CPU companion retains process-tree time series.','Five warmups are recorded, not a proof of tiering convergence.','Fifteen paired observations in three fresh browser-process sets; analyze paired effects and process-set clusters.','One complete predeclared matrix: retain and annotate all majorfault and host-swap observations without exclusions. Abort only allocation/execution failure or available memory below1GiB. PSI/VmSwap provide context, not correction factors.', 'Raw FP32 and PCM remain private and are removed after checks.']}
 def save():b.atomic_write(a.output,json.dumps(result,indent=2).encode())
 def host():
- m=psutil.virtual_memory();s=psutil.swap_memory();return {'available_bytes':m.available,'total_bytes':m.total,'swap_used':s.used,'swap_in':s.sin,'swap_out':s.sout,'loadavg':list(os.getloadavg())}
+ m=psutil.virtual_memory();s=psutil.swap_memory();psi={}
+ try:
+  for line in Path('/proc/pressure/memory').read_text().splitlines():
+   name,*fields=line.split();psi[name]={k:float(v) for k,v in (f.split('=') for f in fields)}
+ except (OSError,ValueError):pass
+ return {'memory_psi':psi,'available_bytes':m.available,'total_bytes':m.total,'swap_used':s.used,'swap_in':s.sin,'swap_out':s.sout,'loadavg':list(os.getloadavg())}
 def usage(pid):
  out=[]
  for q in [psutil.Process(pid),*psutil.Process(pid).children(recursive=True)]:
   try:
    stat=Path(f'/proc/{q.pid}/stat').read_text().rsplit(')',1)[1].split() if sys.platform.startswith('linux') else None
-   out.append({'pid':q.pid,'created':q.create_time(),'rss':q.memory_info().rss,'cpu':q.cpu_times()._asdict(),'major_faults':int(stat[9]) if stat else None,'minor_faults':int(stat[7]) if stat else None})
+   status=Path(f'/proc/{q.pid}/status').read_text() if stat else ''
+   swap=next((int(line.split()[1])*1024 for line in status.splitlines() if line.startswith('VmSwap:')),None)
+   out.append({'pid':q.pid,'created':q.create_time(),'rss':q.memory_info().rss,'cpu':q.cpu_times()._asdict(),'major_faults':int(stat[9]) if stat else None,'minor_faults':int(stat[7]) if stat else None,'swap_bytes':swap})
   except (psutil.NoSuchProcess,psutil.AccessDenied,FileNotFoundError,PermissionError):pass
  return out
 initial_host=host();result['initial_host']=initial_host;save()
@@ -61,7 +68,7 @@ try:
       order=['original','combined'] if (replica+pair)%2 else ['combined','original']
       for key in order:
        before={'host':host(),'processes':usage(pids[key])};elapsed,duration=runners[key].synthesize();after={'host':host(),'processes':usage(pids[key])}
-       row={'process_set':replica,'pair':pair,'mode':key,'pair_order':order,'elapsed_s':elapsed,'audio_s':duration,'before':before,'after':after};result['trials'].append(row);save();print('PRIMARY_TRIAL '+json.dumps(row),flush=True)
+       row={'process_set':replica,'pair':pair,'mode':key,'pair_order':order,'elapsed_s':elapsed,'audio_s':duration,'before':before,'after':after,'resource_observations':resource_observations(before,after)};result['trials'].append(row);save();print('PRIMARY_TRIAL '+json.dumps(row),flush=True)
        pressure=pressure_during_call(before,after)
        if pressure:raise RuntimeError(pressure+'; saved trial retained')
      elapsed,duration=runners['original'].synthesize();group['sentinels'].append({'position':'after','elapsed_s':elapsed,'audio_s':duration});save()

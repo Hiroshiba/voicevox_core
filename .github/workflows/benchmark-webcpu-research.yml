@@ -21,8 +21,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # OFF guard repair; the preceding ON job remains running and is preserved.
-        revec: ['off']
+        # Complete one fixed-policy OFF/ON matrix; preserve every observation.
+        revec: ['off', 'on']
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
