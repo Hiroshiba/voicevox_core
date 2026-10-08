@@ -1,0 +1,69 @@
+{
+  "source_run_id": 37778610494,
+  "source_job_id": 113315721747,
+  "source_recovered_records_sha256": "1741d14856c2efa930e42e081ac90e94905e0006f3b8d17208bd2be3be8733af",
+  "passed": true,
+  "engine": {
+    "product": "HeadlessChrome/153.0.8010.12",
+    "js_version": "15.3.76.4"
+  },
+  "activation": {
+    "product": "HeadlessChrome/153.0.8010.12",
+    "js_version": "15.3.76.4",
+    "transformed_groups": 0,
+    "revectorizable_nodes": 0,
+    "flag_rejected": false,
+    "launch_configuration_matches": true,
+    "trace_sha256": "368eab32d3e8ae00689f599dc83bb4d2a7a3081652dc7398acbf6de77658f706"
+  },
+  "requested_browser_flags": [
+    "--js-flags=--no-wasm-revectorize"
+  ],
+  "source_wasm_sha256": "bdc88a9173fa8116ed9945cfaaf90c2b41d6467e66fe62cb3ccc7ff9d59a49bc",
+  "candidate_wasm_sha256": "10cace3a73a54d12e1837ac45dcd1b7e6dbfcb3b4e0fbb96f2ee2d49ca82398e",
+  "source_js_sha256": "48b0db6eec9f1dbe8368a6e940446c6122775b61a01faf995842b61953247985",
+  "original_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+  "candidate_body_sha256": "fd0128f23a680de35c3db7c3533e17240ffdb9c262993cacbb8b96ea0b9345a7",
+  "outputs": {
+    "raw_sha256": "410a3a55cf81b3e35d003ce752aaaf613a5600cfeddf82c7c6970928a5a646d8",
+    "pcm_sha256": "100890180c1067bcc316674be9012130157beb18f794688920fbfccd1dbb51a0",
+    "wav_sha256": "a657c8dddfbebe6796739fd6090f4adeea3a1af05acc1e3db0da8b70b1b09576"
+  },
+  "runtime": {
+    "shared_memory": true,
+    "pthreads": 1,
+    "spin_off": true,
+    "fixed_length": 962,
+    "fixed_matches": 1,
+    "xnn_threads": 2,
+    "xnn_sessions": 1,
+    "configured_ort_global_threads": 1
+  },
+  "dispatch": {
+    "schema_version": 1,
+    "source": "actual_CORE_module",
+    "context": "dedicated_worker",
+    "expected_dispatch": "loadsplat",
+    "actual_dispatch": "loadsplat",
+    "worker_hardware_concurrency": 4,
+    "probe_hardware_concurrency": 4,
+    "is_x86": true,
+    "relaxed_simd": false,
+    "mr": 4,
+    "nr": 8,
+    "splat_pointers": 0,
+    "loadsplat_pointers": 12,
+    "checked_pointers": 12,
+    "probe_return_code": 1,
+    "cross_origin_isolated": true,
+    "shared_memory": true,
+    "verified": true
+  },
+  "model_sha256": "51425e43e7ad5aa33af06464b77f86c64959ab9317353e8f549c1b7747150fc9",
+  "callback_table": {
+    "table": 0,
+    "slot": 10977
+  },
+  "absolute_function_index": 8227,
+  "query_sha256": "3d3b07b94d5a1159994888d72b4e9f3362acec551f2bf5275eb71d8fa6802d63"
+}

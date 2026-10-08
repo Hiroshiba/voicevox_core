@@ -1,0 +1,103 @@
+name: WebCPU inplace LeakyRelu bounded timing screen
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths:
+      - 'benchmarks/webcpu-research/inplace-leaky-timing/**'
+      - '.github/workflows/benchmark-webcpu-inplace-leaky-timing.yml'
+permissions:
+  contents: read
+concurrency:
+  group: webcpu-inplace-leaky-timing-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  browser-timing-screen:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Configure private paths
+        run: |
+          echo "BENCH_CACHE=$RUNNER_TEMP/voicevox-core-benchmark" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/voicevox-core-benchmark/playwright" >> "$GITHUB_ENV"
+          echo "PRIVATE_GATE=$RUNNER_TEMP/inplace-leaky-timing-private" >> "$GITHUB_ENV"
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          sparse-checkout: benchmarks/webcpu-research
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: cache
+        with:
+          path: |
+            ${{ runner.temp }}/voicevox-core-benchmark/builds
+            ${{ runner.temp }}/voicevox-core-benchmark/cargo-target
+            ${{ runner.temp }}/voicevox-core-benchmark/cargo/bin
+            ${{ runner.temp }}/voicevox-core-benchmark/rustup
+            ${{ runner.temp }}/voicevox-core-benchmark/runtimes
+            ${{ runner.temp }}/voicevox-core-benchmark/playwright
+            ${{ runner.temp }}/voicevox-core-benchmark/emsdk-4.0.8
+          key: Linux-voicevox-research-${{ github.sha }}
+          restore-keys: Linux-voicevox-research-
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.cache.outputs.cache-matched-key == ''
+        with:
+          path: ${{ runner.temp }}/voicevox-core-benchmark
+          key: Linux-voicevox-research-legacy-${{ github.sha }}
+          restore-keys: Linux-voicevox-core-v1-
+      - name: Verify source and unit tests
+        run: |
+          cd benchmarks/webcpu-research/inplace-leaky
+          sha256sum -c SOURCE_SHA256SUMS
+          cd ../inplace-leaky-timing
+          sha256sum -c SOURCE_SHA256SUMS
+          python test_validate_timing.py
+          python -m py_compile *.py
+          node --check timing_worker.js
+      - name: Install pinned tools and browser
+        run: |
+          python -m pip install uv==0.11.23 playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: Prefer fully verified cached loadsplat build
+        id: cached_baseline
+        run: |
+          mkdir -p "$PRIVATE_GATE" results
+          set +e
+          python benchmarks/webcpu-research/inplace-leaky/select_baseline.py --cache "$BENCH_CACHE" --output "$PRIVATE_GATE/selection.json"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then echo 'ready=true' >> "$GITHUB_OUTPUT";
+          elif [ "$status" -eq 3 ]; then echo 'ready=false' >> "$GITHUB_OUTPUT";
+          else exit "$status"; fi
+      - name: Prepare only missing verified baseline assets
+        if: steps.cached_baseline.outputs.ready != 'true'
+        run: |
+          uv run benchmarks/webcpu-research/voicevox_webcpu_research.py --prepare-only --backend-experiments all --threads 2 --cache-dir "$BENCH_CACHE"
+          uv run --with psutil==7.2.2 --with platformdirs==4.12.2 --with cmake==4.4.3 --with ninja==1.13.2 --with libclang==18.1.1 python benchmarks/webcpu-research/runtime/prepare_vocoder_runtime.py --cache "$BENCH_CACHE" --output "$PRIVATE_GATE/runtime.json" --harness benchmarks/webcpu-research/voicevox_webcpu_research.py --kernel-dir benchmarks/webcpu-research/kernel --variants original loadsplat
+          python benchmarks/webcpu-research/inplace-leaky/select_baseline.py --cache "$BENCH_CACHE" --output "$PRIVATE_GATE/selection.json"
+      - name: Run nine-pair normal-tier OFF browser screen
+        run: |
+          uv run benchmarks/webcpu-research/inplace-leaky-timing/timing_screen.py --selection "$PRIVATE_GATE/selection.json" --gate-dir benchmarks/webcpu-research/inplace-leaky --harness benchmarks/webcpu-research/voicevox_webcpu_research.py --dispatch-helper benchmarks/webcpu-research/runtime/core_dispatch_check.js --output results/inplace-leaky-timing.json
+      - name: Validate privacy and print allowlisted numeric result
+        id: validate
+        run: |
+          python benchmarks/webcpu-research/inplace-leaky-timing/validate_timing.py results/inplace-leaky-timing.json --output results/inplace-leaky-timing-validated.json
+          python - <<'PY'
+          from pathlib import Path
+          allowed={'inplace-leaky-timing.json','inplace-leaky-timing-validated.json'}
+          assert {p.name for p in Path('results').iterdir()}==allowed
+          for p in Path('results').iterdir():
+              data=p.read_bytes()
+              assert not data.startswith((b'RIFF',b'fLaC',b'OggS',b'\0asm'))
+              assert b'data:audio/' not in data and b'wav_base64' not in data
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success() && steps.validate.outcome == 'success'
+        with:
+          name: webcpu-inplace-leaky-nine-pair-screen
+          path: |
+            results/inplace-leaky-timing.json
+            results/inplace-leaky-timing-validated.json
+          if-no-files-found: error
