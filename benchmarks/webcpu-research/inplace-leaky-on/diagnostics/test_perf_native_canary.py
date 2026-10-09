@@ -28,7 +28,9 @@ def jit(*records):
 def receipt():
     return {'engine': {'product': 'HeadlessChrome/153.0.8010.12', 'js_version': '15.3.76.4'},
             'completed_calls': base.CALLS + 1, 'result_verified': True,
-            'browser_version_matches_pin': True, 'child_error': False}
+            'browser_version_matches_pin': True, 'child_error': False,
+            'synthetic_js_drain': {'functions': p.DRAIN_FUNCTIONS,
+                'calls': p.DRAIN_FUNCTIONS * p.DRAIN_CALLS_PER_FUNCTION, 'result_verified': True}}
 
 
 def evidence():
@@ -44,7 +46,7 @@ def report():
               'timed_out': False, 'capture_limit_exceeded': False, 'jit_limit_exceeded': False,
               'skipped_after_permission_denial': False, 'child_result': receipt(),
               'capture': p.capture_summary('', ''), 'jit': evidence()} for mode in p.MODES]
-    return {'schema': 'inplace-perf-native-canary-v1', 'synthetic_only': True, 'models_loaded': False,
+    return {'schema': 'inplace-perf-native-canary-v2', 'synthetic_only': True, 'models_loaded': False,
             'completed_primary_calls': 0, 'semantic_verified': False, 'full_capture_released': False,
             'wasm_sha256': base.WASM_SHA, 'source_revision': p.SOURCE_REV, 'playwright_version': '1.63.0',
             'expected_browser_version': base.EXPECTED_BROWSER,
@@ -84,13 +86,43 @@ class PerfCanaryTests(unittest.TestCase):
         both = p.parse_jit(jit(load_record(name=b'JS:wasm-function[0]-0-liftoff'), load_record(ident=1)), PID)
         self.assertEqual([x['tier'] for x in both['targets']], ['liftoff', 'turbofan'])
 
-    def test_rejects_truncated_header_record_and_code(self):
+    def test_truncated_target_never_claims_complete_code(self):
         full = jit(load_record())
-        for cut in (0, 20, 39, 41, len(full)-1):
-            with self.assertRaises(p.ProbeError):
-                p.parse_jit(full[:cut], PID)
-        with self.assertRaises(p.ProbeError):
-            p.parse_jit(full + b'PRIVATE', PID)
+        for cut in (0, 20, 39):
+            with self.assertRaises(p.ProbeError): p.parse_jit(full[:cut], PID)
+        for cut in (41, len(full)-1):
+            parsed = p.parse_jit(full[:cut], PID)
+            self.assertFalse(parsed['file_complete'])
+            self.assertEqual(parsed['targets'], [])
+            self.assertEqual(parsed['records'], 0)
+            self.assertIn(parsed['first_failure']['kind'], p.TAIL_KINDS)
+
+    def test_complete_target_before_partial_suffix_retains_exact_evidence(self):
+        complete = jit(load_record())
+        for suffix in (b'abc', load_record(name=b'JS:unrelated', ident=1)[:-1]):
+            parsed = p.parse_jit(complete + suffix, PID)
+            self.assertEqual(parsed['targets'], [{'tier': 'turbofan', 'code': CODE}])
+            self.assertFalse(parsed['file_complete'])
+            self.assertEqual(parsed['validated_prefix_bytes'], len(complete))
+            self.assertEqual(parsed['trailing_bytes'], len(suffix))
+            self.assertEqual(parsed['first_failure']['complete_records_before_failure'], 1)
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d); folder = root/'jit'; folder.mkdir()
+                (folder/f'jit-{PID}.dump').write_bytes(complete + suffix)
+                proof = p.summarize_jit(folder, root)
+            self.assertEqual(proof['category'], 'accepted_complete_targets_with_partial_tail')
+            self.assertEqual(proof['targets'][0]['code_sha256'], hashlib.sha256(CODE).hexdigest())
+            r = report(); r['cases'][0]['jit'] = proof
+            self.assertTrue(p.validate(r)); self.assertTrue(p.ready(r['cases'][0]))
+            proof['all_files_complete'] = True
+            with self.assertRaises(p.ProbeError): p.validate(r)
+
+    def test_malformed_suffix_is_not_silently_accepted_or_resynchronized(self):
+        bad = jit(load_record()) + struct.pack('<IIQ', 99, 16, 0) + load_record(ident=1)
+        with self.assertRaises(p.ProbeError) as caught: p.parse_jit(bad, PID)
+        self.assertEqual(caught.exception.details['kind'], 'record_event_invalid')
+        self.assertEqual(caught.exception.details['complete_records_before_failure'], 1)
+        self.assertNotIn('code', caught.exception.details)
 
     def test_rejects_bad_machine_magic_pid_record_binding(self):
         for off, value in ((0, 0), (4, 2), (8, 48), (12, 183), (20, 1), (40+16, 99)):

@@ -43,13 +43,23 @@ MAX_TARGET_RECORDS = 8
 TIMEOUT = 90
 TARGET = re.compile(rb'JS:wasm-function\[0\]-0-(liftoff|turbofan)')
 WASM_SYMBOL = re.compile(rb'JS:wasm-function\[[0-9]+\]-[0-9]+-(?:liftoff|turbofan)')
-CATEGORIES = {'accepted', 'missing_jit_files', 'file_limit', 'file_shape', 'jit_header',
+CATEGORIES = {'accepted', 'accepted_complete_targets_with_partial_tail', 'missing_jit_files', 'file_limit', 'file_shape', 'jit_header',
               'record_shape', 'target_limit', 'target_missing', 'ambiguous_binding',
               'decoder_unavailable', 'decoder_rejection', 'private_io_failure', 'not_attempted'}
 
 
 class ProbeError(ValueError):
-    pass
+    def __init__(self, category, details=None):
+        super().__init__(category)
+        self.details = details
+
+
+TAIL_KINDS = {'truncated_record_header', 'truncated_record_body'}
+FAILURE_KINDS = TAIL_KINDS | {'record_event_invalid', 'record_length_invalid', 'load_prefix_short',
+    'load_binding_invalid', 'load_duplicate_id', 'load_name_terminator', 'load_code_length'}
+RECORD_KINDS = ('code_load', 'code_move', 'debug_info', 'close', 'unwinding_info')
+DRAIN_FUNCTIONS = 256
+DRAIN_CALLS_PER_FUNCTION = 1024
 
 
 def check(condition, category):
@@ -88,26 +98,55 @@ def inventory(directory):
 
 
 def parse_jit(data, expected_pid):
-    """Return private target bytes; exported report never contains this structure."""
+    """Parse complete records in order; never resynchronize after an invalid tail.
+
+    A partial final record is separately reported. Earlier full CODE_LOAD bytes
+    retain their own complete size/symbol binding. No claim is made about absent
+    later records, the entire file, or which tier executed the final call.
+    """
     check(40 <= len(data) <= MAX_JIT_BYTES, 'jit_header')
     magic, version, size, machine, reserved, pid, timestamp, flags_value = struct.unpack_from('<6I2Q', data)
     check((magic, version, size, machine, reserved, pid, flags_value) ==
           (0x4A695444, 1, 40, 62, 0xDEADBEEF, expected_pid, 0), 'jit_header')
     offset, records, loads, other_wasm = 40, 0, 0, 0
     targets, ids = [], set()
+    event, length = -1, 0
+
+    def details(kind):
+        return {'kind': kind, 'offset_bytes': offset, 'available_bytes': len(data) - offset,
+                'declared_record_bytes': min(length, MAX_JIT_BYTES),
+                'declared_record_exceeds_limit': length > MAX_JIT_BYTES,
+                'record_kind': RECORD_KINDS[event] if 0 <= event < len(RECORD_KINDS) else 'unknown',
+                'complete_records_before_failure': records}
+
+    def invalid(condition, kind):
+        if not condition:
+            raise ProbeError('record_shape', details(kind))
+
+    def finish(tail=None):
+        return {'records': records, 'loads': loads, 'other_wasm': other_wasm, 'targets': targets,
+                'validated_prefix_bytes': offset, 'trailing_bytes': len(data) - offset,
+                'file_complete': tail is None, 'first_failure': tail}
+
     while offset < len(data):
-        check(len(data) - offset >= 16, 'record_shape')
+        event, length = -1, 0
+        if len(data) - offset < 16:
+            return finish(details('truncated_record_header'))
         event, length, stamp = struct.unpack_from('<IIQ', data, offset)
-        check(event in (0, 1, 2, 3, 4) and 16 <= length <= len(data) - offset, 'record_shape')
+        invalid(event in (0, 1, 2, 3, 4), 'record_event_invalid')
+        invalid(16 <= length <= MAX_JIT_BYTES, 'record_length_invalid')
+        if length > len(data) - offset:
+            return finish(details('truncated_record_body'))
         record = data[offset:offset + length]
         if event == 0:
-            check(length >= 58, 'record_shape')
+            invalid(length >= 58, 'load_prefix_short')
             rpid, tid, vma, address, code_size, code_id = struct.unpack_from('<II4Q', record, 16)
-            check(rpid == pid and vma == address and address > 0 and code_size > 0
-                  and code_id not in ids, 'record_shape')
+            invalid(rpid == pid and vma == address and address > 0 and code_size > 0, 'load_binding_invalid')
+            invalid(code_id not in ids, 'load_duplicate_id')
             ids.add(code_id)
             end = record.find(b'\0', 56, min(length, 56 + 4097))
-            check(end >= 56 and length - end - 1 == code_size, 'record_shape')
+            invalid(end >= 56, 'load_name_terminator')
+            invalid(length - end - 1 == code_size, 'load_code_length')
             name, code = record[56:end], record[end + 1:]
             match = TARGET.fullmatch(name)
             if match:
@@ -118,8 +157,7 @@ def parse_jit(data, expected_pid):
             loads += 1
         offset += length
         records += 1
-    check(offset == len(data), 'record_shape')
-    return {'records': records, 'loads': loads, 'other_wasm': other_wasm, 'targets': targets}
+    return finish()
 
 
 def decode_output(text, code):
@@ -161,7 +199,8 @@ def decode(code, directory):
 
 def empty_jit(category):
     return {'category': category, 'files': 0, 'readable_bytes': 0, 'records': 0, 'code_load_records': 0,
-            'other_wasm_records': 0, 'target_files': 0, 'targets': []}
+            'other_wasm_records': 0, 'target_files': 0, 'targets': [], 'validated_prefix_bytes': 0,
+            'trailing_bytes': 0, 'partial_files': 0, 'all_files_complete': False, 'first_failure': None}
 
 
 def summarize_jit(directory, scratch):
@@ -170,11 +209,18 @@ def summarize_jit(directory, scratch):
         paths, total = inventory(directory)
         result.update(files=len(paths), readable_bytes=total)
         check(bool(paths), 'missing_jit_files')
+        result['all_files_complete'] = True
         for path in paths:
             data = path.read_bytes()
             check(len(data) == path.stat().st_size, 'file_shape')
             parsed = parse_jit(data, int(path.stem.split('-')[1]))
             result['records'] += parsed['records']
+            result['validated_prefix_bytes'] += parsed['validated_prefix_bytes']
+            result['trailing_bytes'] += parsed['trailing_bytes']
+            result['partial_files'] += int(not parsed['file_complete'])
+            result['all_files_complete'] &= parsed['file_complete']
+            if result['first_failure'] is None:
+                result['first_failure'] = parsed['first_failure']
             result['code_load_records'] += parsed['loads']
             result['other_wasm_records'] += parsed['other_wasm']
             result['target_files'] += int(bool(parsed['targets']))
@@ -187,11 +233,16 @@ def summarize_jit(directory, scratch):
                     'code_sha256': hashlib.sha256(code).hexdigest(), 'prefix16_hex': code[:16].hex(), **decoded})
         check(bool(result['targets']), 'target_missing')
         check(result['target_files'] == 1 and result['other_wasm_records'] == 0, 'ambiguous_binding')
-        result['category'] = 'accepted'
+        result['category'] = 'accepted' if result['all_files_complete'] else 'accepted_complete_targets_with_partial_tail'
     except ProbeError as error:
         result['category'] = str(error)
+        if result['validated_prefix_bytes'] + result['trailing_bytes'] != result['readable_bytes']:
+            result['all_files_complete'] = False
+        if result['first_failure'] is None:
+            result['first_failure'] = error.details
     except OSError:
         result['category'] = 'private_io_failure'
+        result['all_files_complete'] = False
     return result
 
 
@@ -253,7 +304,7 @@ def run_case(mode):
         return {'mode': mode, 'normal_tiering': mode == 'normal', 'diagnostic_profiling_enabled': True,
                 'flags_without_private_output_path': flags(mode), 'child_exit_code': process.returncode,
                 'timed_out': timed_out, 'capture_limit_exceeded': stream_limit, 'jit_limit_exceeded': file_limit, 'skipped_after_permission_denial': False,
-                'child_result': base.child_result(stdout), 'capture': capture, 'jit': jit}
+                'child_result': child_result(stdout), 'capture': capture, 'jit': jit}
 
 
 def ready(case):
@@ -261,9 +312,11 @@ def ready(case):
     return bool(case['child_exit_code'] == 0 and not case['timed_out'] and not case['capture_limit_exceeded']
         and not case['jit_limit_exceeded'] and receipt and receipt['result_verified']
         and receipt['browser_version_matches_pin'] and not receipt['child_error']
+        and receipt['synthetic_js_drain'] == {'functions': DRAIN_FUNCTIONS,
+            'calls': DRAIN_FUNCTIONS * DRAIN_CALLS_PER_FUNCTION, 'result_verified': True}
         and all(cap[k] == 0 for k in ('unknown_flag_errors', 'illegal_flag_value_errors',
                                       'contradictory_flag_errors', 'permission_denied_errors'))
-        and jit['category'] == 'accepted' and any(t['tier'] == 'turbofan' for t in jit['targets'])
+        and jit['category'] in ('accepted', 'accepted_complete_targets_with_partial_tail') and any(t['tier'] == 'turbofan' for t in jit['targets'])
         and all(t['decoder_complete_byte_coverage'] and t['undecodable_instruction_count'] == 0 for t in jit['targets']))
 
 
@@ -271,7 +324,7 @@ def validate(report):
     check(set(report) == {'schema', 'synthetic_only', 'models_loaded', 'completed_primary_calls',
           'semantic_verified', 'full_capture_released', 'wasm_sha256', 'source_revision',
           'playwright_version', 'expected_browser_version', 'status', 'cases'}, 'record_shape')
-    check(report['schema'] == 'inplace-perf-native-canary-v1' and report['synthetic_only'] is True
+    check(report['schema'] == 'inplace-perf-native-canary-v2' and report['synthetic_only'] is True
           and report['models_loaded'] is False and report['completed_primary_calls'] == 0
           and type(report['completed_primary_calls']) is int and report['semantic_verified'] is False
           and report['full_capture_released'] is False and report['wasm_sha256'] == base.WASM_SHA
@@ -286,7 +339,7 @@ def validate(report):
         check(type(case['child_exit_code']) is int and -128 <= case['child_exit_code'] <= 255, 'record_shape')
         check(all(type(case[k]) is bool for k in ('timed_out', 'capture_limit_exceeded', 'jit_limit_exceeded', 'skipped_after_permission_denial')), 'record_shape')
         if case['child_result'] is not None:
-            check(base.child_result(base.RESULT_PREFIX + json.dumps(case['child_result'])) == case['child_result'], 'record_shape')
+            check(child_result(base.RESULT_PREFIX + json.dumps(case['child_result'])) == case['child_result'], 'record_shape')
         cap = case['capture']
         check(set(cap) == set(capture_summary('', '')), 'record_shape')
         for key, value in cap.items():
@@ -298,10 +351,20 @@ def validate(report):
                 check(type(value) is int and 0 <= value <= MAX_JIT_BYTES, 'record_shape')
         jit = case['jit']
         check(set(jit) == set(empty_jit('accepted')) and jit['category'] in CATEGORIES, 'record_shape')
-        for key in ('files', 'readable_bytes', 'records', 'code_load_records', 'other_wasm_records', 'target_files'):
+        for key in ('files', 'readable_bytes', 'records', 'code_load_records', 'other_wasm_records', 'target_files',
+                    'validated_prefix_bytes', 'trailing_bytes', 'partial_files'):
             check(type(jit[key]) is int and 0 <= jit[key] <= MAX_JIT_BYTES, 'record_shape')
         check(jit['files'] <= MAX_JIT_FILES and isinstance(jit['targets'], list)
               and len(jit['targets']) <= MAX_TARGET_RECORDS, 'record_shape')
+        check(type(jit['all_files_complete']) is bool and jit['partial_files'] <= jit['files'], 'record_shape')
+        failure = jit['first_failure']
+        if failure is not None:
+            check(set(failure) == {'kind', 'offset_bytes', 'available_bytes', 'declared_record_bytes',
+                  'declared_record_exceeds_limit', 'record_kind', 'complete_records_before_failure'}, 'record_shape')
+            check(failure['kind'] in FAILURE_KINDS and failure['record_kind'] in (*RECORD_KINDS, 'unknown')
+                  and type(failure['declared_record_exceeds_limit']) is bool, 'record_shape')
+            for key in ('offset_bytes', 'available_bytes', 'declared_record_bytes', 'complete_records_before_failure'):
+                check(type(failure[key]) is int and 0 <= failure[key] <= MAX_JIT_BYTES, 'record_shape')
         for target in jit['targets']:
             check(set(target) == {'function_index', 'tier', 'exact_wasm_symbol_binding', 'code_size', 'readable_code_bytes',
                   'code_sha256', 'prefix16_hex', 'decoded_bytes', 'decoded_instruction_count',
@@ -318,12 +381,94 @@ def validate(report):
                   and target['code_sha256'] == target['decoder_bytes_sha256'], 'record_shape')
             check(re.fullmatch(r'[0-9a-f]+', target['prefix16_hex']) is not None
                   and len(target['prefix16_hex']) == 2 * min(16, target['code_size']), 'record_shape')
-        if jit['category'] == 'accepted':
+        if jit['category'] in ('accepted', 'accepted_complete_targets_with_partial_tail'):
             check(jit['files'] > 0 and jit['target_files'] == 1 and jit['other_wasm_records'] == 0
                   and len(jit['targets']) > 0, 'record_shape')
+            check(jit['validated_prefix_bytes'] + jit['trailing_bytes'] == jit['readable_bytes'], 'record_shape')
+            check(sum(t['code_size'] for t in jit['targets']) <= jit['validated_prefix_bytes'], 'record_shape')
+            if jit['category'] == 'accepted':
+                check(jit['all_files_complete'] and jit['partial_files'] == jit['trailing_bytes'] == 0
+                      and failure is None, 'record_shape')
+            else:
+                check(not jit['all_files_complete'] and jit['partial_files'] > 0 and jit['trailing_bytes'] > 0
+                      and failure is not None and failure['kind'] in TAIL_KINDS, 'record_shape')
     check(report['status'] == ('normal_tier_profiled_native_bytes_confirmed' if ready(report['cases'][0])
                               else 'normal_tier_profiled_native_bytes_unconfirmed'), 'record_shape')
     return True
+
+
+def child_result(stdout):
+    records = [line[len(base.RESULT_PREFIX):] for line in stdout.splitlines() if line.startswith(base.RESULT_PREFIX)]
+    if len(records) != 1:
+        return None
+    try:
+        receipt = json.loads(records[0])
+        drain = receipt.pop('synthetic_js_drain')
+        check(set(drain) == {'functions', 'calls', 'result_verified'}, 'record_shape')
+        check(type(drain['functions']) is int and drain['functions'] in (0, DRAIN_FUNCTIONS)
+              and type(drain['calls']) is int and drain['calls'] in (0, DRAIN_FUNCTIONS * DRAIN_CALLS_PER_FUNCTION)
+              and type(drain['result_verified']) is bool, 'record_shape')
+        check(base.child_result(base.RESULT_PREFIX + json.dumps(receipt)) == receipt, 'record_shape')
+        receipt['synthetic_js_drain'] = drain
+        return receipt
+    except Exception:
+        return None
+
+
+def child(mode, directory):
+    from playwright.sync_api import sync_playwright
+    data = {'engine': None, 'completed_calls': 0, 'result_verified': False,
+            'browser_version_matches_pin': False, 'child_error': False,
+            'synthetic_js_drain': {'functions': 0, 'calls': 0, 'result_verified': False}}
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=flags_for_child(mode, directory))
+            try:
+                session = browser.new_browser_cdp_session()
+                try:
+                    data['engine'] = base.engine_identity(session.send('Browser.getVersion'))
+                finally:
+                    session.detach()
+                data['browser_version_matches_pin'] = browser.version == base.EXPECTED_BROWSER
+                page = browser.new_page()
+                result = page.evaluate("""async ({bytes, calls, functions, rounds}) => {
+                  const module = new WebAssembly.Module(new Uint8Array(bytes));
+                  const instance = new WebAssembly.Instance(module);
+                  let valid = true;
+                  for (let i = 0; i < calls; ++i) {
+                    const x = (i % 257) - 128;
+                    valid = (instance.exports.f(x) === x * 0.5) && valid;
+                  }
+                  await new Promise(resolve => setTimeout(resolve, 250));
+                  valid = (instance.exports.f(3) === 1.5) && valid;
+                  // Browser renderer shutdown uses _exit, which may discard a
+                  // buffered JITdump suffix. Generate bounded, distinct synthetic
+                  // JS code records AFTER the Wasm target, without forcing tiers,
+                  // to move its complete records into the readable file prefix.
+                  const fs = [];
+                  for (let i = 0; i < functions; ++i)
+                    fs.push(new Function('x', 'return ((x + ' + i + ') | 0) ^ 12345;'));
+                  let drainValid = true;
+                  for (let round = 0; round < rounds; ++round)
+                    for (let i = 0; i < functions; ++i)
+                      drainValid = (fs[i](round) === (((round + i) | 0) ^ 12345)) && drainValid;
+                  await new Promise(resolve => setTimeout(resolve, 250));
+                  return {valid, completed: calls + 1, drainValid, functions, drainCalls: functions * rounds};
+                }""", {'bytes': list(base.WASM), 'calls': base.CALLS,
+                         'functions': DRAIN_FUNCTIONS, 'rounds': DRAIN_CALLS_PER_FUNCTION})
+                check(set(result) == {'valid', 'completed', 'drainValid', 'functions', 'drainCalls'}
+                      and type(result['valid']) is bool and type(result['drainValid']) is bool
+                      and result['completed'] == base.CALLS + 1 and result['functions'] == DRAIN_FUNCTIONS
+                      and result['drainCalls'] == DRAIN_FUNCTIONS * DRAIN_CALLS_PER_FUNCTION, 'record_shape')
+                data.update(completed_calls=result['completed'], result_verified=result['valid'])
+                data['synthetic_js_drain'] = {'functions': result['functions'], 'calls': result['drainCalls'],
+                                               'result_verified': result['drainValid']}
+            finally:
+                browser.close()
+    except Exception:
+        data['child_error'] = True
+    print(base.RESULT_PREFIX + json.dumps(data, separators=(',', ':')), flush=True)
+    return 1 if data['child_error'] else 0
 
 
 def run_cases():
@@ -351,15 +496,14 @@ def main():
     if args.child:
         check(args.private_directory is not None and args.private_directory.is_dir(), 'file_shape')
         resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_JIT_BYTES, MAX_JIT_BYTES))
-        base.flags = lambda mode: flags_for_child(mode, args.private_directory)
-        return base.child(args.child)
+        return child(args.child, args.private_directory)
     if args.validate:
         validate(json.loads(args.validate.read_text()))
         print('Synthetic perf report schema/privacy validated; timing remains unreleased.')
         return 0
     check(args.output is not None and importlib.metadata.version('playwright') == '1.63.0', 'record_shape')
     cases = run_cases()
-    report = {'schema': 'inplace-perf-native-canary-v1', 'synthetic_only': True, 'models_loaded': False,
+    report = {'schema': 'inplace-perf-native-canary-v2', 'synthetic_only': True, 'models_loaded': False,
               'completed_primary_calls': 0, 'semantic_verified': False, 'full_capture_released': False,
               'wasm_sha256': base.WASM_SHA, 'source_revision': SOURCE_REV, 'playwright_version': '1.63.0',
               'expected_browser_version': base.EXPECTED_BROWSER,
