@@ -1,0 +1,12 @@
+{
+  "LICENSES.txt": {
+    "decoded_bytes": 3142129,
+    "decoded_sha256": "7d6a46636017ab02c58ee49042318b061656e75a2097238e6b0e3e0459584599",
+    "encoded_sha256": "79dc7a376c503197abe21dee8bf257d024e2da8a330838751797de6f33a167de"
+  },
+  "NOTICE_INVENTORY.json": {
+    "decoded_bytes": 684597,
+    "decoded_sha256": "145ef36aca242b5413462881861b6800405aa5d9594366fffd1e960715e4429e",
+    "encoded_sha256": "a4e2533300fc46d43cf9dabd371a8266f0b99a644e56d17976e7c24d6032d704"
+  }
+}

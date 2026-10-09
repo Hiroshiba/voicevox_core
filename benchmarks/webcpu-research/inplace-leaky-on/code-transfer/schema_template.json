@@ -1,0 +1,147 @@
+{
+  "provenance": {
+    "candidate": {
+      "archive_sha256": "efe2ca2ee33478974b31c01597e490763e2c7f32924b38d94917d2f94d5ca204",
+      "build_toolchain": {
+        "core": "9b539761f3e152b966e08c2de0784129fe8cf68d",
+        "emscripten": "4.0.8",
+        "graph_level": 1,
+        "optimization": "z",
+        "rust": "1.96.0"
+      },
+      "callback_body_sha256": "5b2c6e2ddf5d836b4bde745de8fe76b845014669a9718d574fbed5dd5df27c3b",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "native_bundle": {
+        "activation_member_sha256": "1b454141619912bcafa28bd3af817ead0bba3ff30a662abbb02724aae8148e8e",
+        "activation_occurrence": 1,
+        "all_ordered_native_members_verified": 1438,
+        "dispatcher_sha256": "a8fdbbe614d51cc201068c79bcfbcaeab215ef8202396bcdaf8b4b0acc50b7ff",
+        "duplicate_activation_sha256": "aa4bec73701dba54e909e12fa40e4f5ff3ef1708b769981c28a0a6677d9b9b1e",
+        "invalidated_packages": [
+          "voicevox_core",
+          "voicevox_benchmark"
+        ],
+        "runtime_sha256": "efe2ca2ee33478974b31c01597e490763e2c7f32924b38d94917d2f94d5ca204",
+        "verified": true
+      },
+      "receipt_sha256": "55a73f59d4685ec054dbc3ce1586cdf9c2f2a11e5fd8ae7d10b90c717561bbc6",
+      "wasm_sha256": "6c9b9e9ddef77f72afe5c254a7a87376f66dc4a2072e46578c53d261b49451da"
+    },
+    "original": {
+      "archive_sha256": "407990bee0eb36e4da3500b2cd8d7738b6a6a99de464147ad6fae175969145bd",
+      "build_toolchain": {
+        "core": "9b539761f3e152b966e08c2de0784129fe8cf68d",
+        "emscripten": "4.0.8",
+        "graph_level": 1,
+        "optimization": "z",
+        "rust": "1.96.0"
+      },
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "48b0db6eec9f1dbe8368a6e940446c6122775b61a01faf995842b61953247985",
+      "native_bundle": {
+        "activation_member_sha256": "487021ffd9336fd0b02a97cdb90de8c0b17987f6d88af455b96e2efc8a8ec094",
+        "activation_occurrence": 1,
+        "all_ordered_native_members_verified": 1438,
+        "dispatcher_sha256": "a8fdbbe614d51cc201068c79bcfbcaeab215ef8202396bcdaf8b4b0acc50b7ff",
+        "duplicate_activation_sha256": "aa4bec73701dba54e909e12fa40e4f5ff3ef1708b769981c28a0a6677d9b9b1e",
+        "invalidated_packages": [
+          "voicevox_core",
+          "voicevox_benchmark"
+        ],
+        "runtime_sha256": "407990bee0eb36e4da3500b2cd8d7738b6a6a99de464147ad6fae175969145bd",
+        "verified": true
+      },
+      "receipt_sha256": "46da85e40b8727ffb813343b04cd233766a7cc35fb10cecbb9683315ffc689c0",
+      "wasm_sha256": "e37712707939d5de9150b1ba5c996a50303ccb8fd7c840f47972b2d234febd76"
+    },
+    "rebuilt": {
+      "archive_sha256": "cc316272fe3dd876e40c38ddf70c6b57519eca1df6719cb17b5aa086e3421718",
+      "build_toolchain": {
+        "core": "9b539761f3e152b966e08c2de0784129fe8cf68d",
+        "emscripten": "4.0.8",
+        "graph_level": 1,
+        "optimization": "z",
+        "rust": "1.96.0"
+      },
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "native_bundle": {
+        "activation_member_sha256": "53c7e4cc1cfc0fac807af80331fdef2279d63ccf039da5bda1b25c85f0ab0144",
+        "activation_occurrence": 1,
+        "all_ordered_native_members_verified": 1438,
+        "dispatcher_sha256": "a8fdbbe614d51cc201068c79bcfbcaeab215ef8202396bcdaf8b4b0acc50b7ff",
+        "duplicate_activation_sha256": "aa4bec73701dba54e909e12fa40e4f5ff3ef1708b769981c28a0a6677d9b9b1e",
+        "invalidated_packages": [
+          "voicevox_core",
+          "voicevox_benchmark"
+        ],
+        "runtime_sha256": "cc316272fe3dd876e40c38ddf70c6b57519eca1df6719cb17b5aa086e3421718",
+        "verified": true
+      },
+      "receipt_sha256": "47e026d7179ebb539d5927a55071dff208452ce96202e77beecf9ef89ec2cce2",
+      "wasm_sha256": "b145d18985f631e313735f5bbde5df35bc76f3145fe686df75d53b129a645632"
+    }
+  },
+  "source_proof": {
+    "all_element_segments_identical": true,
+    "candidate_dependency_count": 1310,
+    "candidate_scope": {
+      "candidate_object_sha256": "1b454141619912bcafa28bd3af817ead0bba3ff30a662abbb02724aae8148e8e",
+      "counts": {
+        "diagnostic_line_only": 2,
+        "intended_LeakyRelu_exact_alias_change": 2,
+        "metadata_ID_renumbering_only": 73,
+        "raw_IR_identical": 295
+      },
+      "defined_symbols_equal": true,
+      "definition_count": 372,
+      "metadata_edges_recursively_equal": true,
+      "metadata_mapping_bijective": true,
+      "metadata_nodes_matched": 676,
+      "normalized_IR_sha256": "e3679458624f93875f2eb22c555f73a7b93634f67c1bbdca40c94bd4224abca7",
+      "original_attribute_definitions_identical": true,
+      "passed": true
+    },
+    "manifest_sha256": "59dfb510832870d8be53d1bcc9f20488287a39a8810c703dbd44acc7a3829b62",
+    "original_control": {
+      "all_defined_symbols_equal": true,
+      "all_function_definitions_exact_IR_equal_without_normalization": true,
+      "complete_IR_equal_after_declared_normalization": true,
+      "function_definition_count": 372,
+      "normalized_IR_sha256": "1ddac01abf505708e17ad0f22cafcbc178e428cf1c170b9bb89ffff4110f3fcc",
+      "original_object_sha256": "487021ffd9336fd0b02a97cdb90de8c0b17987f6d88af455b96e2efc8a8ec094",
+      "passed": true,
+      "rebuilt_object_sha256": "53c7e4cc1cfc0fac807af80331fdef2279d63ccf039da5bda1b25c85f0ab0144"
+    },
+    "preparation_hashes": {
+      "builder_source_sha256": "8219c01af8d70388e288902238f38bb757c51e35b206fb4537402a9b71027926",
+      "callback_discovery_sha256": "e9472d5115159ce9e3293a1ac82352a8e24841c1fdae709efa96315935027977",
+      "preparer_sha256": "95dc9f28f55bc3e468efb94db53ba968e4a7b281938ab331953bd0385ac96c57",
+      "source_pins_sha256": "8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc",
+      "source_proof_helper_sha256": "364e37ce1e569af73b9923bea1cb94549e299145d29ee3ff40bd5273c2c182c4"
+    },
+    "rebuilt_dependency_count": 1309,
+    "source_refs": {
+      "archive_builder_commit": "72a65470c9873e073d137cef11bb6c9389e62d6a",
+      "emsdk_commit": "419021fa040428bc69ef1559b325addb8e10211f",
+      "emsdk_version": "4.0.8",
+      "generic_harness_builder_label": "117593885cd2a66e9cf17b4059e6424d7ea528c9",
+      "harness_sha256": "d35499049d49bd8bdfef62f9a4ba788da6b36066ef324ce722833d41c1fb5dfe",
+      "lineage": "The selected released XNN BUILD_INFO identifies builder72a65470;117593885 is the generic harness label, not this archive producer.",
+      "llvm_commit": "23e3cbb2e82b62586266116c8ab77ce68e412cf8",
+      "loadsplat_runtime_archive_sha256": "0ac03839bdabb9b8113fb6db16a757eefe1e9435850f11194423864df18f8aaf",
+      "pristine_runtime_archive_sha256": "407990bee0eb36e4da3500b2cd8d7738b6a6a99de464147ad6fae175969145bd",
+      "release_patch_sha256": "5af16bc0cd746b6bc666b225972cbae3ad524d4ae22b36302bdfbf1270458b2a",
+      "runtime_preparer_sha256": "6b2a20253fc4b90a1d572e701d46c8cbab48870dfb12b9781cea047007c17227",
+      "source_commit": "a83fc4d58cb48eb68890dd689f94f28288cf2278",
+      "source_patch_sha256": "154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd",
+      "source_tar_sha256": "7270fab0d96d964959b35648014230c00fa2a9cb98df087e5fd5c2b2c24c8085"
+    }
+  }
+}

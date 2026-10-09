@@ -1,4 +1,4 @@
-name: WebCPU pristine ON reviewed 27-call screen
+name: WebCPU pristine ON immutable code capture
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -56,28 +56,61 @@ jobs:
           echo "ee6321044dccadb02d429de32ead9b455e2924969427c7085feb5169954650a8  ci_prepare.py" | sha256sum --check
           echo "514101f81309fd38156b3710cee0a97ede4a2c0d8333e64d4c7868bccbb285c0  browser/SHA256SUMS" | sha256sum --check
           sha256sum --check browser/SHA256SUMS
-          echo "390bbc9910a924509dba61778ab89eddef7caff0918b5c9bde8266306c717454  timing-release/SHA256SUMS" | sha256sum --check
-          sha256sum --check timing-release/SHA256SUMS
-          python -m unittest discover -s timing-release -p 'test_*.py'
+          echo "51d3ea34e7efa3557fbea1ce64abf73ecc51b01ac59a05c3b8abf368013f7fcc  jit-capture/SHA256SUMS" | sha256sum --check
+          sha256sum --check jit-capture/SHA256SUMS
+          echo "53c4db9acaf42292868ccc295c11cbfa0dcb547943e9fdc68973962e5d7c5a19  code-transfer/SHA256SUMS" | sha256sum --check
+          sha256sum --check code-transfer/SHA256SUMS
+          python -m unittest discover -s code-transfer -p 'test_*.py'
+          python -m unittest discover -s jit-capture -p 'test_*.py'
+          node jit-capture/test_jit_binding.js
           python -m unittest discover -s browser -p 'test_*.py'
           python -m unittest discover -s local-gates -p 'test_source_native_proof.py'
       - name: Prepare pristine source controls with complete native proof
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
           uv run --script ci_prepare.py --cache "$BENCH_CACHE" --private "$RUNNER_TEMP/inplace-on-preparation" --manifest "$RUNNER_TEMP/inplace-on-manifest.json"
-      - name: Measure reviewed bounded ON screen
+      - name: Export exact code before inference, require reviewed notices
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
-        run: bash timing-release/run_timing.sh "$RUNNER_TEMP/inplace-on-manifest.json" "$RUNNER_TEMP/inplace-on-result"
-      - name: Strictly validate all 27 observations and privacy
+        run: |
+          sha256sum --check code-transfer/SHA256SUMS
+          python -m unittest discover -s code-transfer -p 'test_*.py'
+          PYTHONPATH=browser python -c 'import sys; from source_manifest import verify_manifest; verify_manifest(sys.argv[1])' "$RUNNER_TEMP/inplace-on-manifest.json"
+          python code-transfer/unpack_notices.py --output "$RUNNER_TEMP/inplace-on-notices"
+          python code-transfer/verify_notice_inventory.py --manifest "$RUNNER_TEMP/inplace-on-manifest.json" --cache "$BENCH_CACHE" --inventory "$RUNNER_TEMP/inplace-on-notices/NOTICE_INVENTORY.json" --notices "$RUNNER_TEMP/inplace-on-notices/LICENSES.txt" --output "$RUNNER_TEMP/inplace-on-notice-receipt.json"
+          PYTHONPATH=browser python code-transfer/code_transfer.py export --manifest "$RUNNER_TEMP/inplace-on-manifest.json" --output "$RUNNER_TEMP/inplace-on-code" --licenses "$RUNNER_TEMP/inplace-on-notices/LICENSES.txt"
+      - name: Capture source-bound profiled ON instructions for review
+        working-directory: benchmarks/webcpu-research/inplace-leaky-on
+        run: bash jit-capture/run_capture_only.sh "$RUNNER_TEMP/inplace-on-manifest.json" "$RUNNER_TEMP/inplace-on-result"
+      - name: Strictly revalidate captured evidence awaiting manual review
         id: validation
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          python timing-release/timing_validate.py "$RUNNER_TEMP/inplace-on-result/timing.json" --output "$RUNNER_TEMP/inplace-on-result/timing-summary.json"
+          python jit-capture/jit_validate.py "$RUNNER_TEMP/inplace-on-result/capture.json" --output "$RUNNER_TEMP/inplace-on-result/capture-summary.json"
+      - name: Bind capture to unchanged code export
+        id: codebinding
+        working-directory: benchmarks/webcpu-research/inplace-leaky-on
+        run: |
+          PYTHONPATH=browser python code-transfer/code_transfer.py verify-capture --directory "$RUNNER_TEMP/inplace-on-code" --capture "$RUNNER_TEMP/inplace-on-result/capture.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success() && steps.validation.outcome == 'success' && steps.codebinding.outcome == 'success'
+        with:
+          name: webcpu-pristine-on-immutable-code
+          path: |
+            ${{ runner.temp }}/inplace-on-code/original/voicevox_benchmark.js
+            ${{ runner.temp }}/inplace-on-code/original/voicevox_benchmark.wasm
+            ${{ runner.temp }}/inplace-on-code/rebuilt/voicevox_benchmark.js
+            ${{ runner.temp }}/inplace-on-code/rebuilt/voicevox_benchmark.wasm
+            ${{ runner.temp }}/inplace-on-code/candidate/voicevox_benchmark.js
+            ${{ runner.temp }}/inplace-on-code/candidate/voicevox_benchmark.wasm
+            ${{ runner.temp }}/inplace-on-code/transfer.json
+            ${{ runner.temp }}/inplace-on-code/LICENSES.txt
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: success() && steps.validation.outcome == 'success'
         with:
-          name: webcpu-pristine-on-reviewed-timing
+          name: webcpu-pristine-on-jit-capture
           path: |
-            ${{ runner.temp }}/inplace-on-result/timing.json
-            ${{ runner.temp }}/inplace-on-result/timing-summary.json
+            ${{ runner.temp }}/inplace-on-result/capture.json
+            ${{ runner.temp }}/inplace-on-result/capture-summary.json
           if-no-files-found: error
