@@ -30,7 +30,7 @@ jobs:
       - name: Verify unchanged standalone source and extract exact helper
         working-directory: benchmarks/webcpu-research/ct-spatial-mr
         run: |
-          echo "4a56ad8eb58193312e4c91d0ff520f313834d81b8391f893dd1f9fe88fa06f06  voicevox_core_benchmark.py" | sha256sum --check
+          echo "9fcb1044f39ac30be27ee12331fd1285c2e1ab50c839fc1493dabbb4e83cde7a  voicevox_core_benchmark.py" | sha256sum --check
           python -S voicevox_core_benchmark.py --extract-helpers "$RUNNER_TEMP/ct-probe-helpers"
       - name: Bounded launch-only diagnosis, no models or inference
         env:
@@ -268,4 +268,4 @@ jobs:
           PY
           python "$RUNNER_TEMP/ct-launch-preflight.py" \
             --helper "$CT_HELPER_ROOT/ct_browser.py" \
-            --expected-helper-sha256 7bc3650f7607e27858fc4e16cfc39ed421f9a5910391c1ca18a080a4b1bacf17
+            --expected-helper-sha256 b04da27a4533f2422d4d7d692670133d942fd13d58111df40baed04607db39d9
