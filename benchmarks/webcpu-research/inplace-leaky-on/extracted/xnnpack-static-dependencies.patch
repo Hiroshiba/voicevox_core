@@ -1,0 +1,188 @@
+--- a/cmake/onnxruntime_providers_xnnpack.cmake
++++ b/cmake/onnxruntime_providers_xnnpack.cmake
+@@ -22,6 +22,10 @@
+     target_compile_options(onnxruntime_providers_xnnpack PRIVATE -Wno-error=stringop-overflow)
+   endif()
+ 
++  # Expose static dependencies to the recursive WASM archive bundler.
++  if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
++    target_link_libraries(onnxruntime_providers_xnnpack PRIVATE XNNPACK pthreadpool)
++  endif()
+   add_dependencies(onnxruntime_providers_xnnpack onnx ${onnxruntime_EXTERNAL_DEPENDENCIES})
+   set_target_properties(onnxruntime_providers_xnnpack PROPERTIES FOLDER "ONNXRuntime")
+ 
+--- a/cmake/external/xnnpack.cmake
++++ b/cmake/external/xnnpack.cmake
+@@ -21,7 +21,9 @@
+ onnxruntime_fetchcontent_makeavailable(fxdiv)
+ set(FXDIV_SOURCE_DIR ${fxdiv_SOURCE_DIR})
+ 
+-onnxruntime_fetchcontent_declare(pthreadpool URL ${DEP_URL_pthreadpool} URL_HASH SHA1=${DEP_SHA1_pthreadpool} EXCLUDE_FROM_ALL FIND_PACKAGE_ARGS NAMES unofficial-pthreadpool)
++onnxruntime_fetchcontent_declare(pthreadpool URL ${DEP_URL_pthreadpool} URL_HASH SHA1=${DEP_SHA1_pthreadpool}
++  PATCH_COMMAND ${Patch_EXECUTABLE} --binary --ignore-whitespace -p1 < ${PROJECT_SOURCE_DIR}/patches/pthreadpool/enable-wasm-threads.patch
++  EXCLUDE_FROM_ALL FIND_PACKAGE_ARGS NAMES unofficial-pthreadpool)
+ onnxruntime_fetchcontent_makeavailable(pthreadpool)
+ 
+ # ---  Determine target processor
+@@ -95,68 +97,35 @@
+   list(APPEND onnxruntime_EXTERNAL_LIBRARIES_XNNPACK kleidiai)
+ endif()
+ 
+-# the XNNPACK CMake setup doesn't include the WASM kernels so we have to manually set those up
++# The pinned XNNPACK no longer ships the amalgamations expected by ORT 1.23.2.
++# Reuse its generated production source lists; do not change any kernel code.
+ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+-  # See source lists in _deps/googlexnnpack-src/BUILD.bazel for wasm_prod_microkernels
+-  message("Adding WebAssembly Source Files to XNNPACK")
+-  set(wasm_srcs "")
++  if(onnxruntime_ENABLE_WEBASSEMBLY_RELAXED_SIMD OR NOT onnxruntime_ENABLE_WEBASSEMBLY_SIMD)
++    message(FATAL_ERROR "This experiment requires ordinary WASM SIMD only")
++  endif()
++  foreach(isa scalar wasm wasmsimd)
++    include("${googlexnnpack_BINARY_DIR}/cmake/gen/${isa}_microkernels.cmake")
++  endforeach()
++  set(wasm_srcs ${PROD_SCALAR_MICROKERNEL_SRCS} ${PROD_WASM_MICROKERNEL_SRCS} ${PROD_WASMSIMD_MICROKERNEL_SRCS})
++  list(TRANSFORM wasm_srcs PREPEND "${XNNPACK_DIR}/")
+ 
+-  file(READ "${XNNPACK_DIR}/BUILD.bazel" xnnpack_bazel_config)
+-
+-  # Replace newlines with semicolon so that it is treated as a list by CMake
+-  # Also replace '[' and ']' so the bazel source lists don't get parsed as a nested list by cmake
+-  string(REPLACE "\n" ";" xnnpack_bazel_config "${xnnpack_bazel_config}")
+-  string(REPLACE "[" "{" xnnpack_bazel_config "${xnnpack_bazel_config}")
+-  string(REPLACE "]" "}" xnnpack_bazel_config "${xnnpack_bazel_config}")
+-
+-  function(GetSrcListFromBazel src_list_name target_srcs)
+-    set(_InSection FALSE)
+-    set(bazel_srcs "")
+-
+-    foreach(_line ${xnnpack_bazel_config})
+-      if(NOT _InSection)
+-        if(_line MATCHES "^${src_list_name} = \\{")
+-          set(_InSection TRUE)
+-        endif()
++  # Tables accompany the production microkernels. Operators and other utility
++  # objects are already part of XNNPACK and must not be compiled twice.
++  get_target_property(original_microkernel_srcs microkernels-prod SOURCES)
++  foreach(src IN LISTS original_microkernel_srcs)
++    if(src MATCHES "(^|/)src/tables/")
++      if(IS_ABSOLUTE "${src}")
++        list(APPEND wasm_srcs "${src}")
+       else()
+-        if(_line MATCHES "^\\}")
+-          set(_InSection FALSE)
+-        else()
+-          # parse filename from quoted string with trailing comma
+-          string(REPLACE "\"" "" _line "${_line}")
+-          string(REPLACE "," "" _line "${_line}")
+-          string(STRIP "${_line}" _line)
+-
+-          list(APPEND bazel_srcs "${XNNPACK_DIR}/${_line}")
+-        endif()
++        list(APPEND wasm_srcs "${XNNPACK_DIR}/${src}")
+       endif()
+-    endforeach()
+-
+-    set(${target_srcs} ${bazel_srcs} PARENT_SCOPE)
+-  endfunction()
+-
+-  GetSrcListFromBazel("OPERATOR_SRCS" operator_srcs)
+-  GetSrcListFromBazel("TABLE_SRCS" table_srcs)
+-  list(APPEND wasm_srcs ${operator_srcs} ${table_srcs})
+-
+-  # kernels
+-  list(APPEND wasm_srcs ${XNNPACK_DIR}/src/amalgam/gen/scalar.c)
+-  list(APPEND wasm_srcs ${XNNPACK_DIR}/src/amalgam/gen/wasm.c)
+-
+-  if(onnxruntime_ENABLE_WEBASSEMBLY_RELAXED_SIMD)
+-    list(APPEND wasm_srcs ${XNNPACK_DIR}/src/amalgam/gen/wasmsimd.c)
+-    list(APPEND wasm_srcs ${XNNPACK_DIR}/src/amalgam/gen/wasmrelaxedsimd.c)
+-    target_compile_options(XNNPACK PRIVATE "-msimd128")
+-    target_compile_options(XNNPACK PRIVATE "-mrelaxed-simd")
+-  elseif(onnxruntime_ENABLE_WEBASSEMBLY_SIMD)
+-    list(APPEND wasm_srcs ${XNNPACK_DIR}/src/amalgam/gen/wasmsimd.c)
+-    target_compile_options(XNNPACK PRIVATE "-msimd128")
+-  endif()
+-
+-  message(DEBUG "wasm_srcs: ${wasm_srcs}\n")
+-  target_sources(XNNPACK PRIVATE ${wasm_srcs})
+-
+-  # add flags from BAZEL.build
+-  target_compile_options(XNNPACK PRIVATE "-fno-fast-math")
+-  target_compile_options(XNNPACK PRIVATE "-fno-math-errno")
++    endif()
++  endforeach()
++  list(REMOVE_DUPLICATES wasm_srcs)
++  set_property(TARGET microkernels-prod PROPERTY SOURCES ${wasm_srcs})
++  # Restore the dependency omitted by ORT's older amalgamation-oriented patch.
++  target_link_libraries(XNNPACK PRIVATE microkernels-prod)
++  foreach(target XNNPACK microkernels-prod)
++    target_compile_options(${target} PRIVATE -msimd128 -fno-fast-math -ffp-contract=off -fno-math-errno)
++  endforeach()
+ endif()
+--- /dev/null
++++ b/cmake/patches/pthreadpool/enable-wasm-threads.patch
+@@ -0,0 +1,21 @@
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -101,7 +101,7 @@
++ IF(PTHREADPOOL_ALLOW_DEPRECATED_API)
++   SET(PTHREADPOOL_SRCS src/legacy-api.c)
++ ENDIF()
++-IF(EMSCRIPTEN)
+++IF(EMSCRIPTEN AND NOT onnxruntime_ENABLE_WEBASSEMBLY_THREADS)
++   LIST(APPEND PTHREADPOOL_SRCS src/shim.c)
++ ELSE()
++   LIST(APPEND PTHREADPOOL_SRCS src/portable-api.c src/memory.c)
++@@ -164,6 +164,9 @@
++   C_EXTENSIONS NO)
++ TARGET_LINK_LIBRARIES(pthreadpool PUBLIC pthreadpool_interface)
++ TARGET_INCLUDE_DIRECTORIES(pthreadpool PRIVATE src)
+++IF(EMSCRIPTEN AND onnxruntime_ENABLE_WEBASSEMBLY_THREADS)
+++  TARGET_COMPILE_DEFINITIONS(pthreadpool PRIVATE _POSIX_C_SOURCE=200809L)
+++ENDIF()
++ IF(NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
++   SET(CMAKE_THREAD_PREFER_PTHREAD TRUE)
++   IF(NOT CMAKE_GENERATOR STREQUAL "Xcode")
+--- a/cmake/patches/xnnpack/AddEmscriptenAndIosSupport.patch
++++ b/cmake/patches/xnnpack/AddEmscriptenAndIosSupport.patch
+@@ -35,3 +35,14 @@
+    SET_PROPERTY(SOURCE ${ALL_NEON_MICROKERNEL_SRCS} APPEND_STRING PROPERTY COMPILE_FLAGS " -march=armv7-a -mfpu=neon ")
+    SET_PROPERTY(SOURCE ${ALL_NEONFP16_MICROKERNEL_SRCS} APPEND_STRING PROPERTY COMPILE_FLAGS " -march=armv7-a -mfpu=neon-fp16 ")
+    # GCC requires -mfp16-format=ieee to define __fp16 type, but Clang doesn't support this option at all.
++
++--- a/src/xnnpack/math.h
+++++ b/src/xnnpack/math.h
++@@ -9,6 +9,7 @@
++ #pragma once
++ 
++ #include <assert.h>
+++#include <math.h>
++ #include <stdbool.h>
++ #include <stddef.h>
++ #include <stdint.h>
+--- a/cmake/external/onnxruntime_external_deps.cmake
++++ b/cmake/external/onnxruntime_external_deps.cmake
+@@ -388,6 +388,7 @@
+         URL ${DEP_URL_pytorch_cpuinfo}
+         URL_HASH SHA1=${DEP_SHA1_pytorch_cpuinfo}
+         EXCLUDE_FROM_ALL
++        PATCH_COMMAND ${Patch_EXECUTABLE} --binary --ignore-whitespace -p1 < ${PROJECT_SOURCE_DIR}/patches/cpuinfo/enable-emscripten.patch
+         FIND_PACKAGE_ARGS NAMES cpuinfo
+       )
+   endif()
+--- /dev/null
++++ b/cmake/patches/cpuinfo/enable-emscripten.patch
+@@ -0,0 +1,11 @@
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -108,7 +108,7 @@
++       "Target operating system is not specified. "
++       "cpuinfo will compile, but cpuinfo_initialize() will always fail.")
++   SET(CPUINFO_SUPPORTED_PLATFORM FALSE)
++-ELSEIF(NOT CMAKE_SYSTEM_NAME MATCHES "^(Windows|WindowsStore|CYGWIN|MSYS|Darwin|Linux|Android|FreeBSD)$")
+++ELSEIF(NOT CMAKE_SYSTEM_NAME MATCHES "^(Windows|WindowsStore|CYGWIN|MSYS|Darwin|Linux|Android|FreeBSD|Emscripten)$")
++   IF(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.14" AND NOT IS_APPLE_OS)
++     MESSAGE(WARNING
++       "Target operating system \"${CMAKE_SYSTEM_NAME}\" is not supported in cpuinfo. "
+

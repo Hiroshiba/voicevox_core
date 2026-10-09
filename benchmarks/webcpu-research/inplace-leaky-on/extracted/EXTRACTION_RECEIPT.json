@@ -1,0 +1,18 @@
+{
+  "distribution_sha256": "6a3ae32fc5a9d18b8300e5f3bcf97aab7b201290c17240e336b7eeb58e801610",
+  "source_hashes": {
+    "prepare_inplace_leaky_source.py": "455315f69283a223538a4d8f6a3c624011008a3bb0e5cb53ab5aa787a2a79afe",
+    "source_proof.py": "5209cad45e355afb42eba8f199e1c1639aaf7834ce0127558bc7447e611d9fdd",
+    "callback_discovery.py": "e9472d5115159ce9e3293a1ac82352a8e24841c1fdae709efa96315935027977",
+    "source_pins.json": "8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc",
+    "inplace_leaky.patch": "154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd",
+    "xnnpack-static-dependencies.patch": "5af16bc0cd746b6bc666b225972cbae3ad524d4ae22b36302bdfbf1270458b2a",
+    "source_confirmation.py": "1a4367733260c3c288e347a48129eb670c754475a740e89eb18b097354ebae12",
+    "source_validate.py": "aaff7f2460975a3a4cc9e797098e1d44ef12060fd193ae75bac2053239867ace",
+    "source_manifest.py": "f0a4233572084169cf8e65dc75b97f91170ba6b35677ffba3704a7145b0c15b5",
+    "source_resources.py": "875e82b246dd0d25cfd11ed5d1a6799976f32853e3ebf9b5fb958796aefe49cf",
+    "source_quality.py": "87ef3bd0644adc2165c41c0d34666f361888b145541f25c3cd45871a5abb1f4d",
+    "source_worker.js": "a586673d7851e52864e3a681ed551777c592c1662dec0c803801dd4f74e5079b",
+    "source_alias_check.js": "62ff1afb116f6e67592c19d47f56e40bf93fb998089116b21b530a1a64ae9a68"
+  }
+}
