@@ -1,4 +1,4 @@
-name: WebCPU native capture capability canary
+name: WebCPU synthetic perf native byte canary
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -58,21 +58,23 @@ jobs:
           sha256sum --check browser/SHA256SUMS
           echo "fa0b09748d11d55ec7d90b8496f4f804d848026d0e94d08da5596afd7a3a0760  diagnostics/native_capture_canary.py" | sha256sum --check
           echo "fe88f0c4076f8927a3ef9a0c58757cf0d77d69f266ab20e41208f9eee159e922  diagnostics/test_native_capture_canary.py" | sha256sum --check
+          echo "3169f431f63bfecc23a01c49b5cb3de0c09f64492c56e6318292d1e2cdefce1f  diagnostics/perf_native_canary.py" | sha256sum --check
+          echo "2c98b391f68ccd923316a030bb4e897f6b220f9a457fc3b80bf8a027bc419e06  diagnostics/test_perf_native_canary.py" | sha256sum --check
           python -m unittest discover -s diagnostics -p 'test_*.py'
           python -m unittest discover -s browser -p 'test_*.py'
           python -m unittest discover -s local-gates -p 'test_source_native_proof.py'
-      - name: Probe synthetic native capture only
+      - name: Probe synthetic JITdump native bytes only
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          python diagnostics/native_capture_canary.py --output "$RUNNER_TEMP/native-canary/report.json"
+          python diagnostics/perf_native_canary.py --output "$RUNNER_TEMP/perf-native-canary/report.json"
       - name: Validate bounded canary report
         id: validation
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          python diagnostics/native_capture_canary.py --validate "$RUNNER_TEMP/native-canary/report.json"
+          python diagnostics/perf_native_canary.py --validate "$RUNNER_TEMP/perf-native-canary/report.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: success() && steps.validation.outcome == 'success'
         with:
-          name: webcpu-native-capture-canary
-          path: ${{ runner.temp }}/native-canary/report.json
+          name: webcpu-perf-native-canary
+          path: ${{ runner.temp }}/perf-native-canary/report.json
           if-no-files-found: error
