@@ -1,4 +1,4 @@
-name: WebCPU pristine source ON native capture
+name: WebCPU native capture capability canary
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -14,7 +14,7 @@ jobs:
   on-screen:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 10
     steps:
       - name: Configure private cache paths
         run: |
@@ -56,25 +56,23 @@ jobs:
           echo "ee6321044dccadb02d429de32ead9b455e2924969427c7085feb5169954650a8  ci_prepare.py" | sha256sum --check
           echo "514101f81309fd38156b3710cee0a97ede4a2c0d8333e64d4c7868bccbb285c0  browser/SHA256SUMS" | sha256sum --check
           sha256sum --check browser/SHA256SUMS
+          echo "fa0b09748d11d55ec7d90b8496f4f804d848026d0e94d08da5596afd7a3a0760  diagnostics/native_capture_canary.py" | sha256sum --check
+          echo "fe88f0c4076f8927a3ef9a0c58757cf0d77d69f266ab20e41208f9eee159e922  diagnostics/test_native_capture_canary.py" | sha256sum --check
+          python -m unittest discover -s diagnostics -p 'test_*.py'
           python -m unittest discover -s browser -p 'test_*.py'
           python -m unittest discover -s local-gates -p 'test_source_native_proof.py'
-      - name: Prepare pristine source controls with complete native proof
+      - name: Probe synthetic native capture only
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          uv run --script ci_prepare.py --cache "$BENCH_CACHE" --private "$RUNNER_TEMP/inplace-on-preparation" --manifest "$RUNNER_TEMP/inplace-on-manifest.json"
-      - name: Capture normal-tier ON correctness and native code for review
-        working-directory: benchmarks/webcpu-research/inplace-leaky-on
-        run: bash browser/run_capture_only.sh "$RUNNER_TEMP/inplace-on-manifest.json" "$RUNNER_TEMP/inplace-on-result"
-      - name: Strictly revalidate captured evidence awaiting manual review
+          python diagnostics/native_capture_canary.py --output "$RUNNER_TEMP/native-canary/report.json"
+      - name: Validate bounded canary report
         id: validation
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          python browser/source_validate.py --capture-only "$RUNNER_TEMP/inplace-on-result/capture.json" --output "$RUNNER_TEMP/inplace-on-result/capture-summary.json"
+          python diagnostics/native_capture_canary.py --validate "$RUNNER_TEMP/native-canary/report.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: success() && steps.validation.outcome == 'success'
         with:
-          name: webcpu-pristine-source-on-native-capture
-          path: |
-            ${{ runner.temp }}/inplace-on-result/capture.json
-            ${{ runner.temp }}/inplace-on-result/capture-summary.json
+          name: webcpu-native-capture-canary
+          path: ${{ runner.temp }}/native-canary/report.json
           if-no-files-found: error
