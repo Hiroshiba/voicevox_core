@@ -13,7 +13,7 @@ sys.path.insert(0, str(BROWSER))
 from source_manifest import KEYS, FLAGS, HARNESS_SHA, QUERY_SHA, MODEL_SHA, need, sha, verify_manifest
 from source_resources import resource_observations, pressure_during_call, idle_cpu
 from timing_validate import schedule, validate, design
-from release_gate import release_gate, load_contract
+from release_gate import release_gate, load_contract, release_diagnostic
 ROOT = Path(__file__).parent
 
 def host():
@@ -66,6 +66,9 @@ def main():
     sys.modules[spec.name] = h
     spec.loader.exec_module(h)
     entries, provenance, proof = verify_manifest(a.manifest)
+    identity_diagnostic = release_diagnostic(provenance)
+    print('SOURCE_ON_RELEASE_DIAGNOSTIC ' + json.dumps(identity_diagnostic, sort_keys=True), flush=True)
+    need(identity_diagnostic['conditions_match'] and all(all(fields.values()) for fields in identity_diagnostic['identity_fields'].values()), 'Reviewed runtime identity mismatch before browser activation')
     report = {'schema': 'inplace-leaky-on-reviewed-timing-v1', 'capture_only': a.capture_only, 'status': 'initializing', 'stage': 'initializing', 'schedule': schedule(), 'normal_tiering': True, 'browser_flags': FLAGS, 'warmups_per_browser': 5, 'provenance': provenance, 'source_proof': proof, 'environment': h.environment_info(), 'source_hashes': {x.name: sha(x.read_bytes()) for x in ROOT.iterdir() if x.is_file() and x.suffix in ['.py', '.js']}, 'model_sha256': MODEL_SHA, 'query_sha256': QUERY_SHA, 'browser_gate': {}, 'process_sets': [], 'trials': [], 'sampling_policy': 'No primary profiler or high-frequency sampler; pre/post process/host resources plus one untimed idle interval per set.', 'release_gate': {}, 'activation': {}, 'reference': None, 'gates_complete_before_timing': False, 'design': design(), 'initial_host': host()}
     if a.distribution:
         report['distribution'] = {'sha256': sha(a.distribution.read_bytes()), 'bytes': a.distribution.stat().st_size}
@@ -226,6 +229,7 @@ def main():
                     need(record['cleanup']['confirmed'], 'Gate browser cleanup')
             (work / 'worker.js').write_text(hookfree)
             stage('reviewed_release_gate')
+            print('SOURCE_ON_RELEASE_DIAGNOSTIC ' + json.dumps(release_diagnostic(provenance, expected_engine, report['reference']), sort_keys=True), flush=True)
             report['release_gate'] = release_gate(provenance, expected_engine, report['reference'])
             report['gates_complete_before_timing'] = True
             report['status'] = 'running'

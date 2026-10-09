@@ -56,7 +56,7 @@ jobs:
           echo "ee6321044dccadb02d429de32ead9b455e2924969427c7085feb5169954650a8  ci_prepare.py" | sha256sum --check
           echo "514101f81309fd38156b3710cee0a97ede4a2c0d8333e64d4c7868bccbb285c0  browser/SHA256SUMS" | sha256sum --check
           sha256sum --check browser/SHA256SUMS
-          echo "6dc941531a25f002670f6b2cb9de6b0d04c3b31106005b1e77c334cdfbe12218  timing-release/SHA256SUMS" | sha256sum --check
+          echo "390bbc9910a924509dba61778ab89eddef7caff0918b5c9bde8266306c717454  timing-release/SHA256SUMS" | sha256sum --check
           sha256sum --check timing-release/SHA256SUMS
           python -m unittest discover -s timing-release -p 'test_*.py'
           python -m unittest discover -s browser -p 'test_*.py'

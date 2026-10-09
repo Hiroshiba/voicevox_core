@@ -14,6 +14,23 @@ def timing_fixture():
     return r
 
 class ReleaseTests(unittest.TestCase):
+
+    def test_diagnostic_is_closed_and_boolean_only(self):
+        from release_gate import release_diagnostic
+        c=load_contract();p=copy.deepcopy(c['identities'])
+        p['original']['wasm_sha256']='PRIVATE_SENTINEL'
+        p['private_audio']={'samples':[1,2,3]}
+        d=release_diagnostic(p,{'product':'PRIVATE_SENTINEL'}, {'mode':'PRIVATE_SENTINEL'})
+        self.assertNotIn('PRIVATE_SENTINEL',json.dumps(d));self.assertNotIn('samples',json.dumps(d))
+        self.assertFalse(d['conditions_match']);self.assertFalse(d['identity_fields']['original']['wasm_sha256'])
+        self.assertFalse(d['engine_equal']);self.assertFalse(d['reference_equal'])
+        with self.assertRaises(ValueError):release_gate(p,c['engine'],c['reference'])
+
+    def test_early_identity_diagnostic_precedes_browser(self):
+        s=(ROOT/'timing_confirmation.py').read_text()
+        self.assertLess(s.index('identity_diagnostic ='),s.index("stage('activation_gates')"))
+        self.assertIn("all(all(fields.values()) for fields in identity_diagnostic['identity_fields'].values())",s)
+
     def test_frozen_release(self):
         c=load_contract();self.assertEqual(c['primary_calls'],27)
         g=release_gate(c['identities'],c['engine'],c['reference'])

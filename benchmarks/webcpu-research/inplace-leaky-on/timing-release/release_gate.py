@@ -19,6 +19,21 @@ def load_contract():
         raise ValueError('Frozen timing scope')
     return c
 
+def release_diagnostic(provenance, engine=None, reference=None):
+    """Only fixed field names and equality booleans; never arbitrary input values."""
+    c=load_contract()
+    result={'schema':'inplace-on-release-diagnostic-v1','conditions_match':set(provenance)==set(c['conditions']),
+            'identity_fields':{mode:{field:provenance.get(mode,{}).get(field)==expected for field,expected in fields.items()}
+                               for mode,fields in c['identities'].items()}}
+    if engine is not None:
+        result['engine_equal']=engine==c['engine']
+        result['engine_fields']={field:engine.get(field)==expected for field,expected in c['engine'].items()}
+    if reference is not None:
+        result['reference_equal']=reference==c['reference']
+        result['reference_fields']={field:reference.get(field)==expected for field,expected in c['reference'].items()}
+    return result
+
+
 def release_gate(provenance, engine, reference):
     c=load_contract()
     if engine != c['engine'] or reference != c['reference']:
