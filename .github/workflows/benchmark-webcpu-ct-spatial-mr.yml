@@ -1,8 +1,9 @@
-name: WebCPU CT launch-only configuration diagnosis
+name: WebCPU strict FP32 CT spatial MR milestone
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
     paths:
+      - 'benchmarks/webcpu-research/ct-spatial-mr/voicevox_core_benchmark.py'
       - '.github/workflows/benchmark-webcpu-ct-spatial-mr.yml'
 permissions:
   contents: read
@@ -10,10 +11,10 @@ concurrency:
   group: webcpu-ct-spatial-mr-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  configuration-diagnosis:
+  browser-off:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
@@ -22,250 +23,45 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - name: Install pinned browser orchestration only
+      - name: Install pinned orchestration tools and Chromium dependencies
         run: |
-          python -m pip install playwright==1.63.0 psutil==7.2.2
+          python -m pip install uv==0.11.23 playwright==1.63.0
           python -m playwright install-deps chromium
-          python -m playwright install chromium
-      - name: Verify unchanged standalone source and extract exact helper
+      - name: Verify complete distributed source and offline tests
         working-directory: benchmarks/webcpu-research/ct-spatial-mr
         run: |
           echo "9fcb1044f39ac30be27ee12331fd1285c2e1ab50c839fc1493dabbb4e83cde7a  voicevox_core_benchmark.py" | sha256sum --check
-          python -S voicevox_core_benchmark.py --extract-helpers "$RUNNER_TEMP/ct-probe-helpers"
-      - name: Bounded launch-only diagnosis, no models or inference
-        env:
-          CT_HELPER_ROOT: ${{ runner.temp }}/ct-probe-helpers
+          uv run --script voicevox_core_benchmark.py --help
+          uv run --script voicevox_core_benchmark.py --dry-run
+          uv run --script voicevox_core_benchmark.py --self-test
+      - name: Run exact distributed script, build gates and actual browser screen
+        id: benchmark
+        continue-on-error: true
+        working-directory: benchmarks/webcpu-research/ct-spatial-mr
         run: |
-          cat > "$RUNNER_TEMP/ct-launch-preflight.py" <<'PY'
-          #!/usr/bin/env python3
-          """Sanitized launch-only diagnosis of a frozen CT helper. No model/build/inference.
-          
-          First run calls the exact frozen flag_acceptance_probe, replacing only its capture
-          parser with an observing wrapper that delegates to the original validator. If it
-          fails, the second run retains the same parent selectors/deadline/cleanup and only
-          wraps its child invocation to trace exception types and source line numbers in the
-          same frozen helper. Raw stdout/stderr remains in the helper's bounded memory.
-          """
-          from __future__ import annotations
-          import argparse
-          import hashlib
-          import importlib.metadata
-          import importlib.util
-          import json
-          import os
-          from pathlib import Path
-          import re
-          import subprocess
-          import sys
-          
-          SCHEMA='ct-browser-launch-preflight-v1'
-          TRACE_PREFIX=b'CT_PREFLIGHT_TRACE '
-          FLAGS=['--js-flags=--no-wasm-revectorize']
-          ERROR_TYPES={'GateFailure','Error','TimeoutError','RuntimeError','ValueError','TypeError','AttributeError','KeyError',
-                       'OSError','PermissionError','NoSuchProcess','AccessDenied','ProcessLookupError','AssertionError',
-                       'Exception','CancelledError','ModuleNotFoundError','ImportError','PackageNotFoundError',
-                       'FileNotFoundError','SyntaxError','SystemExit','KeyboardInterrupt','Other'}
-          HEX=re.compile(r'[a-f0-9]{64}')
-          REJECTED=re.compile(rb'(?:unrecognized|unknown|unrecognised|contradictory) (?:command[- ]line )?flags?|Error:.*wasm-revectorize',re.I)
-          
-          class PreflightError(RuntimeError):pass
-          
-          def need(value):
-              if not value:raise PreflightError('invalid_preflight')
-          
-          def sha(data):return hashlib.sha256(data).hexdigest()
-          
-          def error_type(error):
-              name=type(error).__name__
-              return name if name in ERROR_TYPES else 'Other'
-          
-          def keys(value,fields):need(isinstance(value,dict) and set(value)==set(fields))
-          
-          def digest(value):need(isinstance(value,str) and HEX.fullmatch(value))
-          
-          def integer(value,maximum):need(type(value) is int and 0<=value<=maximum)
-          
-          def load_helper(path,expected):
-              path=Path(path).resolve();digest(expected)
-              data=path.read_bytes();need(sha(data)==expected and len(data)<=1024*1024)
-              spec=importlib.util.spec_from_file_location('_ct_frozen_launch_helper',path)
-              module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;spec.loader.exec_module(module)
-              need(callable(module.flag_acceptance_probe) and callable(module.flag_acceptance_from_capture) and callable(module._flag_acceptance_child))
-              return module
-          
-          def parse_trace(stderr):
-              records=[]
-              for line in stderr.splitlines():
-                  if not line.startswith(TRACE_PREFIX):continue
-                  try:
-                      need(len(line)<=8192)
-                      value=json.loads(line[len(TRACE_PREFIX):])
-                      validate_trace(value);records.append(value)
-                  except (ValueError,UnicodeError,PreflightError,TypeError,KeyError):return None
-              return records[0] if len(records)==1 else None
-          
-          def validate_trace(value):
-              keys(value,('schema','complete','exceptions','dropped_events'))
-              need(value['schema']=='ct-helper-exceptions-v1' and value['complete'] is True)
-              need(isinstance(value['exceptions'],list) and len(value['exceptions'])<=32)
-              for event in value['exceptions']:
-                  keys(event,('line','exception_type'));integer(event['line'],20000);need(event['line']>0 and event['exception_type'] in ERROR_TYPES)
-              integer(value['dropped_events'],10**9)
-              return True
-          
-          def capture_snapshot(stdout,stderr,code):
-              """Only derived booleans/counts/hashes; never arbitrary child data."""
-              need(isinstance(stdout,bytes) and isinstance(stderr,bytes) and len(stdout)<=4096 and len(stderr)<=2*1024*1024)
-              need(type(code) is int and -255<=code<=255)
-              value=None;json_ok=False
-              try:value=json.loads(stdout);json_ok=True
-              except (ValueError,UnicodeError):pass
-              child_keys={'engine','argv_matches','browser_instance_sha256','cleanup_confirmed'}
-              child=isinstance(value,dict) and set(value)==child_keys
-              engine=value.get('engine') if child else None
-              engine_keys=isinstance(engine,dict) and set(engine)=={'product','js_version'}
-              product=engine.get('product') if engine_keys else None
-              version=engine.get('js_version') if engine_keys else None
-              major=None
-              if isinstance(product,str):
-                  match=re.fullmatch(r'(?:Chrome|HeadlessChrome)/([0-9]{1,3})\.[0-9.]{1,40}',product)
-                  if match:major=int(match.group(1))
-              return dict(exit_code=code,stdout_bytes=len(stdout),stderr_bytes=len(stderr),stdout_sha256=sha(stdout),stderr_sha256=sha(stderr),
-                  stderr_has_debug_namespace=b'pw:browser' in stderr,stderr_has_requested_flag=FLAGS[0].encode() in stderr,
-                  stderr_matches_flag_rejection=bool(REJECTED.search(stderr)),stdout_json_parse_ok=json_ok,
-                  stdout_exact_child_keys=child,child_engine_exact_keys=engine_keys,child_chromium_major=major,
-                  child_v8_version_shape_valid=isinstance(version,str) and bool(re.fullmatch(r'[0-9.]{1,40}',version)),
-                  child_argv_matches=value['argv_matches'] if child and type(value['argv_matches']) is bool else None,
-                  child_cleanup_confirmed=value['cleanup_confirmed'] if child and type(value['cleanup_confirmed']) is bool else None,
-                  child_identity_hash_valid=child and isinstance(value['browser_instance_sha256'],str) and bool(HEX.fullmatch(value['browser_instance_sha256'])),
-                  trace=parse_trace(stderr))
-          
-          def run_attempt(helper,helper_path,helper_sha,*,traced=False):
-              result=dict(status='failed',capture_reached=False,capture=None,original_validation_passed=False,
-                          original_validation_error_type=None,probe_error_type=None,validated_result_sha256=None)
-              original_parser=helper.flag_acceptance_from_capture
-              original_popen=subprocess.Popen
-              def observe(stdout,stderr,code):
-                  result['capture_reached']=True;result['capture']=capture_snapshot(stdout,stderr,code)
-                  try:
-                      value=original_parser(stdout,stderr,code)
-                      result['original_validation_passed']=True
-                      result['validated_result_sha256']=sha(json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode())
-                      return value
-                  except BaseException as error:
-                      result['original_validation_error_type']=error_type(error);raise
-              def traced_popen(command,*args,**kwargs):
-                  need(command==[sys.executable,str(Path(helper_path).resolve()),'--flag-acceptance-probe'])
-                  # All stdin/stdout/stderr, env, process-group settings and the frozen
-                  # parent loop are unchanged. Only the child's entry wrapper changes.
-                  command=[sys.executable,str(Path(__file__).resolve()),'--_trace-child','--helper',str(Path(helper_path).resolve()),'--expected-helper-sha256',helper_sha]
-                  return original_popen(command,*args,**kwargs)
-              helper.flag_acceptance_from_capture=observe
-              if traced:subprocess.Popen=traced_popen
-              try:
-                  helper.flag_acceptance_probe()
-                  need(result['original_validation_passed']);result['status']='passed'
-              except BaseException as error:result['probe_error_type']=error_type(error)
-              finally:
-                  helper.flag_acceptance_from_capture=original_parser
-                  subprocess.Popen=original_popen
-              return result
-          
-          def traced_child(helper,path):
-              target=str(Path(path).resolve());events=[];seen=set();dropped=0
-              def trace(frame,event,arg):
-                  nonlocal dropped
-                  if event=='exception' and frame.f_code.co_filename==target:
-                      kind=arg[0].__name__
-                      kind=kind if kind in ERROR_TYPES else 'Other'
-                      key=(frame.f_lineno,kind)
-                      if key not in seen:
-                          seen.add(key)
-                          if len(events)<32 and 1<=key[0]<=20000:events.append(dict(line=key[0],exception_type=kind))
-                          else:dropped+=1
-                  return trace
-              previous=sys.gettrace();sys.settrace(trace)
-              try:return helper._flag_acceptance_child()
-              finally:
-                  sys.settrace(previous)
-                  value=dict(schema='ct-helper-exceptions-v1',complete=True,exceptions=events,dropped_events=min(dropped,10**9))
-                  validate_trace(value)
-                  os.write(2,TRACE_PREFIX+json.dumps(value,separators=(',',':')).encode()+b'\n')
-          
-          def validate_capture(value):
-              fields=('exit_code','stdout_bytes','stderr_bytes','stdout_sha256','stderr_sha256','stderr_has_debug_namespace','stderr_has_requested_flag',
-                      'stderr_matches_flag_rejection','stdout_json_parse_ok','stdout_exact_child_keys','child_engine_exact_keys','child_chromium_major',
-                      'child_v8_version_shape_valid','child_argv_matches','child_cleanup_confirmed','child_identity_hash_valid','trace')
-              keys(value,fields);need(type(value['exit_code']) is int and -255<=value['exit_code']<=255)
-              integer(value['stdout_bytes'],4096);integer(value['stderr_bytes'],2*1024*1024)
-              digest(value['stdout_sha256']);digest(value['stderr_sha256'])
-              for key in ('stderr_has_debug_namespace','stderr_has_requested_flag','stderr_matches_flag_rejection','stdout_json_parse_ok',
-                          'stdout_exact_child_keys','child_engine_exact_keys','child_v8_version_shape_valid','child_identity_hash_valid'):
-                  need(type(value[key]) is bool)
-              for key in ('child_argv_matches','child_cleanup_confirmed'):need(value[key] is None or type(value[key]) is bool)
-              if value['child_chromium_major'] is not None:integer(value['child_chromium_major'],999)
-              if value['trace'] is not None:validate_trace(value['trace'])
-          
-          def validate_report(value):
-              keys(value,('schema','helper_sha256','playwright_pinned','psutil_pinned','status','initial','traced_retry','browser_launch_attempts','model_loads','builds','inference_calls'))
-              need(value['schema']==SCHEMA);digest(value['helper_sha256'])
-              need(type(value['playwright_pinned']) is bool and type(value['psutil_pinned']) is bool)
-              need(value['status'] in ('passed','failed','dependency_mismatch'))
-              for key in ('model_loads','builds','inference_calls'):need(type(value[key]) is int and value[key]==0)
-              integer(value['browser_launch_attempts'],2)
-              observed=0
-              for key in ('initial','traced_retry'):
-                  attempt=value[key]
-                  if attempt is None:continue
-                  observed+=1
-                  keys(attempt,('status','capture_reached','capture','original_validation_passed','original_validation_error_type','probe_error_type','validated_result_sha256'))
-                  need(attempt['status'] in ('passed','failed') and type(attempt['capture_reached']) is bool and type(attempt['original_validation_passed']) is bool)
-                  for name in ('original_validation_error_type','probe_error_type'):need(attempt[name] is None or attempt[name] in ERROR_TYPES)
-                  need(attempt['capture_reached']==(attempt['capture'] is not None))
-                  if attempt['capture'] is not None:validate_capture(attempt['capture'])
-                  if attempt['validated_result_sha256'] is not None:digest(attempt['validated_result_sha256'])
-                  need(attempt['original_validation_passed']==(attempt['validated_result_sha256'] is not None))
-                  if attempt['status']=='passed':need(attempt['original_validation_passed'] and attempt['probe_error_type'] is None and attempt['original_validation_error_type'] is None)
-              need(observed==value['browser_launch_attempts'])
-              if value['initial'] is not None and value['initial']['status']=='passed':need(value['traced_retry'] is None)
-              if value['status']=='passed':need(value['initial'] is not None and value['initial']['status']=='passed')
-              if value['status']=='dependency_mismatch':need(observed==0 and not (value['playwright_pinned'] and value['psutil_pinned']))
-              return True
-          
-          def main(argv=None):
-              parser=argparse.ArgumentParser(description=__doc__)
-              parser.add_argument('--helper',type=Path,required=True)
-              parser.add_argument('--expected-helper-sha256',required=True)
-              parser.add_argument('--output',type=Path)
-              parser.add_argument('--_trace-child',action='store_true',help=argparse.SUPPRESS)
-              args=parser.parse_args(argv)
-              helper=load_helper(args.helper,args.expected_helper_sha256)
-              if args._trace_child:return traced_child(helper,args.helper)
-              def pinned(package,version):
-                  try:return importlib.metadata.version(package)==version
-                  except importlib.metadata.PackageNotFoundError:return False
-              report=dict(schema=SCHEMA,helper_sha256=args.expected_helper_sha256,playwright_pinned=pinned('playwright','1.63.0'),psutil_pinned=pinned('psutil','7.2.2'),
-                          status='dependency_mismatch',initial=None,traced_retry=None,browser_launch_attempts=0,model_loads=0,builds=0,inference_calls=0)
-              if report['playwright_pinned'] and report['psutil_pinned']:
-                  report['initial']=run_attempt(helper,args.helper,args.expected_helper_sha256);report['browser_launch_attempts']=1
-                  report['status']=report['initial']['status']
-                  if report['status']=='failed':
-                      report['traced_retry']=run_attempt(helper,args.helper,args.expected_helper_sha256,traced=True);report['browser_launch_attempts']=2
-              validate_report(report)
-              text=json.dumps(report,sort_keys=True,separators=(',',':'),allow_nan=False)+'\n'
-              if args.output:args.output.write_text(text,encoding='utf-8')
-              sys.stdout.write(text)
-              return 0 if report['status']=='passed' else 1
-          
-          if __name__=='__main__':
-              try:code=main()
-              except BaseException as error:
-                  if isinstance(error,SystemExit):raise
-                  # Setup failure still reveals no paths, exception text or child data.
-                  sys.stdout.write(json.dumps({'schema':'ct-browser-launch-preflight-setup-failure-v1','status':'failed','error_type':error_type(error)},separators=(',',':'))+'\n')
-                  code=2
-              raise SystemExit(code)
-          PY
-          python "$RUNNER_TEMP/ct-launch-preflight.py" \
-            --helper "$CT_HELPER_ROOT/ct_browser.py" \
-            --expected-helper-sha256 b04da27a4533f2422d4d7d692670133d942fd13d58111df40baed04607db39d9
+          uv run --script voicevox_core_benchmark.py \
+            --cache-dir "$RUNNER_TEMP/ct-private" \
+            --output "$RUNNER_TEMP/ct-public"
+      - name: Validate public summary and exact standalone HTML
+        id: validation
+        if: always() && steps.benchmark.outcome != 'skipped'
+        working-directory: benchmarks/webcpu-research/ct-spatial-mr
+        run: |
+          uv run --script voicevox_core_benchmark.py --validate-report "$RUNNER_TEMP/ct-public"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && steps.validation.outcome == 'success'
+        with:
+          name: webcpu-ct-spatial-mr-summary-and-html
+          path: |
+            ${{ runner.temp }}/ct-public/summary.json
+            ${{ runner.temp }}/ct-public/report.html
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require completed valid benchmark
+        if: always()
+        env:
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
+        run: |
+          test "$BENCHMARK_OUTCOME" = success
+          test "$VALIDATION_OUTCOME" = success
