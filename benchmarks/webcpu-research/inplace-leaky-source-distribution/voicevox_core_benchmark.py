@@ -8236,6 +8236,279 @@ def inplace_report_from(saved: dict[str, Any], output: Path) -> None:
     render_inplace_report(result, output)
 
 
+# Fixed-schema failure evidence for this source-study adapter only. These labels
+# describe observed helper gates; they do not infer a compiler root cause.
+INPLACE_FAILURE_STAGES = {
+    'prepare original CPU and XNN browser assets': ('prepare_base', 'prepare-original.log'),
+    'prepare verified forced-loadsplat baseline': ('prepare_loadsplat', 'prepare-loadsplat.log'),
+    'source reconstruction, scoped archive replacement and complete native-bundle proof': ('prepare_source', 'prepare-source.log'),
+    'prepare pinned Chromium for source confirmation': ('prepare_browser', 'prepare-browser.log'),
+    'separate alias/output gates, 45 hook-free primary calls and sequential CPU quality': ('confirm_source', 'confirmation.log'),
+    'validate source confirmation': ('validate_confirmation', 'validation.log'),
+    'validate source-study artifact privacy': ('validate_privacy', None),
+    'write completed local deliverables': ('write_deliverables', None),
+}
+INPLACE_FAILURE_PHASES = {
+    'unknown', 'verify_inputs', 'configure', 'generate_headers', 'audit_toolchain',
+    'compile_control', 'audit_control_dependencies', 'verify_control_ir',
+    'apply_source_patch', 'compile_candidate', 'audit_candidate_dependencies',
+    'verify_candidate_ir', 'replace_archives', 'link_rebuilt_core',
+    'link_candidate_core', 'discover_callbacks', 'write_manifest',
+}
+INPLACE_FAILURE_EXCEPTIONS = {
+    'Unknown', 'RuntimeError', 'ValueError', 'OSError', 'FileNotFoundError',
+    'PermissionError', 'AssertionError', 'KeyboardInterrupt', 'MemoryError',
+    'CalledProcessError', 'TimeoutExpired', 'KernelProcessCleanupError', 'SystemExit', 'OtherError',
+}
+# Prefix matching is permitted only for known helper labels whose suffix is a
+# path/field name. The suffix is NEVER emitted, hashed, or retained in diagnostics.
+INPLACE_FAILURE_LABELS = {
+    'Canonical harness pin mismatch': 'source_pin_mismatch',
+    'Runtime preparer pin mismatch': 'source_pin_mismatch',
+    'ORT source tar pin mismatch': 'source_pin_mismatch',
+    'Source header is not pinned tar original': 'source_pin_mismatch',
+    'Applied source patch result mismatch': 'source_pin_mismatch',
+    'Dependency download definitions changed': 'dependency_pin_mismatch',
+    'Duplicate dependency entry': 'duplicate_dependency_observation',
+    'Compiled dependency set/hash differs from declared provenance': 'dependency_set_mismatch',
+    'Compiled raw dependency path multiset differs from pinned provenance': 'dependency_raw_multiset_mismatch',
+    'Compiled canonical dependency hash/bytes differ from pinned provenance': 'dependency_canonical_mismatch',
+    'Noncanonical raw dependency root spelling': 'dependency_scope_mismatch',
+    'Raw dependency must be an absolute path': 'dependency_scope_mismatch',
+    'Malformed dependency file': 'dependency_file_invalid',
+    'Dependency-audit flags changed activation object': 'dependency_audit_object_mismatch',
+    'Ambiguous activations.cc compile command': 'configure_command_mismatch',
+    'Unexpected compiler working directory': 'configure_command_mismatch',
+    'Unexpected compiler output arguments': 'configure_command_mismatch',
+    'Configured activation compile command differs from pinned reconstruction': 'configure_command_mismatch',
+    'Configured include order differs': 'configure_include_mismatch',
+    'LLVM commit mismatch': 'compiler_version_mismatch',
+    'Emscripten version mismatch': 'compiler_version_mismatch',
+    'CMake version mismatch': 'configure_version_mismatch',
+    'Protobuf generator version mismatch': 'generator_version_mismatch',
+    'Original control function IR mismatch': 'control_ir_mismatch',
+    'Original control differs beyond allowed diagnostic paths': 'control_ir_mismatch',
+    'Original normalized IR pin mismatch': 'control_ir_mismatch',
+    'Candidate function set changed': 'candidate_ir_mismatch',
+    'Unexpected candidate instruction or metadata content difference': 'candidate_ir_mismatch',
+    'Candidate attributes changed': 'candidate_ir_mismatch',
+    'Candidate scope counts changed': 'candidate_ir_mismatch',
+    'Candidate complete normalized IR pin mismatch': 'candidate_ir_mismatch',
+    'Rebuilt defined symbols differ': 'symbol_mismatch',
+    'Candidate defined symbols differ': 'symbol_mismatch',
+    'Archive member count changed': 'archive_member_mismatch',
+    'Archive member count mismatch': 'archive_member_mismatch',
+    'Archive changes outside one member': 'archive_member_mismatch',
+    'Wrong archive replacement': 'archive_member_mismatch',
+    'Activation occurrence hashes changed': 'archive_member_mismatch',
+    'Prepared loadsplat archive pin mismatch': 'runtime_archive_pin_mismatch',
+    'Loadsplat source archive pin mismatch': 'runtime_archive_pin_mismatch',
+    'Archived CPU activation pin mismatch': 'archive_member_mismatch',
+    'Native bundle archive mismatch': 'native_bundle_mismatch',
+    'Linked CPU activation mismatch': 'native_bundle_mismatch',
+    'Incomplete ordered native bundle proof': 'native_bundle_mismatch',
+    'Linked CORE activation occurrences differ': 'native_bundle_mismatch',
+    'Linked CORE dispatcher differs': 'native_bundle_mismatch',
+    'Linked CORE lacks all ordered intended native payloads': 'native_bundle_mismatch',
+    'Extra or reordered native members in CORE': 'native_bundle_mismatch',
+    'Source output exactness': 'output_gate_failed',
+    'Historical forced-loadsplat output changed': 'output_gate_failed',
+    'CPU quality repeatability': 'output_gate_failed',
+    'Primary browser descendants remain': 'cleanup_unverified',
+    'Gate browser cleanup': 'cleanup_unverified',
+    'Quality browser cleanup': 'cleanup_unverified',
+}
+INPLACE_FAILURE_PREFIX_LABELS = {
+    'Source payload pin mismatch: ': 'source_pin_mismatch',
+    'Dependency pin mismatch: ': 'dependency_pin_mismatch',
+    'Conflicting dependency aliases disagree in hash/bytes: ': 'dependency_alias_conflict',
+    'Dependency outside declared roots: ': 'dependency_scope_mismatch',
+    'Raw dependency outside declared roots: ': 'dependency_scope_mismatch',
+    'Emscripten compiler source pin mismatch: ': 'compiler_source_pin_mismatch',
+    'Generated header/input provenance mismatch: ': 'generated_header_pin_mismatch',
+    'CORE build identity mismatch: ': 'build_identity_mismatch',
+    'CORE output integrity mismatch: ': 'build_output_mismatch',
+}
+
+
+def inplace_failure_exception(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if name in INPLACE_FAILURE_EXCEPTIONS else 'Unknown'
+
+
+def inplace_failure_record(result: dict[str, Any], evidence: Path, error: BaseException) -> dict[str, Any]:
+    """Read bounded local evidence and return constants/counts only, never text."""
+    stage, filename = INPLACE_FAILURE_STAGES.get(result.get('stage'), ('unknown', None))
+    tail = ''
+    tail_bytes = 0
+    if filename is not None:
+        path = evidence / filename
+        if path.is_file() and not path.is_symlink() and path.resolve().parent == evidence.resolve():
+            with path.open('rb') as stream:
+                stream.seek(0, os.SEEK_END)
+                length = stream.tell()
+                stream.seek(max(0, length - 65536))
+                data = stream.read(65536)
+            tail_bytes = len(data)
+            tail = data.decode('utf-8', errors='replace')
+    phase, phase_status = 'unknown', 'unknown'
+    markers = []
+    invalid_markers = 0
+    for line in tail.splitlines():
+        if not line.startswith('SOURCE_PREP_STAGE '):
+            continue
+        if len(markers) + invalid_markers >= 256:
+            invalid_markers = 256
+            markers = []
+            break
+        try:
+            value = json.loads(line[len('SOURCE_PREP_STAGE '):])
+            required = {'schema', 'phase', 'status'}
+            valid = (isinstance(value, dict) and required <= value.keys()
+                     and not (value.keys() - required - {'exception_class'})
+                     and value['schema'] == 'inplace-source-prep-stage-v1'
+                     and value['phase'] in INPLACE_FAILURE_PHASES - {'unknown'}
+                     and value['status'] in {'begin', 'pass', 'fail'}
+                     and ('exception_class' not in value or value['status'] == 'fail' and value['exception_class'] in INPLACE_FAILURE_EXCEPTIONS))
+            if not valid:
+                raise ValueError('Invalid bounded marker')
+            markers.append(value)
+        except (ValueError, TypeError, KeyError):
+            invalid_markers += 1
+    if markers and not invalid_markers:
+        last = next((item for item in markers if item['status'] == 'fail'), markers[-1])
+        phase, phase_status = last['phase'], last['status']
+    classes, categories = set(), set()
+    generic_subprocess = False
+    recognized = 0
+    pattern = r'^(RuntimeError|ValueError|OSError|FileNotFoundError|PermissionError|AssertionError|KeyboardInterrupt|MemoryError|CalledProcessError|TimeoutExpired): ?([^\r\n]{0,4096})$'
+    for line in tail.splitlines():
+        match = re.fullmatch(pattern, line)
+        if match is None:
+            continue
+        classes.add(match[1])
+        message = match[2]
+        found = INPLACE_FAILURE_LABELS.get(message)
+        if found is None:
+            labels = {category for prefix, category in INPLACE_FAILURE_PREFIX_LABELS.items() if message.startswith(prefix)}
+            if len(labels) == 1:
+                found = next(iter(labels))
+        if found is not None:
+            categories.add(found)
+            recognized += 1
+        elif message.startswith('Command failed: '):
+            generic_subprocess = True
+    if len(categories) == 1:
+        category, basis = next(iter(categories)), 'allowlisted_exception_label'
+    elif len(categories) > 1:
+        category, basis = 'ambiguous', 'ambiguous'
+    elif generic_subprocess:
+        category, basis = 'subprocess_failed', 'generic_exception_label'
+    else:
+        category, basis = 'unknown', 'unknown'
+    parent_exception = inplace_failure_exception(error)
+    if parent_exception == 'KeyboardInterrupt':
+        category, basis = 'interrupted', 'exception_class'
+    elif parent_exception == 'KernelProcessCleanupError':
+        category, basis = 'cleanup_unverified', 'exception_class'
+    child_exception = next(iter(classes)) if len(classes) == 1 else 'Unknown'
+    if not classes and markers and not invalid_markers:
+        child_exception = next((item for item in markers if item['status'] == 'fail'), markers[-1]).get('exception_class', 'Unknown')
+    # Only inspect the parent's known command-runner wrapper format. Its trailing
+    # path is neither retained nor emitted. Subprocess argument strings are ignored.
+    exit_code = None
+    if type(error) is RuntimeError:
+        match = re.match(r'^Kernel experiment step failed \(exit (-?\d{1,3})\); diagnostic log: ', str(error))
+        if match and -255 <= int(match[1]) <= 255:
+            exit_code = int(match[1])
+    pinned_counts = {}
+    pins_text = INPLACE_EMBEDDED_SOURCES.get('source_pins.json', '')
+    pins_sha = INPLACE_SOURCE_SHA256.get('source_pins.json')
+    if pins_sha and hashlib.sha256(pins_text.encode()).hexdigest() == pins_sha:
+        pins = json.loads(pins_text)
+        candidates = {'control_raw_dependencies': len(pins.get('dependencies', [])),
+                      'candidate_raw_dependencies': len(pins.get('dependencies', [])) + len(pins.get('candidate_additional_dependencies', [])),
+                      'function_definitions': pins.get('function_definition_count'),
+                      'archive_members': pins.get('archive_member_count')}
+        pinned_counts = {key: value for key, value in candidates.items()
+                         if type(value) is int and 0 <= value <= 100000}
+    record = {
+        'schema': 'inplace-source-failure-diagnostic-v1', 'stage': stage,
+        'phase': phase, 'phase_status': phase_status,
+        'parent_exception': parent_exception, 'child_exception': child_exception,
+        'category': category, 'category_basis': basis, 'exit_code': exit_code,
+        'log_tail_bytes_inspected': tail_bytes, 'valid_stage_markers': len(markers),
+        'invalid_stage_markers': invalid_markers, 'recognized_error_labels': min(recognized, 256),
+        'pinned_counts': pinned_counts,
+        'source_helper_sha256': INPLACE_SOURCE_SHA256.get('prepare_inplace_leaky_source.py'),
+        'diagnostic_collection': 'complete',
+    }
+    inplace_validate_failure_record(record)
+    return record
+
+
+def inplace_validate_failure_record(record: dict[str, Any]) -> None:
+    fields = {'schema', 'stage', 'phase', 'phase_status', 'parent_exception', 'child_exception',
+              'category', 'category_basis', 'exit_code', 'log_tail_bytes_inspected', 'valid_stage_markers',
+              'invalid_stage_markers', 'recognized_error_labels', 'pinned_counts',
+              'source_helper_sha256', 'diagnostic_collection'}
+    kernel_require(isinstance(record, dict) and set(record) == fields, 'invalid failure diagnostic fields')
+    kernel_require(record['schema'] == 'inplace-source-failure-diagnostic-v1', 'invalid diagnostic schema')
+    kernel_require(record['stage'] in {'unknown', *(value[0] for value in INPLACE_FAILURE_STAGES.values())}, 'invalid diagnostic stage')
+    kernel_require(record['phase'] in INPLACE_FAILURE_PHASES and record['phase_status'] in {'unknown', 'begin', 'pass', 'fail'}, 'invalid diagnostic phase')
+    kernel_require(all(record[key] in INPLACE_FAILURE_EXCEPTIONS for key in ('parent_exception', 'child_exception')), 'invalid exception class')
+    categories = set(INPLACE_FAILURE_LABELS.values()) | set(INPLACE_FAILURE_PREFIX_LABELS.values()) | {'unknown', 'ambiguous', 'subprocess_failed', 'interrupted', 'cleanup_unverified'}
+    kernel_require(record['category'] in categories and record['category_basis'] in {'allowlisted_exception_label', 'generic_exception_label', 'exception_class', 'unknown', 'ambiguous'}, 'invalid failure category')
+    code = record['exit_code']
+    kernel_require(code is None or type(code) is int and -255 <= code <= 255, 'invalid exit code')
+    for key, maximum in [('log_tail_bytes_inspected', 65536), ('valid_stage_markers', 256),
+                         ('invalid_stage_markers', 256), ('recognized_error_labels', 256)]:
+        kernel_require(type(record[key]) is int and 0 <= record[key] <= maximum, 'invalid diagnostic count')
+    counts = record['pinned_counts']
+    kernel_require(isinstance(counts, dict) and not (set(counts) - {'control_raw_dependencies', 'candidate_raw_dependencies', 'function_definitions', 'archive_members'}), 'invalid pin-count fields')
+    kernel_require(all(type(value) is int and 0 <= value <= 100000 for value in counts.values()), 'invalid pin count')
+    digest = record['source_helper_sha256']
+    kernel_require(digest is None or isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest), 'invalid source-helper digest')
+    kernel_require(record['diagnostic_collection'] in {'complete', 'unavailable'}, 'invalid diagnostic state')
+
+
+def inplace_capture_failure(result: dict[str, Any], evidence: Path, error: BaseException) -> None:
+    try:
+        record = inplace_failure_record(result, evidence, error)
+    except BaseException:
+        record = {
+            'schema': 'inplace-source-failure-diagnostic-v1', 'stage': 'unknown', 'phase': 'unknown',
+            'phase_status': 'unknown', 'parent_exception': inplace_failure_exception(error),
+            'child_exception': 'Unknown', 'category': 'unknown', 'category_basis': 'unknown',
+            'exit_code': None, 'log_tail_bytes_inspected': 0, 'valid_stage_markers': 0,
+            'invalid_stage_markers': 0, 'recognized_error_labels': 0, 'pinned_counts': {},
+            'source_helper_sha256': None, 'diagnostic_collection': 'unavailable',
+        }
+    # Neither storage failure, stdout failure nor a second interrupt may mask
+    # the original exception or alter the existing cleanup-retention state.
+    try:
+        inplace_validate_failure_record(record)
+        result['failure_diagnostic'] = record
+        atomic_write(evidence / 'failure-diagnostics.json', json.dumps(record, separators=(',', ':'), allow_nan=False).encode())
+    except BaseException:
+        pass
+    try:
+        inplace_validate_failure_record(record)
+        print('SOURCE_INPLACE_FAILURE ' + json.dumps(record, separators=(',', ':'), allow_nan=False), flush=True)
+    except BaseException:
+        pass
+
+
+@contextlib.contextmanager
+def inplace_failure_boundary(result: dict[str, Any], evidence: Path) -> Iterator[None]:
+    """Capture while the private tree exists; preserve original exception identity."""
+    try:
+        yield
+    except BaseException as error:
+        inplace_capture_failure(result, evidence, error)
+        raise
+
+
 def run_inplace_experiments(args: argparse.Namespace) -> None:
     validate_inplace_arguments(args)
     kernel_require(INPLACE_CONFIRMATION_FROZEN or args.prepare_only,
@@ -8264,7 +8537,7 @@ def run_inplace_experiments(args: argparse.Namespace) -> None:
     private = None
     checkpoint()
     try:
-        with kernel_private_directory() as directory:
+        with kernel_private_directory() as directory, inplace_failure_boundary(result, evidence):
             private = Path(directory)
             temporary = private / 'temporary'
             temporary.mkdir(mode=0o700)
@@ -8305,6 +8578,7 @@ def run_inplace_experiments(args: argparse.Namespace) -> None:
                 checkpoint()
             else:
                 kernel_require(INPLACE_REQUIRED_CONFIRMATION <= set(INPLACE_SOURCE_SHA256), 'incomplete frozen confirmation catalogue')
+                result['stage'] = 'prepare pinned Chromium for source confirmation'; checkpoint()
                 kernel_run_checked([sys.executable, '-m', 'playwright', 'install', 'chromium'], evidence / 'prepare-browser.log', env)
                 result['stage'] = 'separate alias/output gates, 45 hook-free primary calls and sequential CPU quality'; checkpoint()
                 confirmation_path = evidence / 'confirmation.json'
@@ -8319,6 +8593,7 @@ def run_inplace_experiments(args: argparse.Namespace) -> None:
                 kernel_require(confirmation.get('distribution', {}).get('sha256') == result['standalone_sha256'],
                                'confirmation did not execute this one-file distribution')
                 # The unchanged source validator also emits bounded console evidence.
+                result['stage'] = 'validate source confirmation'; checkpoint()
                 kernel_run_checked([sys.executable, str(sources['inplace/source_validate.py']), str(confirmation_path),
                                     '--output', str(evidence / 'validated-summary.json')], evidence / 'validation.log', env)
                 result.update(status='validated', confirmation=confirmation,
@@ -8338,6 +8613,8 @@ def run_inplace_experiments(args: argparse.Namespace) -> None:
         result = completed
         checkpoint()
     except BaseException as error:
+        if 'failure_diagnostic' not in result:
+            inplace_capture_failure(result, evidence, error)
         result.update(status='failed', error_type=type(error).__name__)
         checkpoint()
         raise
@@ -8372,10 +8649,10 @@ def inplace_regression_self_test() -> None:
 # Exact-byte readable source-study payloads, independently reviewed before freeze.
 INPLACE_CONFIRMATION_FROZEN = True
 INPLACE_SOURCE_SHA256 = {
-    "prepare_inplace_leaky_source.py": "6aa1d943d83292d5b2b7b2f20b0516c7cf9dd4bc8be848f4cad366150dd193b4",
+    "prepare_inplace_leaky_source.py": "455315f69283a223538a4d8f6a3c624011008a3bb0e5cb53ab5aa787a2a79afe",
     "source_proof.py": "5209cad45e355afb42eba8f199e1c1639aaf7834ce0127558bc7447e611d9fdd",
     "callback_discovery.py": "e9472d5115159ce9e3293a1ac82352a8e24841c1fdae709efa96315935027977",
-    "source_pins.json": "e836ecb7e7bb68194f3be097e4f7724cbe1f1a12740ab9dc18b184950604e5d5",
+    "source_pins.json": "8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc",
     "inplace_leaky.patch": "154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd",
     "xnnpack-static-dependencies.patch": "5af16bc0cd746b6bc666b225972cbae3ad524d4ae22b36302bdfbf1270458b2a",
     "source_confirmation.py": "1a4367733260c3c288e347a48129eb670c754475a740e89eb18b097354ebae12",
@@ -8388,7 +8665,7 @@ INPLACE_SOURCE_SHA256 = {
 }
 
 INPLACE_EMBEDDED_SOURCES = {
-    # SHA-256: 6aa1d943d83292d5b2b7b2f20b0516c7cf9dd4bc8be848f4cad366150dd193b4
+    # SHA-256: 455315f69283a223538a4d8f6a3c624011008a3bb0e5cb53ab5aa787a2a79afe
     'prepare_inplace_leaky_source.py': (
         '#!/usr/bin/env python3\n'
         '"""Prepare the pinned source-built exact-inplace LeakyRelu study. No inference.\n'
@@ -8401,6 +8678,7 @@ INPLACE_EMBEDDED_SOURCES = {
         'from __future__ import annotations\n'
         'import argparse\n'
         'import contextlib\n'
+        'from collections import Counter\n'
         'import copy\n'
         'import importlib.util\n'
         'import json\n'
@@ -8420,6 +8698,41 @@ INPLACE_EMBEDDED_SOURCES = {
         "PINS = json.loads((ROOT / 'source_pins.json').read_text())\n"
         "FLAGS = '-fwasm-exceptions -fno-fast-math -ffp-contract=off'\n"
         "KEYS = ('original', 'rebuilt', 'candidate')\n"
+        '\n'
+        'STAGE_PHASES = frozenset({\n'
+        "    'verify_inputs', 'configure', 'generate_headers', 'audit_toolchain',\n"
+        "    'compile_control', 'audit_control_dependencies', 'verify_control_ir',\n"
+        "    'apply_source_patch', 'compile_candidate', 'audit_candidate_dependencies',\n"
+        "    'verify_candidate_ir', 'replace_archives', 'link_rebuilt_core',\n"
+        "    'link_candidate_core', 'discover_callbacks', 'write_manifest',\n"
+        '})\n'
+        'STAGE_EXCEPTION_CLASSES = frozenset({\n'
+        "    'ValueError', 'FileNotFoundError', 'PermissionError', 'OSError',\n"
+        "    'RuntimeError', 'CalledProcessError', 'TimeoutExpired',\n"
+        "    'KeyboardInterrupt', 'SystemExit', 'OtherError',\n"
+        '})\n'
+        '\n'
+        '\n'
+        'def emit_stage(phase, status, exception_class=None):\n'
+        "    require(phase in STAGE_PHASES and status in {'begin', 'pass', 'fail'}, 'Invalid preparation stage event')\n"
+        "    value = {'schema': 'inplace-source-prep-stage-v1', 'phase': phase, 'status': status}\n"
+        '    if exception_class is not None:\n'
+        "        require(status == 'fail' and exception_class in STAGE_EXCEPTION_CLASSES, 'Invalid preparation stage exception class')\n"
+        "        value['exception_class'] = exception_class\n"
+        "    print('SOURCE_PREP_STAGE ' + json.dumps(value, sort_keys=True), flush=True)\n"
+        '\n'
+        '\n'
+        '@contextlib.contextmanager\n'
+        'def stage(phase):\n'
+        "    emit_stage(phase, 'begin')\n"
+        '    try:\n'
+        '        yield\n'
+        '    except BaseException as error:\n'
+        '        name = type(error).__name__\n'
+        "        emit_stage(phase, 'fail', name if name in STAGE_EXCEPTION_CLASSES else 'OtherError')\n"
+        '        raise\n'
+        '    else:\n'
+        "        emit_stage(phase, 'pass')\n"
         '\n'
         '\n'
         'def write_json(path, value):\n'
@@ -8504,6 +8817,14 @@ INPLACE_EMBEDDED_SOURCES = {
         '    return result\n'
         '\n'
         '\n'
+        '\n'
+        'def bitcode_ir_command(sdk, source, output):\n'
+        '    """Read existing bitcode with the SDK\'s matching clang; no optimization."""\n'
+        "    return [Path(sdk) / 'upstream/bin/clang', '-cc1', '-triple',\n"
+        "            'wasm32-unknown-emscripten', '-emit-llvm', '-x', 'ir',\n"
+        "            source, '-o', output]\n"
+        '\n'
+        '\n'
         'def expanded(template, roots):\n'
         '    return template.format(**{name: str(path) for name, path in roots.items()})\n'
         '\n'
@@ -8516,6 +8837,70 @@ INPLACE_EMBEDDED_SOURCES = {
         '        if path.is_relative_to(root):\n'
         "            return '{' + name + '}/' + path.relative_to(root).as_posix()\n"
         "    raise ValueError('Dependency outside declared roots: ' + str(path))\n"
+        '\n'
+        '\n'
+        '\n'
+        'def raw_tokenized(path, roots):\n'
+        '    """Map only declared root prefixes, preserving every reported suffix byte."""\n'
+        '    raw = os.fspath(path)\n'
+        "    require(Path(raw).is_absolute(), 'Raw dependency must be an absolute path')\n"
+        "    for name in ('sdk', 'dependencies', 'build', 'source'):\n"
+        "        root = os.fspath(roots[name]).rstrip('/')\n"
+        "        if raw.startswith(root + '/'):\n"
+        "            return '{' + name + '}/' + raw[len(root) + 1:]\n"
+        "    raise ValueError('Raw dependency outside declared roots: ' + raw)\n"
+        '\n'
+        '\n'
+        'def dependency_inventory(records, roots):\n'
+        '    """Retain every raw observation and reject conflicting canonical aliases."""\n'
+        '    raw_paths, canonical, mapping = Counter(), {}, []\n'
+        '    for row in records:\n'
+        "        raw = row['path']\n"
+        '        path = Path(expanded(raw, roots))\n'
+        '        resolved = tokenized(path, roots)\n'
+        "        signature = (row['sha256'], row['bytes'])\n"
+        '        require(resolved not in canonical or canonical[resolved] == signature,\n'
+        "                'Conflicting dependency aliases disagree in hash/bytes: ' + raw)\n"
+        '        canonical[resolved] = signature\n'
+        '        raw_paths[raw] += 1\n'
+        "        mapping.append({'path': raw, 'resolved_path': resolved,\n"
+        "                        'sha256': row['sha256'], 'bytes': row['bytes']})\n"
+        '    return raw_paths, canonical, mapping\n'
+        '\n'
+        '\n'
+        'def verify_dependency_records(observed, expected, roots):\n'
+        '    expected_raw, expected_unique, expected_mapping = dependency_inventory(expected, roots)\n'
+        '    actual_raw, actual_unique, actual_mapping = dependency_inventory(observed, roots)\n'
+        '    # Exact canonical set/hash/byte equality is the semantic gate. Raw spelling\n'
+        '    # and repeated observations remain complete, separately reported provenance.\n'
+        '    # Never accept a subset or discard conflicting hashes from canonical aliases.\n'
+        "    require(actual_unique == expected_unique, 'Compiled canonical dependency file set/hash/bytes differ from pinned provenance')\n"
+        "    return {'dependency_count': len(observed),\n"
+        "            'dependency_raw_unique_path_count': len(actual_raw),\n"
+        "            'dependency_canonical_unique_file_count': len(actual_unique),\n"
+        "            'dependency_raw_alias_mapping': actual_mapping,\n"
+        "            'expected_dependency_raw_alias_mapping': expected_mapping,\n"
+        "            'dependency_semantic_policy': 'exact canonical file set, sha256 and bytes; raw observations retained as provenance',\n"
+        "            'exact_canonical_dependency_set_hash_bytes_verified': True,\n"
+        "            'raw_dependency_multiset_equal': actual_raw == expected_raw,\n"
+        "            'raw_dependency_observation_delta': {\n"
+        "                'added': [{'path': key, 'count': count} for key, count in sorted((actual_raw - expected_raw).items())],\n"
+        "                'removed': [{'path': key, 'count': count} for key, count in sorted((expected_raw - actual_raw).items())],\n"
+        '            },\n'
+        "            'canonical_alias_hash_and_byte_agreement_verified': True}\n"
+        '\n'
+        '\n'
+        'def normalize_include_argument(argument):\n'
+        '    """Only terminal \'/.\' on a joined -I path; no filesystem/path resolution."""\n'
+        "    if argument.startswith('-I') and argument.endswith('/.'):\n"
+        "        return '-I/' if argument == '-I/.' else argument[:-2]\n"
+        '    return argument\n'
+        '\n'
+        '\n'
+        'def verify_include_arguments(actual, expected):\n'
+        '    require([normalize_include_argument(x) for x in actual] ==\n'
+        '            [normalize_include_argument(x) for x in expected],\n'
+        "            'Configured include order differs')\n"
         '\n'
         '\n'
         'def check_expected_dependencies(roots, *, candidate=False):\n'
@@ -8540,6 +8925,7 @@ INPLACE_EMBEDDED_SOURCES = {
         "    return shlex.split(text.split(':', 1)[1])\n"
         '\n'
         '\n'
+        "@stage('configure')\n"
         'def configure_source(base, cache, work, env):\n'
         "    commit = PINS['source_commit']\n"
         "    url = f'https://codeload.github.com/microsoft/onnxruntime/tar.gz/{commit}'\n"
@@ -8574,7 +8960,8 @@ INPLACE_EMBEDDED_SOURCES = {
         "    roots = {'source': source, 'dependencies': work / 'dependency-cache', 'build': work / 'build/Release', 'sdk': sdk}\n"
         "    command = [sys.executable, str(source / 'tools/ci_build/build.py'), '--build_dir', str(work / 'build'), '--config', 'Release', '--update', '--parallel', '2', '--build_wasm_static_lib', '--enable_wasm_simd', '--enable_wasm_threads', '--use_xnnpack', '--disable_wasm_exception_catching', '--disable_rtti', '--skip_tests', '--skip_submodule_sync', '--cmake_extra_defines', 'CMAKE_EXPORT_COMPILE_COMMANDS=ON', 'CMAKE_SKIP_INSTALL_RULES=ON', 'CMAKE_C_FLAGS=' + FLAGS, 'CMAKE_CXX_FLAGS=' + FLAGS, 'FETCHCONTENT_BASE_DIR=' + str(roots['dependencies']), 'onnxruntime_ENABLE_WEBASSEMBLY_RELAXED_SIMD=OFF', 'onnxruntime_ENABLE_CPU_FP16_OPS=OFF', 'XNNPACK_BUILD_ALL_MICROKERNELS=OFF']\n"
         "    run(command, cwd=source, env=env, log=work / 'configure.log')\n"
-        "    run(['cmake', '--build', str(roots['build']), '--target', 'gen_onnx_proto', 'gen_onnx_operators_proto', 'gen_onnx_data_proto', '--parallel', '2'], env=env, log=work / 'generate-headers.log')\n"
+        "    with stage('generate_headers'):\n"
+        "        run(['cmake', '--build', str(roots['build']), '--target', 'gen_onnx_proto', 'gen_onnx_operators_proto', 'gen_onnx_data_proto', '--parallel', '2'], env=env, log=work / 'generate-headers.log')\n"
         "    entries = json.loads((roots['build'] / 'compile_commands.json').read_text())\n"
         "    matches = [x for x in entries if Path(x['file']).resolve() == (source / PINS['source_filename_suffix']).resolve()]\n"
         "    require(len(matches) == 1, 'Ambiguous activations.cc compile command')\n"
@@ -8586,11 +8973,12 @@ INPLACE_EMBEDDED_SOURCES = {
         "    expected = [expanded(x, {**roots, 'object': '{object}'}) for x in PINS['compile_command']]\n"
         "    require(actual == expected, 'Configured activation compile command differs from pinned reconstruction')\n"
         "    rsp = roots['build'] / 'CMakeFiles/onnxruntime_providers.dir/includes_CXX.rsp'\n"
-        "    require(shlex.split(rsp.read_text()) == [expanded(x, roots) for x in PINS['include_arguments']], 'Configured include order differs')\n"
+        "    verify_include_arguments(shlex.split(rsp.read_text()), [expanded(x, roots) for x in PINS['include_arguments']])\n"
         '    check_expected_dependencies(roots)\n'
         '    return roots, entry\n'
         '\n'
         '\n'
+        "@stage('audit_toolchain')\n"
         'def compiler_provenance(roots, env):\n'
         "    sdk = roots['sdk']\n"
         "    for name, digest in PINS['compiler_source_sha256'].items():\n"
@@ -8601,7 +8989,7 @@ INPLACE_EMBEDDED_SOURCES = {
         "    em = sdk / 'upstream/emscripten/em++'\n"
         "    em_version = run([em, '--version'], env=env)\n"
         "    require(PINS['emsdk_version'] in em_version, 'Emscripten version mismatch')\n"
-        "    tools = {name: {'sha256': file_sha(sdk / 'upstream/bin' / name)} for name in ('clang', 'llvm-dis', 'llvm-nm', 'llvm-ar')}\n"
+        "    tools = {name: {'sha256': file_sha(sdk / 'upstream/bin' / name)} for name in ('clang', 'llvm-nm', 'llvm-ar')}\n"
         "    cmake_version = run(['cmake', '--version'], env=env)\n"
         "    require(cmake_version.splitlines()[0] == 'cmake version ' + PINS['cmake_version'], 'CMake version mismatch')\n"
         "    protoc = roots['dependencies'] / 'protoc_binary-src/bin/protoc'\n"
@@ -8611,36 +8999,36 @@ INPLACE_EMBEDDED_SOURCES = {
         "        path = Path(expanded(row['path'], roots))\n"
         "        require(path.is_file() and path.stat().st_size == row['bytes'] and file_sha(path) == row['sha256'], 'Generated header/input provenance mismatch: ' + row['path'])\n"
         "    configured = {name: file_sha(roots['build'] / name) for name in ('CMakeCache.txt', 'compile_commands.json', 'CMakeFiles/onnxruntime_providers.dir/includes_CXX.rsp')}\n"
-        "    return {'llvm_commit': PINS['llvm_commit'], 'emsdk_version': PINS['emsdk_version'], 'llvm_version': version, 'empp_version': em_version, 'host_tool_sha256': tools, 'compiler_source_sha256': PINS['compiler_source_sha256'], 'environment_overrides': {'EMCC_CFLAGS': FLAGS}, 'python_version': sys.version, 'cmake_version': cmake_version.strip(), 'protoc_version': protoc_version, 'protoc_executable_sha256': file_sha(protoc), 'generated_header_provenance': PINS['generated_header_provenance'], 'configured_file_sha256': configured}\n"
+        "    return {'llvm_commit': PINS['llvm_commit'], 'emsdk_version': PINS['emsdk_version'], 'llvm_version': version, 'empp_version': em_version, 'host_tool_sha256': tools, 'ir_readback_command_template': [str(x) for x in bitcode_ir_command(Path('{sdk}'), '{input.bc}', '{output.ll}')], 'compiler_source_sha256': PINS['compiler_source_sha256'], 'environment_overrides': {'EMCC_CFLAGS': FLAGS}, 'python_version': sys.version, 'cmake_version': cmake_version.strip(), 'protoc_version': protoc_version, 'protoc_executable_sha256': file_sha(protoc), 'generated_header_provenance': PINS['generated_header_provenance'], 'nonselected_simd_header_provenance': PINS.get('nonselected_simd_header_provenance', []), 'configured_file_sha256': configured}\n"
         '\n'
         '\n'
         'def compile_activation(kind, entry, roots, work, env):\n'
         "    command = shlex.split(entry['command'])\n"
         "    obj = work / ('activations.' + kind + '.bc')\n"
         "    command[command.index('-o') + 1] = str(obj)\n"
-        "    run(command, cwd=entry['directory'], env=env, log=work / ('compile-' + kind + '.log'))\n"
-        "    audit = work / ('activations.' + kind + '.audit.bc')\n"
-        "    deps = work / (kind + '.d')\n"
-        '    audit_command = command.copy()\n'
-        "    audit_command[audit_command.index('-o') + 1] = str(audit)\n"
-        "    audit_command += ['-MD', '-MF', str(deps)]\n"
-        "    run(audit_command, cwd=entry['directory'], env=env, log=work / ('dependencies-' + kind + '.log'))\n"
-        "    require(obj.read_bytes() == audit.read_bytes(), 'Dependency-audit flags changed activation object')\n"
-        "    expected = check_expected_dependencies(roots, candidate=(kind == 'candidate'))\n"
-        '    observed = {}\n'
-        '    for name in parse_make_dependencies(deps.read_text()):\n'
-        '        p = Path(name)\n'
-        '        if not p.is_absolute():\n'
-        "            p = Path(entry['directory']) / p\n"
-        '        key = tokenized(p, roots)\n'
-        "        require(key not in observed, 'Duplicate dependency entry')\n"
-        '        observed[key] = file_sha(p)\n'
-        "    require(observed == {x['path']: x['sha256'] for x in expected}, 'Compiled dependency set/hash differs from declared provenance')\n"
-        "    ll = obj.with_suffix('.ll')\n"
-        "    run([roots['sdk'] / 'upstream/bin/llvm-dis', obj, '-o', ll], env=env)\n"
-        "    proof = {'object_sha256': file_sha(obj), 'dependency_count': len(observed), 'compiled_object_identical_with_dependency_flags': True, 'dependencies': expected, 'command_template': PINS['compile_command'], 'include_arguments': PINS['include_arguments']}\n"
-        "    write_json(work / ('dependencies-' + kind + '.json'), proof)\n"
-        '    return obj, ll, proof\n'
+        "    with stage('compile_candidate' if kind == 'candidate' else 'compile_control'):\n"
+        "        run(command, cwd=entry['directory'], env=env, log=work / ('compile-' + kind + '.log'))\n"
+        "    with stage('audit_candidate_dependencies' if kind == 'candidate' else 'audit_control_dependencies'):\n"
+        "        audit = work / ('activations.' + kind + '.audit.bc')\n"
+        "        deps = work / (kind + '.d')\n"
+        '        audit_command = command.copy()\n'
+        "        audit_command[audit_command.index('-o') + 1] = str(audit)\n"
+        "        audit_command += ['-MD', '-MF', str(deps)]\n"
+        "        run(audit_command, cwd=entry['directory'], env=env, log=work / ('dependencies-' + kind + '.log'))\n"
+        "        require(obj.read_bytes() == audit.read_bytes(), 'Dependency-audit flags changed activation object')\n"
+        "        expected = check_expected_dependencies(roots, candidate=(kind == 'candidate'))\n"
+        '        observed = []\n'
+        '        for name in parse_make_dependencies(deps.read_text()):\n'
+        "            reported = name if Path(name).is_absolute() else str(entry['directory']) + '/' + name\n"
+        '            p = Path(reported)\n'
+        "            observed.append({'path': raw_tokenized(reported, roots),\n"
+        "                             'sha256': file_sha(p), 'bytes': p.stat().st_size})\n"
+        '        dependency_proof = verify_dependency_records(observed, expected, roots)\n'
+        "        ll = obj.with_suffix('.ll')\n"
+        "        run(bitcode_ir_command(roots['sdk'], obj, ll), env=env)\n"
+        "        proof = {'object_sha256': file_sha(obj), **dependency_proof, 'compiled_object_identical_with_dependency_flags': True, 'dependencies': expected, 'command_template': PINS['compile_command'], 'include_arguments': PINS['include_arguments']}\n"
+        "        write_json(work / ('dependencies-' + kind + '.json'), proof)\n"
+        '        return obj, ll, proof\n'
         '\n'
         '\n'
         'def verify_complete(binary, archive_sha):\n'
@@ -8703,27 +9091,28 @@ INPLACE_EMBEDDED_SOURCES = {
         '\n'
         '\n'
         'def prepare(args):\n'
-        '    check_payloads(args)\n'
-        "    require(os.name == 'posix', 'Source reconstruction currently requires a POSIX host; paths remain relocatable')\n"
-        '    cache = args.cache.resolve()\n'
-        "    dispatch = cache / 'vocoder-dispatch-v3'\n"
-        "    work = cache / 'inplace-leaky-source-v1'\n"
-        '    work.mkdir(parents=True, exist_ok=True)\n'
-        "    base = load_module(args.harness, '_inplace_pristine_harness')\n"
-        "    preparer = load_module(args.runtime_preparer, '_inplace_runtime_preparer')\n"
-        "    original = json.loads((dispatch / 'prepared-loadsplat.json').read_text())\n"
-        "    archive = dispatch / 'archives/loadsplat/libonnxruntime_webassembly.a'\n"
-        "    require(file_sha(archive) == PINS['loadsplat_runtime_archive_sha256'], 'Prepared loadsplat archive pin mismatch')\n"
-        "    baseline_receipt, baseline_bundle, baseline_receipt_sha = verify_complete(original['binary'], file_sha(archive))\n"
-        "    assets = json.loads((cache / 'research-assets.json').read_text())\n"
-        "    require(assets['query_sha256'] == PINS['query_sha256'], 'Fixed 10-second query changed')\n"
-        "    model = Path(assets['model']).resolve()\n"
-        "    require(file_sha(model) == assets['model_sha256'] == PINS['model_sha256'], 'Original model pin mismatch')\n"
-        '    # Check the selected release lineage, not the generic harness label.\n'
-        "    release_info = json.loads(base.find_one(Path(assets['runtimes']['browser_xnnpack']), 'BUILD_INFO.json').read_text())\n"
-        "    for key, value in {'builder_commit': PINS['archive_builder_commit'], 'source_commit': PINS['source_commit'], 'emscripten_version': PINS['emsdk_version'], 'fast_math': False, 'fp_contract': 'off', 'relaxed_simd': False, 'xnnpack': True}.items():\n"
-        "        require(release_info.get(key) == value, 'Selected XNN release lineage mismatch: ' + key)\n"
-        '    env = clean_environment(base.ensure_toolchains(cache))\n'
+        "    with stage('verify_inputs'):\n"
+        '        check_payloads(args)\n'
+        "        require(os.name == 'posix', 'Source reconstruction currently requires a POSIX host; paths remain relocatable')\n"
+        '        cache = args.cache.resolve()\n'
+        "        dispatch = cache / 'vocoder-dispatch-v3'\n"
+        "        work = cache / 'inplace-leaky-source-v1'\n"
+        '        work.mkdir(parents=True, exist_ok=True)\n'
+        "        base = load_module(args.harness, '_inplace_pristine_harness')\n"
+        "        preparer = load_module(args.runtime_preparer, '_inplace_runtime_preparer')\n"
+        "        original = json.loads((dispatch / 'prepared-loadsplat.json').read_text())\n"
+        "        archive = dispatch / 'archives/loadsplat/libonnxruntime_webassembly.a'\n"
+        "        require(file_sha(archive) == PINS['loadsplat_runtime_archive_sha256'], 'Prepared loadsplat archive pin mismatch')\n"
+        "        baseline_receipt, baseline_bundle, baseline_receipt_sha = verify_complete(original['binary'], file_sha(archive))\n"
+        "        assets = json.loads((cache / 'research-assets.json').read_text())\n"
+        "        require(assets['query_sha256'] == PINS['query_sha256'], 'Fixed 10-second query changed')\n"
+        "        model = Path(assets['model']).resolve()\n"
+        "        require(file_sha(model) == assets['model_sha256'] == PINS['model_sha256'], 'Original model pin mismatch')\n"
+        '        # Check the selected release lineage, not the generic harness label.\n'
+        "        release_info = json.loads(base.find_one(Path(assets['runtimes']['browser_xnnpack']), 'BUILD_INFO.json').read_text())\n"
+        "        for key, value in {'builder_commit': PINS['archive_builder_commit'], 'source_commit': PINS['source_commit'], 'emscripten_version': PINS['emsdk_version'], 'fast_math': False, 'fp_contract': 'off', 'relaxed_simd': False, 'xnnpack': True}.items():\n"
+        "            require(release_info.get(key) == value, 'Selected XNN release lineage mismatch: ' + key)\n"
+        '        env = clean_environment(base.ensure_toolchains(cache))\n'
         '    roots, entry = configure_source(base, cache, work, env)\n'
         '    compiler = compiler_provenance(roots, env)\n'
         "    write_json(work / 'compiler-provenance.json', compiler)\n"
@@ -8733,34 +9122,38 @@ INPLACE_EMBEDDED_SOURCES = {
         "    archived = work / 'activations.archived.bc'\n"
         '    archived.write_bytes(original_member[0])\n'
         "    old_ir = archived.with_suffix('.ll')\n"
-        "    run([roots['sdk'] / 'upstream/bin/llvm-dis', archived, '-o', old_ir], env=env)\n"
+        "    run(bitcode_ir_command(roots['sdk'], archived, old_ir), env=env)\n"
         "    rebuilt_obj, rebuilt_ir, rebuilt_deps = compile_activation('rebuilt', entry, roots, work, env)\n"
-        '    control = compare_control(old_ir.read_text(), rebuilt_ir.read_text(), PINS)\n'
-        "    nm = roots['sdk'] / 'upstream/bin/llvm-nm'\n"
-        "    symbols = run([nm, '--defined-only', archived], env=env)\n"
-        "    require(symbols == run([nm, '--defined-only', rebuilt_obj], env=env), 'Rebuilt defined symbols differ')\n"
-        '    control.update(all_defined_symbols_equal=True, original_object_sha256=file_sha(archived), rebuilt_object_sha256=file_sha(rebuilt_obj))\n'
-        "    write_json(work / 'original-control-proof.json', control)\n"
-        "    header = roots['source'] / PINS['source_header']\n"
-        "    patch_env = source_patch_environment(env, roots['source'])\n"
-        "    run(['git', 'apply', '--check', str(ROOT / 'inplace_leaky.patch')], cwd=roots['source'], env=patch_env)\n"
-        "    run(['git', 'apply', str(ROOT / 'inplace_leaky.patch')], cwd=roots['source'], env=patch_env)\n"
-        "    require(file_sha(header) == PINS['candidate_source_header_sha256'], 'Applied source patch result mismatch')\n"
+        "    with stage('verify_control_ir'):\n"
+        '        control = compare_control(old_ir.read_text(), rebuilt_ir.read_text(), PINS)\n'
+        "        nm = roots['sdk'] / 'upstream/bin/llvm-nm'\n"
+        "        symbols = run([nm, '--defined-only', archived], env=env)\n"
+        "        require(symbols == run([nm, '--defined-only', rebuilt_obj], env=env), 'Rebuilt defined symbols differ')\n"
+        '        control.update(all_defined_symbols_equal=True, original_object_sha256=file_sha(archived), rebuilt_object_sha256=file_sha(rebuilt_obj))\n'
+        "        write_json(work / 'original-control-proof.json', control)\n"
+        "    with stage('apply_source_patch'):\n"
+        "        header = roots['source'] / PINS['source_header']\n"
+        "        patch_env = source_patch_environment(env, roots['source'])\n"
+        "        run(['git', 'apply', '--check', str(ROOT / 'inplace_leaky.patch')], cwd=roots['source'], env=patch_env)\n"
+        "        run(['git', 'apply', str(ROOT / 'inplace_leaky.patch')], cwd=roots['source'], env=patch_env)\n"
+        "        require(file_sha(header) == PINS['candidate_source_header_sha256'], 'Applied source patch result mismatch')\n"
         "    candidate_obj, candidate_ir, candidate_deps = compile_activation('candidate', entry, roots, work, env)\n"
-        '    scope = compare_candidate(rebuilt_ir.read_text(), candidate_ir.read_text(), PINS)\n'
-        "    require(symbols == run([nm, '--defined-only', candidate_obj], env=env), 'Candidate defined symbols differ')\n"
-        '    scope.update(defined_symbols_equal=True, candidate_object_sha256=file_sha(candidate_obj))\n'
-        "    write_json(work / 'candidate-scope-proof.json', scope)\n"
-        '    integrations = {}\n'
-        "    for key, obj in [('rebuilt', rebuilt_obj), ('candidate', candidate_obj)]:\n"
-        "        path = work / 'archives' / key / 'libonnxruntime_webassembly.a'\n"
-        '        path.parent.mkdir(parents=True, exist_ok=True)\n'
-        '        path.write_bytes(replace_activation(raw_archive, obj.read_bytes(), PINS))\n'
-        "        run([roots['sdk'] / 'upstream/bin/llvm-ar', 's', path], env=env)\n"
-        '        proof = verify_archive_replacement(raw_archive, path.read_bytes(), file_sha(obj), PINS)\n'
-        '        proof.update(archive_sha256=file_sha(path), archive=str(path), symbol_index_regenerated=True)\n'
-        '        integrations[key] = proof\n'
-        "    write_json(work / 'archive-integration.json', integrations)\n"
+        "    with stage('verify_candidate_ir'):\n"
+        '        scope = compare_candidate(rebuilt_ir.read_text(), candidate_ir.read_text(), PINS)\n'
+        "        require(symbols == run([nm, '--defined-only', candidate_obj], env=env), 'Candidate defined symbols differ')\n"
+        '        scope.update(defined_symbols_equal=True, candidate_object_sha256=file_sha(candidate_obj))\n'
+        "        write_json(work / 'candidate-scope-proof.json', scope)\n"
+        "    with stage('replace_archives'):\n"
+        '        integrations = {}\n'
+        "        for key, obj in [('rebuilt', rebuilt_obj), ('candidate', candidate_obj)]:\n"
+        "            path = work / 'archives' / key / 'libonnxruntime_webassembly.a'\n"
+        '            path.parent.mkdir(parents=True, exist_ok=True)\n'
+        '            path.write_bytes(replace_activation(raw_archive, obj.read_bytes(), PINS))\n'
+        "            run([roots['sdk'] / 'upstream/bin/llvm-ar', 's', path], env=env)\n"
+        '            proof = verify_archive_replacement(raw_archive, path.read_bytes(), file_sha(obj), PINS)\n'
+        '            proof.update(archive_sha256=file_sha(path), archive=str(path), symbol_index_regenerated=True)\n'
+        '            integrations[key] = proof\n'
+        "        write_json(work / 'archive-integration.json', integrations)\n"
         '    builder, builder_path = generate_source_builder(preparer, args.harness.resolve(), dispatch, work)\n'
         "    core_archive = base.cached_download(f'https://github.com/yamachu/voicevox_core/archive/{base.CORE_COMMIT}.tar.gz', cache, f'core-{base.CORE_COMMIT}.tar.gz')\n"
         "    source = base.unpack_cached(core_archive, work / ('core-source-' + file_sha(builder_path)[:16])) / ('voicevox_core-' + base.CORE_COMMIT)\n"
@@ -8779,23 +9172,27 @@ INPLACE_EMBEDDED_SOURCES = {
         '            staged.parent.mkdir(parents=True, exist_ok=True)\n'
         '            shutil.copyfile(runtime, staged)\n'
         "            require(file_sha(staged) == runtime_sha, 'Staging changed native archive')\n"
-        '            binary = builder.build_runner(source, staged, cache, env, threaded=True, threads=2, xnnpack=True)\n'
-        "            require(file_sha(runtime) == file_sha(staged) == runtime_sha, 'Archive changed during CORE link')\n"
-        '            receipt, bundle, receipt_sha = verify_complete(binary, runtime_sha)\n'
-        "            require(bundle.get('activation_member_sha256') == file_sha(rebuilt_obj if key == 'rebuilt' else candidate_obj), 'Linked CPU activation mismatch')\n"
-        "            require(bundle.get('duplicate_activation_sha256') == PINS['duplicate_activation_object_sha256'] and bundle.get('all_ordered_native_members_verified') == 1438, 'Incomplete ordered native bundle proof')\n"
+        "            with stage('link_' + key + '_core'):\n"
+        '                binary = builder.build_runner(source, staged, cache, env, threaded=True, threads=2, xnnpack=True)\n'
+        "                require(file_sha(runtime) == file_sha(staged) == runtime_sha, 'Archive changed during CORE link')\n"
+        '                receipt, bundle, receipt_sha = verify_complete(binary, runtime_sha)\n'
+        "                require(bundle.get('activation_member_sha256') == file_sha(rebuilt_obj if key == 'rebuilt' else candidate_obj), 'Linked CPU activation mismatch')\n"
+        "                require(bundle.get('duplicate_activation_sha256') == PINS['duplicate_activation_object_sha256'] and bundle.get('all_ordered_native_members_verified') == 1438, 'Incomplete ordered native bundle proof')\n"
         "        row = {'key': key, 'label': {'original': 'Untouched loadsplat source baseline', 'rebuilt': 'Unmodified activation source rebuild', 'candidate': 'Exact-inplace strict-FP32 source candidate'}[key], 'binary': str(binary), 'model': str(model), 'model_sha256': file_sha(model), 'archive_sha256': runtime_sha, 'runtime_archive_sha256': runtime_sha, 'build_identity': receipt['identity'], 'complete_receipt_sha256': receipt_sha, 'native_bundle': bundle, 'threads': 2, 'ort_threads': 1, 'xnn_threads': 2, 'spin_off': True, 'fixed_shape': True, 'fixed_length': 962, 'provider': 'XNNPACK', 'model_target': 'vocoder', 'revectorize': False, 'dispatch_expected': 'loadsplat', 'actual_export_map': preparer.verify_exports(binary)}\n"
         "        row['activation_member_sha256'] = PINS['original_activation_object_sha256'] if key == 'original' else bundle['activation_member_sha256']\n"
-        '        row.update(callback_proof(binary, key))\n'
         '        rows.append(row)\n'
-        "        print('SOURCE_VARIANT_READY', key, binary, flush=True)\n"
-        "    require(len({(r['callback_table_slot'], r['callback_function_index'], r['element_section_sha256']) for r in rows}) == 1, 'Callback mapping or element segments changed across source variants')\n"
-        "    require(rows[0]['callback_body_sha256'] == rows[1]['callback_body_sha256'], 'Rebuilt control callback differs')\n"
+        "    with stage('discover_callbacks'):\n"
+        '        for row in rows:\n'
+        "            row.update(callback_proof(row['binary'], row['key']))\n"
+        "            print('SOURCE_VARIANT_READY', row['key'], row['binary'], flush=True)\n"
+        "        require(len({(r['callback_table_slot'], r['callback_function_index'], r['element_section_sha256']) for r in rows}) == 1, 'Callback mapping or element segments changed across source variants')\n"
+        "        require(rows[0]['callback_body_sha256'] == rows[1]['callback_body_sha256'], 'Rebuilt control callback differs')\n"
         "    proofs = {'original_control': control, 'candidate_scope': scope, 'compiler': compiler, 'rebuilt_dependency_count': rebuilt_deps['dependency_count'], 'candidate_dependency_count': candidate_deps['dependency_count'], 'archive_integration': integrations, 'all_element_segments_identical_across_three_modules': True, 'untouched_and_rebuilt_callback_bytes_identical': True, 'paths': {name: str(work / name) for name in ('compiler-provenance.json', 'dependencies-rebuilt.json', 'dependencies-candidate.json', 'original-control-proof.json', 'candidate-scope-proof.json', 'archive-integration.json')}}\n"
         "    result = {'schema': 'inplace-leaky-source-manifest-v1', 'verified': True, 'variants': rows, 'source_refs': source_refs(), 'source_proofs': proofs, 'fixture_query_sha256': PINS['query_sha256'], 'model_sha256': PINS['model_sha256'], 'research_harness_sha256': PINS['harness_sha256'], 'preparer_sha256': file_sha(__file__), 'builder_source_sha256': file_sha(builder_path), 'source_pins_sha256': file_sha(ROOT / 'source_pins.json'), 'source_proof_helper_sha256': file_sha(ROOT / 'source_proof.py'), 'callback_discovery_sha256': file_sha(ROOT / 'callback_discovery.py'), 'require_exact_fp32_pcm_to_reference': True, 'require_per_mode_repeatability': True, 'require_actual_core_browser_dispatch': True, 'require_dedicated_worker_loadsplat_dispatch': True, 'require_source_and_alias_gates': True, 'require_repeated_raw_fp32_and_pcm_checks': True, 'fixed_length': 962, 'ort_threads': 1, 'xnn_threads': 2, 'spin_off': True, 'note': 'Source/native-bundle proof is not inference, browser dispatch, alias, numerical quality, native lowering, or performance evidence. Generated artifact hashes are recorded per machine; only declared diagnostics normalize in IR comparisons.'}\n"
-        '    if args.cpu_binary:\n'
-        "        result['cpu_reference'] = verify_cpu_reference(args.cpu_binary)\n"
-        '    write_json(args.output, result)\n'
+        "    with stage('write_manifest'):\n"
+        '        if args.cpu_binary:\n'
+        "            result['cpu_reference'] = verify_cpu_reference(args.cpu_binary)\n"
+        '        write_json(args.output, result)\n'
         '    return result\n'
         '\n'
         '\n'
@@ -9145,7 +9542,7 @@ INPLACE_EMBEDDED_SOURCES = {
         " membership=[{'table':t,'slot':s} for (t,s),fn in slots.items() if fn==target['index']];require(len(membership)==1 and membership[0]['table']==0,'Expected one table0 callback entry')\n"
         ' return ss,bodies,target,membership[0],len(import_types),custom\n'
     ),
-    # SHA-256: e836ecb7e7bb68194f3be097e4f7724cbe1f1a12740ab9dc18b184950604e5d5
+    # SHA-256: 8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc
     'source_pins.json': (
         '{\n'
         '  "schema": "inplace-leaky-source-pins-v1",\n'
@@ -15811,11 +16208,6 @@ INPLACE_EMBEDDED_SOURCES = {
         '      "path": "{sdk}/upstream/lib/clang/21/include/wasm_simd128.h",\n'
         '      "sha256": "93a4905ac462809f5a5d970286e0ef7cca11b27726c2e8461304e7bc701f9db7",\n'
         '      "bytes": 83675\n'
-        '    },\n'
-        '    {\n'
-        '      "path": "{sdk}/upstream/emscripten/cache/sysroot/include/wasm_simd128.h",\n'
-        '      "sha256": "2ceaf7306d578bff6fda77d36794b66c38a4b4ffd61c7aced929d8ed6b676f47",\n'
-        '      "bytes": 427\n'
         '    }\n'
         '  ],\n'
         '  "original_callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",\n'
@@ -15897,7 +16289,17 @@ INPLACE_EMBEDDED_SOURCES = {
         '    }\n'
         '  ],\n'
         '  "protoc_version": "libprotoc 3.21.12",\n'
-        '  "cmake_version": "4.4.3"\n'
+        '  "cmake_version": "4.4.3",\n'
+        '  "nonselected_simd_header_provenance": [\n'
+        '    {\n'
+        '      "path": "{sdk}/upstream/emscripten/cache/sysroot/include/wasm_simd128.h",\n'
+        '      "sha256": "2ceaf7306d578bff6fda77d36794b66c38a4b4ffd61c7aced929d8ed6b676f47",\n'
+        '      "bytes": 427,\n'
+        '      "role": "SDK compatibility wrapper not included by the pinned candidate TU",\n'
+        '      "reason": "The exact-command preprocessor trace finds the LLVM resource directory before the sysroot directory. activations.h directly includes the resource-directory header, so this include_next wrapper is not read."\n'
+        '    }\n'
+        '  ],\n'
+        '  "candidate_dependency_expectation_basis": "Actual candidate dependency audit: 1310 raw observations, 1304 raw spellings, 1292 canonical files. Complete normalized candidate IR remains e3679458624f93875f2eb22c555f73a7b93634f67c1bbdca40c94bd4224abca7."\n'
         '}\n'
     ),
     # SHA-256: 154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd

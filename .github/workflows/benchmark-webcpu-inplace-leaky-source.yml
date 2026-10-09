@@ -52,11 +52,11 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Pin and isolate actual standalone file
         run: |
-          echo "SOURCE_DISTRIBUTION_SHA=7f0fc364c3cb3fa8a753b029ba510f87954ca59aaae4e05677e0a11ac3f865be" >> "$GITHUB_ENV"
+          echo "SOURCE_DISTRIBUTION_SHA=6a3ae32fc5a9d18b8300e5f3bcf97aab7b201290c17240e336b7eeb58e801610" >> "$GITHUB_ENV"
           echo "SOURCE_MEASURE_DIR=$RUNNER_TEMP/source-measured-distribution" >> "$GITHUB_ENV"
           mkdir "$RUNNER_TEMP/source-measured-distribution"
           cp benchmarks/webcpu-research/inplace-leaky-source-distribution/voicevox_core_benchmark.py "$RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py"
-          echo "7f0fc364c3cb3fa8a753b029ba510f87954ca59aaae4e05677e0a11ac3f865be  $RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py" | sha256sum --check
+          echo "6a3ae32fc5a9d18b8300e5f3bcf97aab7b201290c17240e336b7eeb58e801610  $RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py" | sha256sum --check
           python -m py_compile "$RUNNER_TEMP/source-measured-distribution/voicevox_core_benchmark.py"
       - name: Validate actual updated file without inference
         run: |
