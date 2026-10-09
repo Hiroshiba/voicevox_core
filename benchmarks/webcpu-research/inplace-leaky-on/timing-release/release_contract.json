@@ -1,0 +1,80 @@
+{
+  "schema": "inplace-on-manual-timing-release-v1",
+  "capture_run_url": "https://github.com/Hiroshiba/voicevox_core/actions/runs/37993934600",
+  "capture_commit": "c59b256d561b21df19ecfa2729ef91737ed13cba",
+  "original_capture_report_sha256": "6f930761044c283a356a917d853dde2822eaee5a12ba781808a1312729a38ad4",
+  "manual_review_pass": true,
+  "independent_review_pass": true,
+  "review_scope": "Valid callback ranges and fixed finite alpha. Exact-alias scalar-to-XMM128 routing; strict ordered compare/product/select; scalar remainder and unequal-pointer fallback preserved. No claim of arbitrary NaN-alpha payload equivalence.",
+  "diagnostic_profiled": true,
+  "uninstrumented_code_identity_claimed": false,
+  "primary_flags": [
+    "--js-flags=--wasm-revectorize"
+  ],
+  "primary_calls": 27,
+  "pairs_per_control": 9,
+  "process_sets": 3,
+  "conditions": [
+    "original",
+    "rebuilt",
+    "candidate"
+  ],
+  "engine": {
+    "product": "HeadlessChrome/153.0.8010.12",
+    "js_version": "15.3.76.4"
+  },
+  "reference": {
+    "mode": "original",
+    "phase": "gate",
+    "iteration": 1,
+    "wav_sha256": "a657c8dddfbebe6796739fd6090f4adeea3a1af05acc1e3db0da8b70b1b09576",
+    "raw_sha256": "410a3a55cf81b3e35d003ce752aaaf613a5600cfeddf82c7c6970928a5a646d8",
+    "pcm_sha256": "100890180c1067bcc316674be9012130157beb18f794688920fbfccd1dbb51a0"
+  },
+  "identities": {
+    "original": {
+      "wasm_sha256": "e37712707939d5de9150b1ba5c996a50303ccb8fd7c840f47972b2d234febd76",
+      "js_sha256": "48b0db6eec9f1dbe8368a6e940446c6122775b61a01faf995842b61953247985",
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "archive_sha256": "407990bee0eb36e4da3500b2cd8d7738b6a6a99de464147ad6fae175969145bd"
+    },
+    "rebuilt": {
+      "wasm_sha256": "b145d18985f631e313735f5bbde5df35bc76f3145fe686df75d53b129a645632",
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "archive_sha256": "cc316272fe3dd876e40c38ddf70c6b57519eca1df6719cb17b5aa086e3421718"
+    },
+    "candidate": {
+      "wasm_sha256": "6c9b9e9ddef77f72afe5c254a7a87376f66dc4a2072e46578c53d261b49451da",
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "callback_body_sha256": "5b2c6e2ddf5d836b4bde745de8fe76b845014669a9718d574fbed5dd5df27c3b",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "archive_sha256": "efe2ca2ee33478974b31c01597e490763e2c7f32924b38d94917d2f94d5ca204"
+    }
+  },
+  "evidence_hashes": {
+    "original": "40c38858871ee1e8ea7befc8ea9b64d2c99f7bb1051947605a97b41b4c0eef88",
+    "rebuilt": "2865b4f3d14b98910a1da892614ab6d1877b48307279f94f3e2eb55e7a9fed46",
+    "candidate": "33d56e249f68611506f43ff277d343a85abaa39665e0f9c0fb10b7abc296ef37"
+  },
+  "manual_review_sha256": "938f6b95dd52d23a91e866b9442cae913e267d53c674e9807270b2ea340f2afa",
+  "quality_policy": {
+    "version": "on-quality-v1",
+    "minimum_available_bytes": 1073741824,
+    "sentinel_ratio_inclusive": [
+      0.9,
+      1.1
+    ],
+    "stable_process_identity": true,
+    "full_resource_coverage": true,
+    "counter_regression_allowed": false,
+    "swap_growth_allowed": false,
+    "major_fault_policy": "Retain all primary observations; secondary sensitivity excludes the complete paired round from all comparisons if any of the three conditions has a major fault."
+  },
+  "quality_helper_sha256": "ee26c0aef785b2621ccb5f61566e2309355da933d1e4fa20cd03149d76f505aa"
+}

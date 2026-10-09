@@ -1,4 +1,4 @@
-name: WebCPU pristine ON source-bound JIT capture
+name: WebCPU pristine ON reviewed 27-call screen
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -56,29 +56,28 @@ jobs:
           echo "ee6321044dccadb02d429de32ead9b455e2924969427c7085feb5169954650a8  ci_prepare.py" | sha256sum --check
           echo "514101f81309fd38156b3710cee0a97ede4a2c0d8333e64d4c7868bccbb285c0  browser/SHA256SUMS" | sha256sum --check
           sha256sum --check browser/SHA256SUMS
-          echo "51d3ea34e7efa3557fbea1ce64abf73ecc51b01ac59a05c3b8abf368013f7fcc  jit-capture/SHA256SUMS" | sha256sum --check
-          sha256sum --check jit-capture/SHA256SUMS
-          python -m unittest discover -s jit-capture -p 'test_*.py'
-          node jit-capture/test_jit_binding.js
+          echo "6dc941531a25f002670f6b2cb9de6b0d04c3b31106005b1e77c334cdfbe12218  timing-release/SHA256SUMS" | sha256sum --check
+          sha256sum --check timing-release/SHA256SUMS
+          python -m unittest discover -s timing-release -p 'test_*.py'
           python -m unittest discover -s browser -p 'test_*.py'
           python -m unittest discover -s local-gates -p 'test_source_native_proof.py'
       - name: Prepare pristine source controls with complete native proof
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
           uv run --script ci_prepare.py --cache "$BENCH_CACHE" --private "$RUNNER_TEMP/inplace-on-preparation" --manifest "$RUNNER_TEMP/inplace-on-manifest.json"
-      - name: Capture source-bound profiled ON instructions for review
+      - name: Measure reviewed bounded ON screen
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
-        run: bash jit-capture/run_capture_only.sh "$RUNNER_TEMP/inplace-on-manifest.json" "$RUNNER_TEMP/inplace-on-result"
-      - name: Strictly revalidate captured evidence awaiting manual review
+        run: bash timing-release/run_timing.sh "$RUNNER_TEMP/inplace-on-manifest.json" "$RUNNER_TEMP/inplace-on-result"
+      - name: Strictly validate all 27 observations and privacy
         id: validation
         working-directory: benchmarks/webcpu-research/inplace-leaky-on
         run: |
-          python jit-capture/jit_validate.py "$RUNNER_TEMP/inplace-on-result/capture.json" --output "$RUNNER_TEMP/inplace-on-result/capture-summary.json"
+          python timing-release/timing_validate.py "$RUNNER_TEMP/inplace-on-result/timing.json" --output "$RUNNER_TEMP/inplace-on-result/timing-summary.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: success() && steps.validation.outcome == 'success'
         with:
-          name: webcpu-pristine-on-jit-capture
+          name: webcpu-pristine-on-reviewed-timing
           path: |
-            ${{ runner.temp }}/inplace-on-result/capture.json
-            ${{ runner.temp }}/inplace-on-result/capture-summary.json
+            ${{ runner.temp }}/inplace-on-result/timing.json
+            ${{ runner.temp }}/inplace-on-result/timing-summary.json
           if-no-files-found: error
