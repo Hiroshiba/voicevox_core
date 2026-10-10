@@ -1,10 +1,20 @@
 name: WebCPU pristine ON immutable code capture
 on:
+  workflow_dispatch:
   push:
     branches: ['benchmark/native-browser-research-20261008']
     paths:
-      - 'benchmarks/webcpu-research/inplace-leaky-on/**'
-      - '.github/workflows/benchmark-webcpu-inplace-leaky-on-screen.yml'
+      # Timing-only publication must not rebuild/recapture its frozen producer.
+      # Workflow-only edits are run explicitly with workflow_dispatch.
+      - 'benchmarks/webcpu-research/inplace-leaky-on/ci_prepare.py'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/ci/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/code-transfer/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/jit-capture/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/preparation/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/browser/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/local-gates/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/diagnostics/**'
+      - 'benchmarks/webcpu-research/inplace-leaky-on/extracted/**'
 permissions:
   contents: read
 concurrency:

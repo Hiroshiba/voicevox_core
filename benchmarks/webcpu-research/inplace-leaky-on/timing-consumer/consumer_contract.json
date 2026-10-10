@@ -1,0 +1,134 @@
+{
+  "schema": "inplace-on-exact-code-release-v1",
+  "status": "reviewed",
+  "historical_contract_sha256": "359ae34a3c97b8ae1807205a43f00feaace02a63ef1574c77af96532ecbdd78a",
+  "code_transfer": {
+    "producer": {
+      "commit": "269527e07303d8c3ab8bf4eabce158e9b72092c5",
+      "repository": "Hiroshiba/voicevox_core",
+      "run_id": 38025093941
+    },
+    "artifact_id": 11660531133,
+    "artifact_zip_sha256": "667cc99dcf19ce1b2fa0049d60c98fb175cae660baa398ff71103cc58a099e76",
+    "transfer_sha256": "5bac0aa2d18d56a6f62d458424f532f0ecb28babf9bc69ddc9939d8beb85f982"
+  },
+  "capture": {
+    "producer": {
+      "commit": "269527e07303d8c3ab8bf4eabce158e9b72092c5",
+      "repository": "Hiroshiba/voicevox_core",
+      "run_id": 38025093941
+    },
+    "artifact_id": 11660271449,
+    "artifact_zip_sha256": "bbce107f8a0a87768ec7be2a050af4a5004756a6598b68746dd4cf4167c7e856",
+    "report_sha256": "1835280c55bdd8d0388b0c26361d454d18d92b9df0b61e35623115b333055b30",
+    "summary_sha256": "c79ed615b870c7d824774942f177040426e125d048e942d299ca0999c8a4bdd2",
+    "evidence_hashes": {
+      "original": "06f90b4e1e0eb7c184a8c648820ade77b32cd03bc1f83a284653fc18d55113b7",
+      "rebuilt": "338fc4b9d42dbdf71a0caa8425f6f87975807377aa04e55091cc4a9e62df134d",
+      "candidate": "a300d14b49abbd273d94cc0bbeee9c1b2a100fcf360de399b749223d84aa0733"
+    },
+    "profiled_native_capture": true,
+    "uninstrumented_code_identity_claimed": false
+  },
+  "reviews": [
+    {
+      "file": "MANUAL_REVIEW.md",
+      "sha256": "817c0f39ebeb04246e4b26456d76a6d4224aaaa4d79a560e942b15fa62166971",
+      "passed": true,
+      "capture_report_sha256": "1835280c55bdd8d0388b0c26361d454d18d92b9df0b61e35623115b333055b30",
+      "transfer_sha256": "5bac0aa2d18d56a6f62d458424f532f0ecb28babf9bc69ddc9939d8beb85f982"
+    },
+    {
+      "file": "INDEPENDENT_REVIEW.md",
+      "sha256": "8673f39e02f11cb40ebbbd7a598bf7a7a2a135362d040bb0ed47d0f198745963",
+      "passed": true,
+      "capture_report_sha256": "1835280c55bdd8d0388b0c26361d454d18d92b9df0b61e35623115b333055b30",
+      "transfer_sha256": "5bac0aa2d18d56a6f62d458424f532f0ecb28babf9bc69ddc9939d8beb85f982"
+    }
+  ],
+  "primary_flags": [
+    "--js-flags=--wasm-revectorize"
+  ],
+  "primary_calls": 27,
+  "pairs_per_control": 9,
+  "process_sets": 3,
+  "conditions": [
+    "original",
+    "rebuilt",
+    "candidate"
+  ],
+  "warmups_per_browser": 5,
+  "engine": {
+    "product": "HeadlessChrome/153.0.8010.12",
+    "js_version": "15.3.76.4"
+  },
+  "reference": {
+    "mode": "original",
+    "phase": "gate",
+    "iteration": 1,
+    "wav_sha256": "a657c8dddfbebe6796739fd6090f4adeea3a1af05acc1e3db0da8b70b1b09576",
+    "raw_sha256": "410a3a55cf81b3e35d003ce752aaaf613a5600cfeddf82c7c6970928a5a646d8",
+    "pcm_sha256": "100890180c1067bcc316674be9012130157beb18f794688920fbfccd1dbb51a0"
+  },
+  "identities": {
+    "original": {
+      "archive_sha256": "407990bee0eb36e4da3500b2cd8d7738b6a6a99de464147ad6fae175969145bd",
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "48b0db6eec9f1dbe8368a6e940446c6122775b61a01faf995842b61953247985",
+      "wasm_sha256": "ce115aa7ab547badd83a2b4e443e05c123b4e41dbc5b3f341407df198f1297c7"
+    },
+    "rebuilt": {
+      "archive_sha256": "cc316272fe3dd876e40c38ddf70c6b57519eca1df6719cb17b5aa086e3421718",
+      "callback_body_sha256": "30e52f7d9f1af8e3f406938ec6847c3c9801c7e05a411d829f3837a819298ee6",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "wasm_sha256": "5d1dd443c03fd5b26cd3e678cd61aea69dbe451eeece1b2f6b7ab56d87b9f8e6"
+    },
+    "candidate": {
+      "archive_sha256": "efe2ca2ee33478974b31c01597e490763e2c7f32924b38d94917d2f94d5ca204",
+      "callback_body_sha256": "5b2c6e2ddf5d836b4bde745de8fe76b845014669a9718d574fbed5dd5df27c3b",
+      "callback_function_index": 8287,
+      "callback_table_slot": 10977,
+      "js_sha256": "e78f8974071755a0a4dbe05626b43e7fc80f6bdd8c9cd6336e3d60002a1f9eaa",
+      "wasm_sha256": "2d45afc211b0db41c93bcaffbcad21a7d8d6960fa743eed2e8520279b36ee2ff"
+    }
+  },
+  "model_sha256": "51425e43e7ad5aa33af06464b77f86c64959ab9317353e8f549c1b7747150fc9",
+  "provenance_sha256": "6f756064f9a4cfa47b3c6021b2546dd442a7ea07f67f7d391dd7d40a50e8a13d",
+  "source_proof_sha256": "899f942c2baebb01b942fb9e1d0ff6fb6906969f203cc43712ed09adec4800d6",
+  "quality_policy": {
+    "version": "on-quality-v1",
+    "minimum_available_bytes": 1073741824,
+    "sentinel_ratio_inclusive": [
+      0.9,
+      1.1
+    ],
+    "stable_process_identity": true,
+    "full_resource_coverage": true,
+    "counter_regression_allowed": false,
+    "swap_growth_allowed": false,
+    "major_fault_policy": "Retain all primary observations; secondary sensitivity excludes the complete paired round from all comparisons if any of the three conditions has a major fault."
+  },
+  "quality_helper_sha256": "ee26c0aef785b2621ccb5f61566e2309355da933d1e4fa20cd03149d76f505aa",
+  "consumer_coverage_policy": {
+    "version": "exact-code-process-coverage-v1",
+    "enumeration": "all_proc_task_children_before_and_after_resource_reads",
+    "collection_errors": "abort_without_skipping_processes",
+    "root_binding": "exactly_one_matching_browser_pid_and_creation_time_in_every_snapshot",
+    "generation_continuity": "idle_before_after_and_all_calls_through_final_sentinel_and_output_checks",
+    "cpu_counters": [
+      "children_system",
+      "children_user",
+      "iowait",
+      "system",
+      "user"
+    ],
+    "nine_distinct_browser_generations": true,
+    "scope": "Boundary observations; not continuous detection of processes born and exited between observations."
+  },
+  "consumer_coverage_helper_sha256": "3b559b1dec28cf9234e8e55035c7a5eac167853122bd31fc7b16b5ef17f28e5b",
+  "review_scope": "Bounded local callback/alias semantics for valid ranges and fixed finite alpha: exact-alias scalar-to-SIMD128 routing. Per-thread tier coverage and final executed tier unproven; external runtime callees unauthenticated; profiled/unprofiled native identity unclaimed; no performance result from native capture."
+}

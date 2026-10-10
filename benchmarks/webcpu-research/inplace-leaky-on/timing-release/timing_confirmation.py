@@ -49,15 +49,33 @@ def alias_gate(x, mode, entry):
     need(x['predicted_branch'] == expected, 'Guard classification')
 
 def main():
+    # Invocation-local routing keeps legacy and transferred releases independent.
+    from release_gate import load_contract, release_diagnostic, release_gate
     p = argparse.ArgumentParser()
     
-    p.add_argument('--manifest', type=Path, required=True)
+    inputs = p.add_mutually_exclusive_group(required=True)
+    inputs.add_argument('--manifest', type=Path)
+    inputs.add_argument('--code-directory', type=Path)
+    p.add_argument('--model', type=Path)
+    p.add_argument('--artifact-metadata', type=Path)
     p.add_argument('--harness', type=Path, required=True)
     p.add_argument('--dispatch-helper', type=Path, required=True)
     p.add_argument('--distribution', type=Path)
     p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
     a.capture_only = False
+    collect_usage = lambda pid, created: usage(pid)
+    if a.code_directory:
+        need(a.model is not None and a.artifact_metadata is not None, 'Exact-code model and metadata required')
+        sys.path.insert(0, str(ROOT.parent / 'timing-consumer'))
+        import consumer_gate
+        import consumer_resources
+        collect_usage = consumer_resources.collect
+        load_contract = consumer_gate.load_contract
+        release_diagnostic = consumer_gate.release_diagnostic
+        release_gate = consumer_gate.release_gate
+    else:
+        need(a.model is None and a.artifact_metadata is None, 'Transfer inputs require exact-code mode')
     load_contract()
     need(sha(a.harness.read_bytes()) == HARNESS_SHA, 'Pristine harness pin')
     need(sha(a.dispatch_helper.read_bytes()) == 'abe7453d3feeaf6bc7f489452055a8ba0d02d22c7c158481112c51e0ada10c2b', 'Dispatch helper pin')
@@ -65,11 +83,19 @@ def main():
     h = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = h
     spec.loader.exec_module(h)
-    entries, provenance, proof = verify_manifest(a.manifest)
+    transfer_receipt = None
+    if a.code_directory:
+        entries, provenance, proof, transfer_receipt = consumer_gate.preflight(a.code_directory, a.model, a.artifact_metadata)
+    else:
+        entries, provenance, proof = verify_manifest(a.manifest)
     identity_diagnostic = release_diagnostic(provenance)
     print('SOURCE_ON_RELEASE_DIAGNOSTIC ' + json.dumps(identity_diagnostic, sort_keys=True), flush=True)
     need(identity_diagnostic['conditions_match'] and all(all(fields.values()) for fields in identity_diagnostic['identity_fields'].values()), 'Reviewed runtime identity mismatch before browser activation')
     report = {'schema': 'inplace-leaky-on-reviewed-timing-v1', 'capture_only': a.capture_only, 'status': 'initializing', 'stage': 'initializing', 'schedule': schedule(), 'normal_tiering': True, 'browser_flags': FLAGS, 'warmups_per_browser': 5, 'provenance': provenance, 'source_proof': proof, 'environment': h.environment_info(), 'source_hashes': {x.name: sha(x.read_bytes()) for x in ROOT.iterdir() if x.is_file() and x.suffix in ['.py', '.js']}, 'model_sha256': MODEL_SHA, 'query_sha256': QUERY_SHA, 'browser_gate': {}, 'process_sets': [], 'trials': [], 'sampling_policy': 'No primary profiler or high-frequency sampler; pre/post process/host resources plus one untimed idle interval per set.', 'release_gate': {}, 'activation': {}, 'reference': None, 'gates_complete_before_timing': False, 'design': design(), 'initial_host': host()}
+    if transfer_receipt is not None:
+        report['schema'] = 'inplace-leaky-on-exact-code-timing-v1'
+        report['code_transfer'] = transfer_receipt
+        report['consumer_process_coverage_policy'] = consumer_resources.POLICY
     if a.distribution:
         report['distribution'] = {'sha256': sha(a.distribution.read_bytes()), 'bytes': a.distribution.stat().st_size}
     work = None
@@ -125,14 +151,21 @@ def main():
         query = json.dumps(h.prepared_query(10), separators=(',', ':'), ensure_ascii=False).encode()
         need(sha(query) == QUERY_SHA, 'Prepared query pin')
         (work / 'query.json').write_bytes(query)
-        shutil.copyfile(entries['original']['model'], work / 'sample.vvm')
+        if transfer_receipt is not None:
+            consumer_gate.copy_verified_file(entries['original']['model'], work / 'sample.vvm', MODEL_SHA, None)
+        else:
+            shutil.copyfile(entries['original']['model'], work / 'sample.vvm')
         (work / 'index.html').write_text(h.BROWSER_PAGE)
         (work / 'worker.js').write_text(h.BROWSER_WORKER)
         for key, e in entries.items():
             folder = work / key
             folder.mkdir()
-            shutil.copyfile(e['binary'], folder / 'voicevox_benchmark.js')
-            shutil.copyfile(e['binary'].with_suffix('.wasm'), folder / 'voicevox_benchmark.wasm')
+            if transfer_receipt is not None:
+                for ext in ['js', 'wasm']:
+                    consumer_gate.copy_verified_file(e['binary'].with_suffix('.' + ext), folder / ('voicevox_benchmark.' + ext), provenance[key][ext + '_sha256'], 64 * 1024 * 1024)
+            else:
+                shutil.copyfile(e['binary'], folder / 'voicevox_benchmark.js')
+                shutil.copyfile(e['binary'].with_suffix('.wasm'), folder / 'voicevox_benchmark.wasm')
             os.link(work / 'sample.vvm', folder / 'sample.vvm')
         (work / 'runtime_manifest.json').write_text(json.dumps({k: e['worker'] for k, e in entries.items()}))
         shutil.copyfile(a.dispatch_helper, work / 'core_dispatch_check.js')
@@ -262,9 +295,9 @@ def main():
                         for i in [1, 2]:
                             check(page, mode, group['checks'], 'before', i)
                     start = time.monotonic()
-                    before = {m: usage(pids[m]) for m in KEYS}
+                    before = {m: collect_usage(pids[m], group['runtime'][m]['browser_created']) for m in KEYS}
                     time.sleep(1)
-                    after = {m: usage(pids[m]) for m in KEYS}
+                    after = {m: collect_usage(pids[m], group['runtime'][m]['browser_created']) for m in KEYS}
                     interval = time.monotonic() - start
                     group['idle'] = {'interval_s': interval, 'modes': {m: {'before': before[m], 'after': after[m], **idle_cpu(before[m], after[m], interval)} for m in KEYS}}
                     save()
@@ -274,11 +307,11 @@ def main():
                     for block in [x for x in schedule() if x['process_set'] == set_id]:
                         for mode in block['order']:
                             memory()
-                            before = {'host': host(), 'processes': usage(pids[mode])}
+                            before = {'host': host(), 'processes': collect_usage(pids[mode], group['runtime'][mode]['browser_created'])}
                             row = {'process_set': set_id, 'pair': block['pair'], 'mode': mode, 'pair_order': block['order'], **call(mode), 'before': before}
                             report['trials'].append(row)
                             save()
-                            after = {'host': host(), 'processes': usage(pids[mode])}
+                            after = {'host': host(), 'processes': collect_usage(pids[mode], group['runtime'][mode]['browser_created'])}
                             row.update(after=after, resource_observations=resource_observations(before, after))
                             save()
                             need(math.isfinite(row['elapsed_s']) and row['elapsed_s'] > 0, 'Latency validity')
@@ -291,6 +324,9 @@ def main():
                     for mode in KEYS:
                         for i in [1, 2]:
                             check(pages[mode], mode, group['checks'], 'after', i)
+                    if transfer_receipt is not None:
+                        group['coverage_final'] = {mode: {'host': host(), 'processes': collect_usage(pids[mode], group['runtime'][mode]['browser_created'])} for mode in group['runtime']}
+                        save()
                 finally:
                     for mode, browser in browsers.items():
                         group['cleanup'][mode] = close_browser(browser, pids[mode])

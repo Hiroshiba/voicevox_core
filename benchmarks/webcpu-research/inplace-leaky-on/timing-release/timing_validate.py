@@ -37,8 +37,9 @@ def alias(x, mode, p):
     need(x['predicted_branch'] == expected, 'Alias guard classification')
 
 def validate(r, *, capture_only=False):
-    keys(r, 'schema capture_only status stage schedule normal_tiering browser_flags warmups_per_browser provenance source_proof environment source_hashes model_sha256 query_sha256 browser_gate process_sets trials sampling_policy distribution worker_source_sha256 activation initial_host release_gate reference gates_complete_before_timing design private_temporary_directory_deleted private_native_dump_retained')
-    need(r['capture_only'] is capture_only and r['schema'] == 'inplace-leaky-on-reviewed-timing-v1' and r['status'] == ('awaiting_manual_review' if capture_only else 'complete') and r['stage'] == r['status'] and r['normal_tiering'] and r['browser_flags'] == FLAGS, 'Completion/configuration')
+    keys(r, 'schema capture_only status stage schedule normal_tiering browser_flags warmups_per_browser provenance source_proof environment source_hashes model_sha256 query_sha256 browser_gate process_sets trials sampling_policy distribution worker_source_sha256 activation initial_host release_gate reference gates_complete_before_timing design private_temporary_directory_deleted private_native_dump_retained code_transfer consumer_process_coverage_policy')
+    expected_schema = 'inplace-leaky-on-exact-code-timing-v1' if 'code_transfer' in r else 'inplace-leaky-on-reviewed-timing-v1'
+    need(r['capture_only'] is capture_only and r['schema'] == expected_schema and r['status'] == ('awaiting_manual_review' if capture_only else 'complete') and r['stage'] == r['status'] and r['normal_tiering'] and r['browser_flags'] == FLAGS, 'Completion/configuration')
     need(not capture_only, 'Timing-only schema')
     need(r['private_temporary_directory_deleted'] is True and r['private_native_dump_retained'] is False, 'Completed primary cleanup')
     need(r['model_sha256'] == MODEL_SHA and r['query_sha256'] == QUERY_SHA, 'Inputs')
@@ -71,7 +72,16 @@ def validate(r, *, capture_only=False):
     for field in ['raw_sha256', 'pcm_sha256', 'wav_sha256']:
         digest(reference[field])
     need(not capture_only, 'This validator is timing only')
-    need(r['release_gate'] == release_gate(p, engine, reference), 'Frozen reviewed capture release')
+    if 'code_transfer' in r:
+        sys.path.insert(0, str(ROOT.parent / 'timing-consumer'))
+        import consumer_gate
+        from consumer_resources import POLICY as COVERAGE_POLICY
+        need(r.get('consumer_process_coverage_policy') == COVERAGE_POLICY, 'Strict consumer process coverage collection required')
+        consumer_gate.validate_receipt(r['code_transfer'], p, r['source_proof'])
+        expected_release = consumer_gate.release_gate(p, engine, reference)
+    else:
+        expected_release = release_gate(p, engine, reference)
+    need(r['release_gate'] == expected_release, 'Frozen reviewed capture release')
     for mode, v in p.items():
         keys(v, 'receipt_sha256 archive_sha256 wasm_sha256 js_sha256 callback_body_sha256 callback_table_slot callback_function_index build_toolchain native_bundle')
         for name in ['receipt_sha256', 'archive_sha256', 'wasm_sha256', 'js_sha256']:
@@ -150,7 +160,13 @@ def validate(r, *, capture_only=False):
             output(x, True)
     need(len(r['process_sets']) == 3 and [g['id'] for g in r['process_sets']] == [1, 2, 3], 'Fresh sets')
     for g in r['process_sets']:
-        keys(g, 'id creation_order runtime warmups checks sentinels cleanup idle')
+        keys(g, 'id creation_order runtime warmups checks sentinels cleanup idle coverage_final')
+        if 'code_transfer' in r:
+            need(set(g.get('coverage_final', {})) == set(KEYS), 'Final sentinel/check resource coverage required')
+            for snapshot in g['coverage_final'].values():
+                validate_snapshot(snapshot)
+        else:
+            need('coverage_final' not in g and 'consumer_process_coverage_policy' not in r, 'Consumer resources require exact-code schema')
         need(g['creation_order'] == list(KEYS[g['id'] - 1:] + KEYS[:g['id'] - 1]), 'Rotated process creation order')
         need(set(g['runtime']) == set(KEYS) and set(g['cleanup']) == set(KEYS), 'Set conditions')
         for mode, v in g['runtime'].items():
@@ -206,6 +222,14 @@ def summarize(r):
     result = {'passed': True, 'primary_calls': 27, 'observations_per_condition': 9, 'process_set_clusters': 3, 'design': design(), 'paired_effects': effects, 'sentinel_ratios': [g['sentinels'][1]['elapsed_s'] / g['sentinels'][0]['elapsed_s'] for g in r['process_sets']], 'fault_exposed_calls': sum((x['resource_observations']['fault_exposed'] for x in r['trials'])), 'source_outputs_exact_to_original_on': True, 'scope': 'One bounded ON screen. Three process-set clusters; all observations retained. Sensitivities are descriptive, not additional evidence or a license to select observations.'}
 
     quality = evaluate_quality(r)
+    if 'code_transfer' in r:
+        from consumer_resources import evaluate_coverage
+        coverage = evaluate_coverage(r)
+        quality['consumer_process_coverage'] = coverage
+        quality['issues'] += coverage['issues']
+        quality['passed'] = quality['passed'] and coverage['passed']
+        quality['performance_claim_allowed'] = quality['passed']
+        quality['status'] = 'valid' if quality['passed'] else 'inconclusive_invalid_quality'
     result['fault_sensitivity_policy'] = 'Common-round exclusion: any of three conditions having a major fault excludes that entire matched round from all secondary comparisons; all primary rows retained.'
     result['fault_sensitivity_excluded_rounds'] = [list(x) for x in sorted(fault_rounds)]
     result['fault_sensitivity_remaining_rounds'] = 9 - len(fault_rounds)
