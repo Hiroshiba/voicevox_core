@@ -1,6 +1,6 @@
 # REVIEW DRAFT ONLY. Intended destination after approval:
 # .github/workflows/benchmark-webcpu-scheduler-core.yml
-name: WebCPU bounded C128 scheduler fullCORE experiment
+name: WebCPU C128 scheduler three-arm fullCORE experiment
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -16,7 +16,7 @@ jobs:
   bounded-core:
     if: github.repository == 'Hiroshiba/voicevox_core'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       PYTHONDONTWRITEBYTECODE: '1'
     defaults:
@@ -47,7 +47,7 @@ jobs:
           python scheduler_core_benchmark.py --private "$RUNNER_TEMP/scheduler-core-output" --self-test
       - name: Install pinned Playwright Chromium and OS dependencies
         run: python -m playwright install --with-deps chromium
-      - name: Build gated fullCORE controls and run the fixed Chrome 153 comparison
+      - name: Build mandatory R/A/C controls and run the fixed Chrome 153 comparison
         id: diagnostic
         continue-on-error: true
         run: |
