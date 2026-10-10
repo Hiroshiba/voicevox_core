@@ -1,0 +1,100 @@
+# REVIEW DRAFT ONLY. Intended destination after approval:
+# .github/workflows/benchmark-webcpu-actual-operator.yml
+name: WebCPU bounded actual XNN operator experiment
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths:
+      - 'benchmarks/webcpu-research/scheduler_operator_benchmark.py'
+      - '.github/workflows/benchmark-webcpu-actual-operator.yml'
+permissions:
+  contents: read
+concurrency:
+  group: webcpu-actual-operator-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bounded-operator:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        working-directory: benchmarks/webcpu-research
+        shell: bash
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            benchmarks/webcpu-research/scheduler_operator_benchmark.py
+            .github/workflows/benchmark-webcpu-actual-operator.yml
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install pinned minimal orchestration dependencies
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/actual-operator-chromium" >> "$GITHUB_ENV"
+          python -m pip install cmake==4.4.3 ninja==1.13.2 libclang==18.1.1 playwright==1.63.0 psutil==7.2.2
+      - name: Verify embedded source and exact offline contracts
+        run: |
+          python scheduler_operator_benchmark.py --private "$RUNNER_TEMP/actual-operator-output" --plan
+          python scheduler_operator_benchmark.py --private "$RUNNER_TEMP/actual-operator-output" --self-test
+      - name: Install pinned Playwright Chromium and OS dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Build gated operators and run the bounded Chrome 153 experiment
+        id: diagnostic
+        continue-on-error: true
+        run: |
+          python scheduler_operator_benchmark.py \
+            --cache "$RUNNER_TEMP/actual-operator-source" \
+            --private "$RUNNER_TEMP/actual-operator-output" \
+            --execute-browser
+      - name: Validate scalar build provenance
+        id: build_validation
+        if: ${{ always() && steps.diagnostic.outcome != 'skipped' }}
+        run: |
+          python scheduler_operator_benchmark.py \
+            --private "$RUNNER_TEMP/actual-operator-output" \
+            --validate-public-build "$RUNNER_TEMP/actual-operator-output/public-build.json"
+      - name: Validate scalar browser report including any incomplete attempt
+        id: browser_validation
+        if: ${{ always() && steps.diagnostic.outcome != 'skipped' }}
+        run: |
+          python scheduler_operator_benchmark.py \
+            --private "$RUNNER_TEMP/actual-operator-output" \
+            --validate-report "$RUNNER_TEMP/actual-operator-output/browser/browser-report.json"
+      - name: Render the validated report and bind its artifact hashes to the build proof
+        id: report_render
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' }}
+        run: |
+          python scheduler_operator_benchmark.py \
+            --private "$RUNNER_TEMP/actual-operator-output" \
+            --render-report "$RUNNER_TEMP/actual-operator-output/browser/browser-report.json" \
+            --build-proof "$RUNNER_TEMP/actual-operator-output/public-build.json" \
+            --html-output "$RUNNER_TEMP/actual-operator-output/report.html"
+      # Exact validated receipts and derived HTML only; never upload source/build/cache.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.report_render.outcome == 'success' }}
+        with:
+          name: webcpu-actual-operator-build-and-browser-proof
+          path: |
+            ${{ runner.temp }}/actual-operator-output/public-build.json
+            ${{ runner.temp }}/actual-operator-output/browser/browser-report.json
+            ${{ runner.temp }}/actual-operator-output/report.html
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require completed valid bounded experiment
+        if: ${{ always() }}
+        env:
+          DIAGNOSTIC_OUTCOME: ${{ steps.diagnostic.outcome }}
+          BUILD_VALIDATION_OUTCOME: ${{ steps.build_validation.outcome }}
+          BROWSER_VALIDATION_OUTCOME: ${{ steps.browser_validation.outcome }}
+          REPORT_RENDER_OUTCOME: ${{ steps.report_render.outcome }}
+        run: |
+          test "$DIAGNOSTIC_OUTCOME" = success
+          test "$BUILD_VALIDATION_OUTCOME" = success
+          test "$BROWSER_VALIDATION_OUTCOME" = success
+          test "$REPORT_RENDER_OUTCOME" = success
