@@ -22,3 +22,17 @@ and rejection of unexpected files or symlinks. The receipt explicitly says the r
 digest was not hard-verified by the consumer.
 
 Offline tests are synthetic verifier/mutation tests, not measurement evidence.
+
+The notice gate uses the original 176-package Cargo selection as a frozen
+attestation. Cargo.lock, root and every workspace member manifest, selected Git
+workspace manifests, Cargo configs, selected package manifests/licenses/sources,
+registry archive checksums, Rust 1.96.0 and the x86_64 Linux host are verified.
+Workspace inheritance uses locked, offline `cargo metadata --no-deps`; it does
+not trigger resolution/downloads for unrelated workspace crates. Each variant's
+receipt-hashed rustc command must select exactly browser/threaded and the
+Emscripten Wasm target. Host, target and build-script depfiles conservatively
+check actual cached packages, including build-std and Git package boundaries.
+Those shared depfiles are corroborating cache evidence, not per-variant graph
+receipts. Archive and manifest verification does not authenticate every extracted
+Rust source byte. Existing native-source, notice, artifact and export gates remain
+mandatory; the full notice bundle is unchanged.

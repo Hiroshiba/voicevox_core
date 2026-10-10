@@ -2,7 +2,7 @@
 import argparse,base64,gzip,hashlib,io,json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-PINS_SHA='b232145c2dcc533c5a04513da1f53453dce64b03602b2e15b63fda715602bedc'
+PINS_SHA='163e5c8a6ef68eca51ee7e65e7df0444e2c431b806dc3466ddf98d957f250e04'
 def unpack(output):
  raw=(ROOT/'notice_pins.json').read_bytes()
  if hashlib.sha256(raw).hexdigest()!=PINS_SHA:raise ValueError('notice_pin_hash')

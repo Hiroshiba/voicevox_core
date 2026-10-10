@@ -58,7 +58,7 @@ jobs:
           sha256sum --check browser/SHA256SUMS
           echo "51d3ea34e7efa3557fbea1ce64abf73ecc51b01ac59a05c3b8abf368013f7fcc  jit-capture/SHA256SUMS" | sha256sum --check
           sha256sum --check jit-capture/SHA256SUMS
-          echo "53c4db9acaf42292868ccc295c11cbfa0dcb547943e9fdc68973962e5d7c5a19  code-transfer/SHA256SUMS" | sha256sum --check
+          echo "0dce7a72068e5c9c76ccac51b5826532eb0a63b3e4bb12dbd9763f9c4e2586da  code-transfer/SHA256SUMS" | sha256sum --check
           sha256sum --check code-transfer/SHA256SUMS
           python -m unittest discover -s code-transfer -p 'test_*.py'
           python -m unittest discover -s jit-capture -p 'test_*.py'
