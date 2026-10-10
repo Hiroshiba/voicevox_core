@@ -79,6 +79,16 @@ jobs:
             --render-report "$RUNNER_TEMP/scheduler-core-output/browser/browser-report.json" \
             --build-proof "$RUNNER_TEMP/scheduler-core-output/public-build.json" \
             --html-output "$RUNNER_TEMP/scheduler-core-output/report.html"
+      # Preserve the already-validated scalar build proof if browser/report gates fail.
+      # No executable assets, models, audio, tensors, logs, or private build trees.
+      - name: Preserve validated build proof without a valid report pair
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && steps.build_validation.outcome == 'success' && (steps.browser_validation.outcome != 'success' || steps.report_render.outcome != 'success') }}
+        with:
+          name: webcpu-scheduler-core-validated-build-only
+          path: ${{ runner.temp }}/scheduler-core-output/public-build.json
+          if-no-files-found: error
+          retention-days: 14
       # Exact validated receipts and derived HTML only; never upload source/build/cache.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.report_render.outcome == 'success' }}
