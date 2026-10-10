@@ -30,7 +30,7 @@ jobs:
       - name: Verify complete distributed source and offline tests
         working-directory: benchmarks/webcpu-research/off-attribution
         run: |
-          echo "fc1e0cc5f5641bd377443a7fabab1b308046bafd406852e2703aec63a46a7c3d  voicevox_core_benchmark.py" | sha256sum --check
+          echo "d0c9b0a6dbbab3a80c7eae79b9583d86569579abff727d3b9eab6e67d961c80b  voicevox_core_benchmark.py" | sha256sum --check
           uv run --script voicevox_core_benchmark.py --help
           uv run --script voicevox_core_benchmark.py --dry-run
           uv run --script voicevox_core_benchmark.py --self-test
