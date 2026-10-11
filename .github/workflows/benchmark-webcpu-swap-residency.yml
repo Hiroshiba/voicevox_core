@@ -1,0 +1,114 @@
+# REVIEW DRAFT ONLY. Intended destination after approval:
+# .github/workflows/benchmark-webcpu-swap-residency.yml
+name: WebCPU OFF bounded untimed swap residency diagnostic
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths:
+      - 'benchmarks/webcpu-research/swap_residency_diagnostic.py'
+      - '.github/workflows/benchmark-webcpu-swap-residency.yml'
+permissions:
+  contents: read
+concurrency:
+  group: webcpu-swap-residency-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bounded-core:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        working-directory: benchmarks/webcpu-research
+        shell: bash
+    steps:
+      - name: Record monotonic start before checkout and setup
+        working-directory: ${{ github.workspace }}
+        run: echo "SWAP_RESIDENCY_CI_MONOTONIC_START=$(python3 -c 'import time; print(time.monotonic())')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            benchmarks/webcpu-research/swap_residency_diagnostic.py
+            .github/workflows/benchmark-webcpu-swap-residency.yml
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install pinned minimal orchestration dependencies
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/swap-residency-chromium" >> "$GITHUB_ENV"
+          python -m pip install cmake==4.4.3 ninja==1.13.2 libclang==18.1.1 playwright==1.63.0 psutil==7.2.2
+      - name: Verify embedded source and exact offline contracts
+        run: |
+          python swap_residency_diagnostic.py --private "$RUNNER_TEMP/swap-residency-output" --plan
+          python swap_residency_diagnostic.py --private "$RUNNER_TEMP/swap-residency-output" --self-test
+      - name: Install pinned Playwright Chromium and OS dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Build unchanged R/A/C controls and run maximum 80 untimed calls
+        id: diagnostic
+        continue-on-error: true
+        run: |
+          python swap_residency_diagnostic.py \
+            --cache "$RUNNER_TEMP/swap-residency-source" \
+            --private "$RUNNER_TEMP/swap-residency-output" \
+            --execute-browser \
+            --ci-start-monotonic "$SWAP_RESIDENCY_CI_MONOTONIC_START"
+      - name: Validate scalar build provenance
+        id: build_validation
+        if: ${{ always() && steps.diagnostic.outcome != 'skipped' }}
+        run: |
+          python swap_residency_diagnostic.py \
+            --private "$RUNNER_TEMP/swap-residency-output" \
+            --validate-public-build "$RUNNER_TEMP/swap-residency-output/public-build.json"
+      - name: Validate scalar browser report including any incomplete attempt
+        id: browser_validation
+        if: ${{ always() && steps.diagnostic.outcome != 'skipped' }}
+        run: |
+          python swap_residency_diagnostic.py \
+            --private "$RUNNER_TEMP/swap-residency-output" \
+            --validate-report "$RUNNER_TEMP/swap-residency-output/browser/browser-report.json"
+      - name: Render the validated report and bind its artifact hashes to the build proof
+        id: report_render
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' }}
+        run: |
+          python swap_residency_diagnostic.py \
+            --private "$RUNNER_TEMP/swap-residency-output" \
+            --render-report "$RUNNER_TEMP/swap-residency-output/browser/browser-report.json" \
+            --build-proof "$RUNNER_TEMP/swap-residency-output/public-build.json" \
+            --html-output "$RUNNER_TEMP/swap-residency-output/report.html"
+      # Preserve the already-validated scalar build proof if browser/report gates fail.
+      # No executable assets, models, audio, tensors, logs, or private build trees.
+      - name: Preserve validated build proof without a valid report pair
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && steps.build_validation.outcome == 'success' && (steps.browser_validation.outcome != 'success' || steps.report_render.outcome != 'success') }}
+        with:
+          name: webcpu-swap-residency-validated-build-only
+          path: ${{ runner.temp }}/swap-residency-output/public-build.json
+          if-no-files-found: error
+          retention-days: 14
+      # Exact validated receipts and derived HTML only; never upload source/build/cache.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.report_render.outcome == 'success' }}
+        with:
+          name: webcpu-swap-residency-build-and-browser-proof
+          path: |
+            ${{ runner.temp }}/swap-residency-output/public-build.json
+            ${{ runner.temp }}/swap-residency-output/browser/browser-report.json
+            ${{ runner.temp }}/swap-residency-output/report.html
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require completed bounded untimed diagnostic
+        if: ${{ always() }}
+        env:
+          DIAGNOSTIC_OUTCOME: ${{ steps.diagnostic.outcome }}
+          BUILD_VALIDATION_OUTCOME: ${{ steps.build_validation.outcome }}
+          BROWSER_VALIDATION_OUTCOME: ${{ steps.browser_validation.outcome }}
+          REPORT_RENDER_OUTCOME: ${{ steps.report_render.outcome }}
+        run: |
+          test "$DIAGNOSTIC_OUTCOME" = success
+          test "$BUILD_VALIDATION_OUTCOME" = success
+          test "$BROWSER_VALIDATION_OUTCOME" = success
+          test "$REPORT_RENDER_OUTCOME" = success
