@@ -73,11 +73,21 @@ jobs:
             --build-proof "$RUNNER_TEMP/transient-speed-output/public-build.json" \
             --html-output "$RUNNER_TEMP/transient-speed-output/report.html"
       - name: Preserve validated build proof on later failure
-        if: ${{ always() && steps.build_validation.outcome == 'success' && (steps.browser_validation.outcome != 'success' || steps.render.outcome != 'success') }}
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome != 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: webcpu-transient-speed-build-only
           path: ${{ runner.temp }}/transient-speed-output/public-build.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve validated browser and build receipts on render failure
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.render.outcome != 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: webcpu-transient-speed-validated-json
+          path: |
+            ${{ runner.temp }}/transient-speed-output/public-build.json
+            ${{ runner.temp }}/transient-speed-output/browser/browser-report.json
           if-no-files-found: error
           retention-days: 14
       - name: Preserve only validated scalars hashes and HTML
