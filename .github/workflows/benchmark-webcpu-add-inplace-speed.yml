@@ -1,0 +1,115 @@
+# Local review draft. Parent alone serializes publication and launch.
+# No signing step; frozen build_code_signing remains OFF. No speed claim.
+name: WebCPU float Add MayInplace sequential timing
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths:
+      - 'benchmarks/webcpu-research/add_core_speed_benchmark.py'
+      - '.github/workflows/benchmark-webcpu-add-inplace-speed.yml'
+permissions:
+  contents: read
+concurrency:
+  group: add-core-speed-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bounded-speed:
+    if: github.repository == 'Hiroshiba/voicevox_core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        working-directory: benchmarks/webcpu-research
+        shell: bash
+    steps:
+      - name: Record job eligibility origin
+        working-directory: ${{ github.workspace }}
+        run: echo "ADD_CORE_SPEED_CI_START=$(python3 -c 'import time; print(time.monotonic())')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            benchmarks/webcpu-research/add_core_speed_benchmark.py
+            .github/workflows/benchmark-webcpu-add-inplace-speed.yml
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install pinned orchestration dependencies
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/add-core-speed-chromium" >> "$GITHUB_ENV"
+          python -m pip install cmake==4.4.3 ninja==1.13.2 libclang==18.1.1 playwright==1.63.0 psutil==7.2.2
+      - name: Verify offline contracts
+        run: |
+          python add_core_speed_benchmark.py --private "$RUNNER_TEMP/add-core-speed-output" --plan
+          python add_core_speed_benchmark.py --private "$RUNNER_TEMP/add-core-speed-output" --self-test
+      - name: Install pinned browser
+        run: python -m playwright install --with-deps chromium
+      - name: Build R A T and attempt the bounded 456-call protocol
+        id: experiment
+        continue-on-error: true
+        run: |
+          ulimit -c 0
+          python add_core_speed_benchmark.py \
+            --cache "$RUNNER_TEMP/add-core-speed-build" \
+            --private "$RUNNER_TEMP/add-core-speed-output" \
+            --execute-browser --ci-start-monotonic "$ADD_CORE_SPEED_CI_START"
+      - name: Validate public build receipt
+        id: build_validation
+        if: ${{ always() && steps.experiment.outcome != 'skipped' }}
+        run: python add_core_speed_benchmark.py --private "$RUNNER_TEMP/add-core-speed-output" --validate-public-build "$RUNNER_TEMP/add-core-speed-output/public-build.json"
+      - name: Validate public browser receipt
+        id: browser_validation
+        if: ${{ always() && steps.experiment.outcome != 'skipped' }}
+        run: python add_core_speed_benchmark.py --private "$RUNNER_TEMP/add-core-speed-output" --validate-report "$RUNNER_TEMP/add-core-speed-output/browser/browser-report.json"
+      - name: Render validated Add timing and resource observations
+        id: render
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' }}
+        run: |
+          python add_core_speed_benchmark.py --private "$RUNNER_TEMP/add-core-speed-output" \
+            --render-report "$RUNNER_TEMP/add-core-speed-output/browser/browser-report.json" \
+            --build-proof "$RUNNER_TEMP/add-core-speed-output/public-build.json" \
+            --html-output "$RUNNER_TEMP/add-core-speed-output/report.html"
+      - name: Preserve validated build proof on later failure
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome != 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: add-core-speed-build-only
+          path: ${{ runner.temp }}/add-core-speed-output/public-build.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve both validated JSON receipts on render failure
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.render.outcome != 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: add-core-speed-json-render-failed
+          path: |
+            ${{ runner.temp }}/add-core-speed-output/public-build.json
+            ${{ runner.temp }}/add-core-speed-output/browser/browser-report.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve only validated scalars hashes and HTML
+        if: ${{ always() && steps.build_validation.outcome == 'success' && steps.browser_validation.outcome == 'success' && steps.render.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: add-core-speed-observations
+          path: |
+            ${{ runner.temp }}/add-core-speed-output/public-build.json
+            ${{ runner.temp }}/add-core-speed-output/browser/browser-report.json
+            ${{ runner.temp }}/add-core-speed-output/report.html
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require completed bounded experiment
+        if: ${{ always() }}
+        env:
+          EXPERIMENT: ${{ steps.experiment.outcome }}
+          BUILD: ${{ steps.build_validation.outcome }}
+          BROWSER: ${{ steps.browser_validation.outcome }}
+          RENDER: ${{ steps.render.outcome }}
+        run: |
+          test "$EXPERIMENT" = success
+          test "$BUILD" = success
+          test "$BROWSER" = success
+          test "$RENDER" = success
