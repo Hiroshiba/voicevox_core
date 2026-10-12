@@ -5526,6 +5526,7 @@ CORE_SOURCE_SHA256 = '1b02f8d4743c70be2f501e51f47b4c248fa1160a7677c041ddf1e75335
 SDK_SOURCE_SHA256 = '26c3ef13fc8285a209fde5ac3e6eec17e2a24e59d6af76f92f54e6bf62998a72'
 MODEL_SHA256 = '51425e43e7ad5aa33af06464b77f86c64959ab9317353e8f549c1b7747150fc9'
 BROWSER_OFF_FLAG = '--js-flags=--no-wasm-revectorize'
+BROWSER_AUTOMATION_FLAG = '--enable-automation'
 BUILD_TIMEOUT_S = 1800
 ACTIVE_CACHE: Path | None = None
 
@@ -5745,7 +5746,18 @@ class TreeMemorySampler:
                 'scope': 'target process tree; request/response plus one-second pre/post CPU padding; shared pages excluded'}
 
 
+def browser_launch_options(*, headed: bool, browser_path: Path | None = None) -> dict[str, Any]:
+    # CDP Browser.getBrowserCommandLine requires explicit automation opt-in.
+    # One shared factory covers every browser arm and untimed profile/control.
+    options = {'headless': not headed, 'args': [BROWSER_OFF_FLAG, BROWSER_AUTOMATION_FLAG]}
+    if browser_path:
+        options['executable_path'] = str(browser_path)
+    return options
+
+
 def verify_browser_off(browser: Any, requested: dict[str, Any]) -> dict[str, Any]:
+    require(requested.get('args') == [BROWSER_OFF_FLAG, BROWSER_AUTOMATION_FLAG] and
+            not requested.get('ignore_default_args'), 'Browser launch must retain explicit V8 OFF and --enable-automation')
     session = browser.new_browser_cdp_session()
     try:
         actual = session.send('Browser.getBrowserCommandLine')['arguments']
@@ -5753,10 +5765,11 @@ def verify_browser_off(browser: Any, requested: dict[str, Any]) -> dict[str, Any
     finally:
         session.detach()
     js = [value for value in actual if value.startswith('--js-flags=')]
-    require(js == [BROWSER_OFF_FLAG] and requested.get('args') == [BROWSER_OFF_FLAG], 'Actual V8 flags are not the explicit revectorization-OFF configuration')
+    require(js == [BROWSER_OFF_FLAG], 'Actual V8 flags are not the explicit revectorization-OFF configuration')
+    require(BROWSER_AUTOMATION_FLAG in actual, 'CDP did not confirm actual --enable-automation')
     require(not any('hardwareConcurrency' in value or 'force-device-scale-factor' in value for value in actual), 'Unexpected browser host override')
     return {'product': version['product'], 'js_version': version['jsVersion'],
-            'actual_js_flags': js, 'revectorize': False,
+            'actual_js_flags': js, 'revectorize': False, 'actual_enable_automation': True,
             'all_arguments_recorded': False, 'flag_evidence': 'Browser.getBrowserCommandLine; only the relevant allowlisted flag is published'}
 
 
@@ -5940,9 +5953,7 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
                         if path.suffix in ('.js', '.wasm'):
                             shutil.copyfile(path, work / key / path.name)
                 with serve_assets(work) as url, sync_playwright() as playwright:
-                    options = {'headless': not args.headed, 'args': [BROWSER_OFF_FLAG]}
-                    if args.browser_path:
-                        options['executable_path'] = str(args.browser_path)
+                    options = browser_launch_options(headed=args.headed, browser_path=args.browser_path)
                     active = {'mode': None}
                     @contextlib.contextmanager
                     def open_runner(mode: Mode, *, profile: bool = False) -> Iterator[Any]:
@@ -6160,6 +6171,7 @@ def validate_results(result: dict[str, Any]) -> None:
     for instances in result['environment']['browser_instances'].values():
         for instance in instances:
             require(instance['actual_js_flags'] == [BROWSER_OFF_FLAG] and instance['revectorize'] is False and
+                    instance['actual_enable_automation'] is True and
                     type(instance['hardware_concurrency']) is int and instance['hardware_concurrency'] > 0, 'Invalid actual browser setting evidence')
 
 

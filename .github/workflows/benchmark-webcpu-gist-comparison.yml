@@ -40,7 +40,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gist-final" "$RUNNER_TEMP/gist-result"
           cp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py"
           cmp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py"
-          echo '8e0c332425da0fda0f3b92d93162fe268d16c319c6eb0f074c1c69c17db087a0  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
+          echo '1941b57b5b7b8e566f6a75ac27c67fb25f27910c5bb3f4dedc93bb3475fddc9a  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
           python "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py" --plan --threads 2 --seed 1729
           python "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py" --self-test
       - name: Execute this exact Python for all four modes
