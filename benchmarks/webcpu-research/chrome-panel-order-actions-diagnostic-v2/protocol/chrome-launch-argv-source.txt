@@ -1,0 +1,226 @@
+// chromiumSwitches.ts lines 34816-34916
+// packages/playwright-core/src/server/chromium/chromiumSwitches.ts
+var disabledFeatures, chromiumSwitches;
+var init_chromiumSwitches = __esm({
+  "packages/playwright-core/src/server/chromium/chromiumSwitches.ts"() {
+    "use strict";
+    disabledFeatures = [
+      // See https://github.com/microsoft/playwright/issues/14047
+      "AvoidUnnecessaryBeforeUnloadCheckSync",
+      "DestroyProfileOnBrowserClose",
+      // See https://github.com/microsoft/playwright/pull/13854
+      "DialMediaRouteProvider",
+      "GlobalMediaControls",
+      // See https://github.com/microsoft/playwright/pull/27605
+      "HttpsUpgrades",
+      // Hides the Lens feature in the URL address bar. Its not working in unofficial builds.
+      "LensOverlay",
+      // See https://github.com/microsoft/playwright/pull/8162
+      "MediaRouter",
+      // See https://github.com/microsoft/playwright/issues/28023
+      "PaintHolding",
+      // See https://github.com/microsoft/playwright/issues/32230
+      "ThirdPartyStoragePartitioning",
+      // Chromium 149 rejects re-applying the `origin` header on a redirect (as request interception
+      // does) with net::ERR_INVALID_ARGUMENT. See https://github.com/microsoft/playwright/issues/41690
+      "BlockOriginHeaderModificationOnRedirect",
+      // See https://github.com/microsoft/playwright/issues/16126
+      "Translate",
+      // See https://issues.chromium.org/u/1/issues/435410220
+      "AutoDeElevate",
+      // Prevents downloading optimization hints on startup.
+      "OptimizationHints",
+      // Disables forced sign-in in Edge.
+      "msForceBrowserSignIn",
+      // Disables updating the preferred version in LaunchServices preferences on mac.
+      "msEdgeUpdateLaunchServicesPreferredVersion"
+    ].filter(Boolean);
+    chromiumSwitches = (options) => [
+      "--disable-field-trial-config",
+      // https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
+      "--disable-background-networking",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-back-forward-cache",
+      // Avoids surprises like main request not being intercepted during page.goBack().
+      "--disable-breakpad",
+      "--disable-client-side-phishing-detection",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-component-update",
+      // Avoids unneeded network activity after startup.
+      "--no-default-browser-check",
+      "--disable-default-apps",
+      "--disable-dev-shm-usage",
+      "--disable-edgeupdater",
+      // Disables Edge-specific updater on mac.
+      "--disable-extensions",
+      "--disable-features=" + disabledFeatures.join(","),
+      process.env.PLAYWRIGHT_LEGACY_SCREENSHOT ? "" : "--enable-features=CDPScreenshotNewSurface",
+      "--allow-pre-commit-input",
+      "--disable-hang-monitor",
+      "--disable-ipc-flooding-protection",
+      "--disable-popup-blocking",
+      "--disable-prompt-on-repost",
+      "--disable-renderer-backgrounding",
+      "--disable-updater-scheduler",
+      // Prevents Edge-specific updater from being launched when Edge is launched on mac.
+      "--force-color-profile=srgb",
+      "--metrics-recording-only",
+      "--no-first-run",
+      "--password-store=basic",
+      "--use-mock-keychain",
+      // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
+      "--no-service-autorun",
+      "--export-tagged-pdf",
+      // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
+      "--disable-search-engine-choice-screen",
+      // https://issues.chromium.org/41491762
+      "--unsafely-disable-devtools-self-xss-warnings",
+      // Edge can potentially restart on Windows (msRelaunchNoCompatLayer) which looses its file descriptors (stdout/stderr) and CDP (3/4). Disable until fixed upstream.
+      "--edge-skip-compat-layer-relaunch",
+      // This disables Chrome for Testing infobar that is visible in the persistent context.
+      // The switch is ignored everywhere else, including Chromium/Chrome/Edge.
+      "--disable-infobars",
+      // Less annoying popups.
+      "--disable-search-engine-choice-screen",
+      // Prevents the "three dots" menu crash in IdentityManager::HasPrimaryAccount for ephemeral contexts.
+      options?.android ? "" : "--disable-sync"
+    ].filter(Boolean);
+  }
+});
+
+// packages/playwright-core/src/server/chromium/crConnection.ts
+var ConnectionEvents, kBrowserCloseMessageId, CRConnection, CRSession, CDPSession;
+var init_crConnection = __esm({
+  "packages/playwright-core/src/server/chromium/crConnection.ts"() {
+    "use strict";
+    init_debugLogger();
+    init_assert();
+    init_eventsHelper();
+    init_helper();
+    init_protocolError();
+    init_instrumentation();
+
+// browserType.ts lines 39748-39815
+      }
+      async _prepareToLaunch(options, isPersistent, userDataDir) {
+        const {
+          ignoreDefaultArgs,
+          ignoreAllDefaultArgs,
+          args = []
+        } = options;
+        const tempDirectories = [];
+        let artifactsDir;
+        if (options.artifactsDir) {
+          artifactsDir = options.artifactsDir;
+        } else {
+          artifactsDir = await import_fs25.default.promises.mkdtemp(import_path25.default.join(import_os10.default.tmpdir(), "playwright-artifacts-"));
+          tempDirectories.push(artifactsDir);
+        }
+        if (userDataDir) {
+          assert(import_path25.default.isAbsolute(userDataDir), "userDataDir must be an absolute path");
+          if (!await existsAsync(userDataDir))
+            await import_fs25.default.promises.mkdir(userDataDir, { recursive: true, mode: 448 });
+        } else {
+          userDataDir = await import_fs25.default.promises.mkdtemp(import_path25.default.join(import_os10.default.tmpdir(), `playwright_${this._name}dev_profile-`));
+          tempDirectories.push(userDataDir);
+        }
+        await this.prepareUserDataDir(options, userDataDir);
+        const browserArguments = [];
+        if (ignoreAllDefaultArgs)
+          browserArguments.push(...args);
+        else if (ignoreDefaultArgs)
+          browserArguments.push(...(await this.defaultArgs(options, isPersistent, userDataDir)).filter((arg) => ignoreDefaultArgs.indexOf(arg) === -1));
+        else
+          browserArguments.push(...await this.defaultArgs(options, isPersistent, userDataDir));
+        let executable;
+        const customExecutablePath = await this.resolveExecutablePath(options);
+        if (customExecutablePath) {
+          executable = customExecutablePath;
+        } else {
+          const registryExecutable = registry.findExecutable(this.getExecutableName(options));
+          if (!registryExecutable || registryExecutable.browserName !== this._name)
+            throw new Error(`Unsupported ${this._name} channel "${options.channel}"`);
+          executable = registryExecutable.executablePathOrDie(this.attribution.playwright.options.sdkLanguage);
+          await registry.validateHostRequirementsForExecutablesIfNeeded([registryExecutable], this.attribution.playwright.options.sdkLanguage);
+        }
+        return { executable, browserArguments, userDataDir, artifactsDir, tempDirectories };
+      }
+      async _launchProcess(progress2, options, isPersistent, browserLogsCollector, userDataDir) {
+        const {
+          handleSIGINT = true,
+          handleSIGTERM = true,
+          handleSIGHUP = true
+        } = options;
+        const env = options.env ? envArrayToObject(options.env) : process.env;
+        const prepared = await progress2.race(this._prepareToLaunch(options, isPersistent, userDataDir));
+        let transport = void 0;
+        let browserProcess = void 0;
+        const exitPromise = new ManualPromise();
+        const { launchedProcess, gracefullyClose, kill } = await progress2.race(launchProcess({
+          command: prepared.executable,
+          args: prepared.browserArguments,
+          env: this.amendEnvironment(env, prepared.userDataDir, isPersistent, options),
+          handleSIGINT,
+          handleSIGTERM,
+          handleSIGHUP,
+          log: (message) => {
+            progress2.log(message);
+            browserLogsCollector.log(message);
+          },
+          stdio: "pipe",
+          tempDirectories: prepared.tempDirectories,
+
+// chromium.ts lines 43317-43368
+      async defaultArgs(options, isPersistent, userDataDir) {
+        const chromeArguments = this._innerDefaultArgs(options);
+        chromeArguments.push(`--user-data-dir=${userDataDir}`);
+        chromeArguments.push("--remote-debugging-pipe");
+        if (isPersistent)
+          chromeArguments.push("about:blank");
+        else
+          chromeArguments.push("--no-startup-window");
+        return chromeArguments;
+      }
+      _innerDefaultArgs(options) {
+        const { args = [] } = options;
+        const userDataDirArg = args.find((arg) => arg.startsWith("--user-data-dir"));
+        if (userDataDirArg)
+          throw this._createUserDataDirArgMisuseError("--user-data-dir");
+        if (args.find((arg) => arg.startsWith("--remote-debugging-pipe")))
+          throw new Error("Playwright manages remote debugging connection itself.");
+        if (args.find((arg) => !arg.startsWith("-")))
+          throw new Error("Arguments can not specify page to be opened");
+        const chromeArguments = [...chromiumSwitches()];
+        chromeArguments.push("--enable-unsafe-swiftshader");
+        if (options.headless) {
+          chromeArguments.push("--headless");
+          chromeArguments.push(
+            "--hide-scrollbars",
+            "--mute-audio",
+            "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4"
+          );
+        }
+        if (options.chromiumSandbox !== true)
+          chromeArguments.push("--no-sandbox");
+        const proxy = options.proxyOverride || options.proxy;
+        if (proxy) {
+          const proxyURL = new URL(proxy.server);
+          const isSocks = proxyURL.protocol === "socks5:";
+          if (isSocks && !options.socksProxyPort) {
+            chromeArguments.push(`--host-resolver-rules="MAP * ~NOTFOUND , EXCLUDE ${proxyURL.hostname}"`);
+          }
+          chromeArguments.push(`--proxy-server=${proxy.server}`);
+          const proxyBypassRules = [];
+          if (proxy.bypass)
+            proxyBypassRules.push(...proxy.bypass.split(",").map((t) => t.trim()).map((t) => t.startsWith(".") ? "*" + t : t));
+          if (options.socksProxyPort || shouldProxyLoopback(proxy.bypass))
+            proxyBypassRules.push("<-loopback>");
+          if (proxyBypassRules.length > 0)
+            chromeArguments.push(`--proxy-bypass-list=${proxyBypassRules.join(";")}`);
+        }
+        chromeArguments.push(...args);
+        return chromeArguments;
+      }
+      async waitForReadyState(options, browserLogsCollector) {
+        return waitForReadyState(options, browserLogsCollector);

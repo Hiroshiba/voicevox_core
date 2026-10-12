@@ -1,0 +1,43 @@
+--- a/onnxruntime/core/providers/cpu/activation/activations.h
++++ b/onnxruntime/core/providers/cpu/activation/activations.h
+@@ -2,6 +2,11 @@
+ // Licensed under the MIT License.
+ 
+ #pragma once
++
++#if defined(__wasm_simd128__)
++#include <type_traits>
++#include <wasm_simd128.h>
++#endif
+ 
+ #include "core/common/common.h"
+ #include "core/platform/threadpool.h"
+@@ -72,6 +77,28 @@
+ 
+   void operator()(std::ptrdiff_t first, std::ptrdiff_t last) const final {
+     ptrdiff_t len = last - first;
++#if defined(__wasm_simd128__)
++    if constexpr (std::is_same_v<T, float>) {
++      if (this->input == this->output && len >= 4) {
++        float* p = this->output + first;
++        const v128_t scale = wasm_f32x4_splat(alpha);
++        const v128_t zero = wasm_f32x4_splat(0.0f);
++        const ptrdiff_t vector_end = len - len % 4;
++        ptrdiff_t i = 0;
++        for (; i < vector_end; i += 4) {
++          const v128_t x = wasm_v128_load(p + i);
++          const v128_t product = wasm_f32x4_mul(scale, x);
++          const v128_t nonnegative = wasm_f32x4_ge(x, zero);
++          wasm_v128_store(p + i, wasm_v128_bitselect(x, product, nonnegative));
++        }
++        for (; i < len; ++i) {
++          const float x = p[i];
++          p[i] = x >= 0.0f ? x : alpha * x;
++        }
++        return;
++      }
++    }
++#endif
+     T* output_ptr = this->output + first;
+     ConstEigenVectorArrayMap<T> xm(this->input + first, len);
+     EigenVectorArrayMap<T> ym(output_ptr, len);

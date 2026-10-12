@@ -1,0 +1,21 @@
+{
+  "files": [
+    {
+      "bytes": 25833,
+      "name": "controller.js",
+      "sha256": "8e315138615692a8c35df2f5f8bc68e377534c3b0c9991c9ebeba1496fc71b12"
+    },
+    {
+      "bytes": 125,
+      "name": "index.html",
+      "sha256": "be4824511c0b88c3b5cff8edd8251bb651acbb0ca84018b78410c2c6679d1451"
+    },
+    {
+      "bytes": 10827,
+      "name": "worker.js",
+      "sha256": "49ad5c53576a5d6644fb84315c1d31a75055a393760bdd516f12bdf43370988c"
+    }
+  ],
+  "schema": "panel-activation-host-files-v1",
+  "status": "SOURCE_PREPARED_NOT_EXECUTED"
+}

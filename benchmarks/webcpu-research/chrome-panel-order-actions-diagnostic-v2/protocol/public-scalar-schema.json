@@ -1,0 +1,1514 @@
+{
+  "field_types": {
+    "": {
+      "acknowledged": [
+        "bool"
+      ],
+      "asset_manifest": [
+        "dict"
+      ],
+      "attempted": [
+        "bool"
+      ],
+      "bindings": [
+        "dict"
+      ],
+      "browser_launches": [
+        "int"
+      ],
+      "calls": [
+        "list"
+      ],
+      "cleanup": [
+        "dict"
+      ],
+      "compile_count": [
+        "int"
+      ],
+      "complete": [
+        "bool"
+      ],
+      "failure_diagnostic": [
+        "dict"
+      ],
+      "final_asset_manifest": [
+        "dict"
+      ],
+      "first_failure": [
+        "dict"
+      ],
+      "fixture_identities": [
+        "dict"
+      ],
+      "flag_probe": [
+        "dict"
+      ],
+      "identity": [
+        "dict"
+      ],
+      "operator_calls": [
+        "int"
+      ],
+      "optional_cache_metadata": [
+        "dict"
+      ],
+      "outer_failure_diagnostic": [
+        "dict"
+      ],
+      "outer_failure_observation": [
+        "dict"
+      ],
+      "peak_artifact_bytes": [
+        "int"
+      ],
+      "peak_rss_bytes": [
+        "int"
+      ],
+      "phase_records": [
+        "dict"
+      ],
+      "phases": [
+        "list"
+      ],
+      "resources": [
+        "dict"
+      ],
+      "returncode": [
+        "int"
+      ],
+      "root_receipts": [
+        "list"
+      ],
+      "schema": [
+        "str"
+      ],
+      "source_release": [
+        "str"
+      ],
+      "stage": [
+        "str"
+      ],
+      "startup_gate_released": [
+        "bool"
+      ],
+      "status": [
+        "str"
+      ],
+      "timing_calls": [
+        "int"
+      ],
+      "tree_cpu_seconds": [
+        "float",
+        "int"
+      ],
+      "wall_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "after": {
+      "generations": [
+        "dict"
+      ],
+      "host": [
+        "dict"
+      ],
+      "processes": [
+        "dict"
+      ],
+      "public_receipt_bytes": [
+        "int"
+      ],
+      "runtime_artifact_bytes": [
+        "int"
+      ]
+    },
+    "asset_manifest": {
+      "admission": [
+        "str"
+      ],
+      "assets": [
+        "list"
+      ],
+      "logical_names": [
+        "list"
+      ],
+      "schema": [
+        "str"
+      ]
+    },
+    "assets[]": {
+      "arm": [
+        "str"
+      ],
+      "bytes": [
+        "int"
+      ],
+      "name": [
+        "str"
+      ],
+      "role": [
+        "str"
+      ],
+      "sha256": [
+        "str"
+      ]
+    },
+    "before": {
+      "generations": [
+        "dict"
+      ],
+      "host": [
+        "dict"
+      ],
+      "processes": [
+        "dict"
+      ],
+      "public_receipt_bytes": [
+        "int"
+      ],
+      "runtime_artifact_bytes": [
+        "int"
+      ]
+    },
+    "bindings": {
+      "bootstrap_helper_lock_sha256": [
+        "str"
+      ],
+      "build_recipe_sha256": [
+        "str"
+      ],
+      "emitted_review_sha256": [
+        "str"
+      ],
+      "fixture_manifest_sha256": [
+        "str"
+      ],
+      "host_id": [
+        "str"
+      ],
+      "job_id": [
+        "str"
+      ],
+      "launcher_sha256": [
+        "str"
+      ],
+      "plan_sha256": [
+        "str"
+      ],
+      "request_sha256": [
+        "str"
+      ],
+      "schedule_sha256": [
+        "str"
+      ],
+      "source_commit": [
+        "str"
+      ],
+      "source_review_sha256": [
+        "str"
+      ],
+      "source_tree_sha256": [
+        "str"
+      ],
+      "toolchain_lock_sha256": [
+        "str"
+      ],
+      "transition_verifier_sha256": [
+        "str"
+      ],
+      "workflow_sha256": [
+        "str"
+      ]
+    },
+    "boundaries[]": {
+      "at_monotonic": [
+        "float",
+        "int"
+      ],
+      "host": [
+        "dict"
+      ],
+      "label": [
+        "str"
+      ]
+    },
+    "calibration": {
+      "empty_export_p99_ms": [
+        "float",
+        "int"
+      ],
+      "empty_export_samples": [
+        "int"
+      ],
+      "minimum_primary_ms": [
+        "float",
+        "int"
+      ],
+      "p99_resolution_censored": [
+        "bool"
+      ],
+      "positive_samples": [
+        "int"
+      ],
+      "quantum_ms": [
+        "float",
+        "int"
+      ],
+      "reads": [
+        "int"
+      ],
+      "subtracted": [
+        "bool"
+      ]
+    },
+    "call": {
+      "arm": [
+        "str"
+      ],
+      "arm_position": [
+        "int"
+      ],
+      "call_index": [
+        "int"
+      ],
+      "comparison_words": [
+        "int"
+      ],
+      "coverage": [
+        "bool"
+      ],
+      "dilation": [
+        "int"
+      ],
+      "dilation_position": [
+        "int"
+      ],
+      "fixture_id": [
+        "int"
+      ],
+      "operator_runs": [
+        "int"
+      ],
+      "pass_index": [
+        "int"
+      ],
+      "phase": [
+        "str"
+      ],
+      "reference": [
+        "bool"
+      ],
+      "reference_words": [
+        "int"
+      ],
+      "retained": [
+        "bool"
+      ],
+      "root": [
+        "int"
+      ],
+      "stage": [
+        "str"
+      ],
+      "stage_call_index": [
+        "int"
+      ]
+    },
+    "calls[]": {
+      "call": [
+        "dict"
+      ],
+      "checks": [
+        "dict"
+      ],
+      "commands": [
+        "list"
+      ],
+      "duration_ms": [
+        "float",
+        "int"
+      ],
+      "evidence": [
+        "dict"
+      ],
+      "resource_windows": [
+        "list"
+      ],
+      "worker_failure": [
+        "dict",
+        "str"
+      ]
+    },
+    "canaries": {
+      "after_bytes": [
+        "int"
+      ],
+      "before_bytes": [
+        "int"
+      ],
+      "caller_regions": [
+        "int"
+      ],
+      "compared_bytes": [
+        "int"
+      ],
+      "differences": [
+        "int"
+      ],
+      "hidden_allocator_padding_covered": [
+        "bool"
+      ],
+      "prefix_bytes": [
+        "int"
+      ],
+      "suffix_bytes": [
+        "int"
+      ]
+    },
+    "checks": {
+      "canaries": [
+        "bool"
+      ],
+      "coverage": [
+        "bool"
+      ],
+      "fixture_expectations": [
+        "bool"
+      ],
+      "indirection": [
+        "bool"
+      ],
+      "output": [
+        "bool"
+      ],
+      "packed": [
+        "bool"
+      ],
+      "phase": [
+        "bool"
+      ],
+      "prepare": [
+        "bool"
+      ],
+      "readonly": [
+        "bool"
+      ],
+      "selector": [
+        "bool"
+      ],
+      "stack": [
+        "bool"
+      ]
+    },
+    "cleanup": {
+      "cleanup_failure": [
+        "dict",
+        "str"
+      ],
+      "confirmed": [
+        "bool"
+      ],
+      "failure": [
+        "dict",
+        "str"
+      ],
+      "remaining_processes": [
+        "int"
+      ],
+      "returncode": [
+        "int"
+      ],
+      "timed_out": [
+        "bool"
+      ],
+      "unknown_generations": [
+        "list"
+      ],
+      "unresolved_owners": [
+        "list"
+      ],
+      "wall_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "commands[]": {
+      "acknowledged": [
+        "bool"
+      ],
+      "attempted": [
+        "bool"
+      ],
+      "command": [
+        "str"
+      ],
+      "dispatch_ms": [
+        "float",
+        "int"
+      ],
+      "native_result": [
+        "int"
+      ],
+      "receipt_ms": [
+        "float",
+        "int"
+      ]
+    },
+    "coverage": {
+      "callbacks": [
+        "int"
+      ],
+      "enabled": [
+        "bool"
+      ],
+      "exact_disjoint": [
+        "bool"
+      ],
+      "participants": [
+        "list"
+      ]
+    },
+    "evidence": {
+      "canaries": [
+        "dict"
+      ],
+      "coverage": [
+        "dict"
+      ],
+      "fixture_sha256": [
+        "list"
+      ],
+      "geometry": [
+        "dict"
+      ],
+      "output": [
+        "dict"
+      ],
+      "packed": [
+        "dict"
+      ],
+      "readonly": [
+        "dict"
+      ],
+      "run_ack": [
+        "dict"
+      ],
+      "stack": [
+        "dict"
+      ],
+      "witnesses": [
+        "dict"
+      ]
+    },
+    "final_asset_manifest": {
+      "admission": [
+        "str"
+      ],
+      "assets": [
+        "list"
+      ],
+      "logical_names": [
+        "list"
+      ],
+      "schema": [
+        "str"
+      ]
+    },
+    "first_failure": {
+      "check": [
+        "str"
+      ],
+      "cleanup_unconfirmed": [
+        "bool"
+      ],
+      "known_calls": [
+        "int"
+      ],
+      "no_retry": [
+        "bool"
+      ],
+      "phase": [
+        "str"
+      ],
+      "terminal_resource_observation_missing": [
+        "bool"
+      ],
+      "type": [
+        "str"
+      ]
+    },
+    "fixture_identities.*": {
+      "fixture_sha256": [
+        "list"
+      ],
+      "output_sha256": [
+        "str"
+      ],
+      "packed_sha256": [
+        "str"
+      ]
+    },
+    "flag_probe": {
+      "accepted": [
+        "bool"
+      ],
+      "actual_launch_argv": [
+        "list"
+      ],
+      "cleanup": [
+        "dict"
+      ],
+      "identity": [
+        "dict"
+      ],
+      "launch_argv_sha256": [
+        "str"
+      ],
+      "operator_calls": [
+        "int"
+      ],
+      "wall_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "geometry": {
+      "actual_selector": [
+        "bool"
+      ],
+      "actual_zero_sentinel": [
+        "bool"
+      ],
+      "descriptor": [
+        "list"
+      ],
+      "indirection_words": [
+        "int"
+      ],
+      "live_descriptor": [
+        "bool"
+      ],
+      "modulo_uint32_offset": [
+        "bool"
+      ],
+      "phases": [
+        "list"
+      ],
+      "regions": [
+        "list"
+      ]
+    },
+    "host": {
+      "available_bytes": [
+        "int"
+      ],
+      "swap_in_bytes": [
+        "int"
+      ],
+      "swap_out_bytes": [
+        "int"
+      ]
+    },
+    "identity": {
+      "accepted_flags": [
+        "list"
+      ],
+      "architecture": [
+        "str"
+      ],
+      "boot_id": [
+        "str"
+      ],
+      "browser_installation_receipt_sha256": [
+        "str"
+      ],
+      "chrome_distribution_sha256": [
+        "str"
+      ],
+      "chrome_executable_sha256": [
+        "str"
+      ],
+      "chrome_product": [
+        "str"
+      ],
+      "chrome_support_tree_sha256": [
+        "str"
+      ],
+      "collection_method": [
+        "str"
+      ],
+      "cpu_family": [
+        "str"
+      ],
+      "cpu_model": [
+        "str"
+      ],
+      "cpu_stepping": [
+        "str"
+      ],
+      "cpu_vendor": [
+        "str"
+      ],
+      "isa_sha256": [
+        "str"
+      ],
+      "job_id": [
+        "str"
+      ],
+      "launch_argv_policy": [
+        "list"
+      ],
+      "os": [
+        "str"
+      ],
+      "v8_version": [
+        "str"
+      ]
+    },
+    "initializations[]": {
+      "arm": [
+        "str"
+      ],
+      "backing_workers": [
+        "int"
+      ],
+      "calibration": [
+        "dict"
+      ],
+      "distinct_backing_verified": [
+        "bool"
+      ],
+      "hardware_concurrency": [
+        "int"
+      ],
+      "heap_bytes": [
+        "int"
+      ],
+      "pool_participants": [
+        "int"
+      ],
+      "ready": [
+        "bool"
+      ],
+      "sequence": [
+        "int"
+      ],
+      "stage": [
+        "str"
+      ]
+    },
+    "modules[]": {
+      "arm": [
+        "str"
+      ],
+      "backing_termination_requested": [
+        "bool"
+      ],
+      "library_deinitialized": [
+        "bool"
+      ],
+      "pool_destroy_returned": [
+        "bool"
+      ],
+      "process_cleanup_required": [
+        "bool"
+      ],
+      "sequence": [
+        "int"
+      ],
+      "shutdown": [
+        "bool"
+      ]
+    },
+    "optional_cache_metadata": {
+      "gating": [
+        "bool"
+      ],
+      "rows": [
+        "list"
+      ],
+      "source": [
+        "str"
+      ],
+      "status": [
+        "str"
+      ]
+    },
+    "outer_failure_observation": {
+      "acknowledged": [
+        "bool"
+      ],
+      "cleanup": [
+        "dict"
+      ],
+      "first_failure": [
+        "dict",
+        "str"
+      ],
+      "wall_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "outer_supervision": {
+      "cleanup": [
+        "dict"
+      ],
+      "samples": [
+        "list"
+      ],
+      "startup_gate_released": [
+        "bool"
+      ]
+    },
+    "output": {
+      "compared_words": [
+        "int"
+      ],
+      "exact_uint32": [
+        "bool"
+      ],
+      "finite_required": [
+        "bool"
+      ],
+      "output_sha256": [
+        "str"
+      ],
+      "reference_capture": [
+        "bool"
+      ],
+      "words": [
+        "int"
+      ]
+    },
+    "packed": {
+      "bytes": [
+        "int"
+      ],
+      "differences": [
+        "int"
+      ],
+      "packed_sha256": [
+        "str"
+      ]
+    },
+    "participants[]": {
+      "identity_sha256": [
+        "str"
+      ],
+      "label": [
+        "int"
+      ]
+    },
+    "phase_records.*[]": {
+      "mod4096": [
+        "int"
+      ],
+      "mod64": [
+        "int"
+      ],
+      "region": [
+        "int"
+      ]
+    },
+    "phases[]": {
+      "ceiling_seconds": [
+        "float",
+        "int"
+      ],
+      "deadline": [
+        "float",
+        "int"
+      ],
+      "finished": [
+        "float",
+        "int"
+      ],
+      "measurement_scope": [
+        "str"
+      ],
+      "mod4096": [
+        "int"
+      ],
+      "mod64": [
+        "int"
+      ],
+      "phase": [
+        "str"
+      ],
+      "region": [
+        "int"
+      ],
+      "started": [
+        "float",
+        "int"
+      ]
+    },
+    "processes.*": {
+      "cpu_seconds": [
+        "float",
+        "int"
+      ],
+      "major_faults": [
+        "int"
+      ],
+      "rss_bytes": [
+        "int"
+      ],
+      "swap_bytes": [
+        "int"
+      ]
+    },
+    "readonly": {
+      "bytes": [
+        "int"
+      ],
+      "differences": [
+        "int"
+      ],
+      "regions": [
+        "int"
+      ]
+    },
+    "regions[]": {
+      "bytes": [
+        "int"
+      ],
+      "minimum_alignment": [
+        "int"
+      ],
+      "region": [
+        "int"
+      ]
+    },
+    "resource_windows[]": {
+      "acknowledged": [
+        "bool"
+      ],
+      "after": [
+        "dict"
+      ],
+      "attempted": [
+        "bool"
+      ],
+      "before": [
+        "dict"
+      ],
+      "command": [
+        "str"
+      ],
+      "retained": [
+        "bool"
+      ]
+    },
+    "resources": {
+      "all_thread_children_verified": [
+        "bool"
+      ],
+      "boundaries": [
+        "list"
+      ],
+      "generation_matching": [
+        "bool"
+      ],
+      "min_available_bytes": [
+        "int"
+      ],
+      "missing_observations": [
+        "int"
+      ],
+      "observation_count": [
+        "int"
+      ],
+      "outer_controller_excluded": [
+        "bool"
+      ],
+      "outer_supervision": [
+        "dict"
+      ],
+      "ownership_method": [
+        "str"
+      ],
+      "peak_artifact_bytes": [
+        "int"
+      ],
+      "peak_rss_bytes": [
+        "int"
+      ],
+      "public_receipt_bytes": [
+        "int"
+      ],
+      "sampled_not_kernel_aggregate_quota": [
+        "bool"
+      ],
+      "tree_cpu_seconds": [
+        "float",
+        "int"
+      ],
+      "wall_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "root_receipts[]": {
+      "actual_launch_argv": [
+        "list"
+      ],
+      "cleanup": [
+        "dict"
+      ],
+      "identity": [
+        "dict"
+      ],
+      "initializations": [
+        "list"
+      ],
+      "launch_argv_sha256": [
+        "str"
+      ],
+      "root": [
+        "int"
+      ],
+      "shutdown": [
+        "dict"
+      ]
+    },
+    "rows[]": {
+      "coherency_line_size": [
+        "str"
+      ],
+      "level": [
+        "str"
+      ],
+      "size": [
+        "str"
+      ],
+      "type": [
+        "str"
+      ]
+    },
+    "run_ack": {
+      "completed": [
+        "bool"
+      ],
+      "elapsed_ms": [
+        "float",
+        "int"
+      ],
+      "heap_after_bytes": [
+        "int"
+      ],
+      "heap_before_bytes": [
+        "int"
+      ],
+      "native_result": [
+        "int"
+      ],
+      "sequence": [
+        "int"
+      ]
+    },
+    "samples[]": {
+      "artifact_bytes": [
+        "int"
+      ],
+      "generations": [
+        "int"
+      ],
+      "host_available_bytes": [
+        "int"
+      ],
+      "host_swap_in_delta_bytes": [
+        "int"
+      ],
+      "host_swap_out_delta_bytes": [
+        "int"
+      ],
+      "monotonic_seconds": [
+        "float",
+        "int"
+      ],
+      "rss_bytes": [
+        "int"
+      ],
+      "target_swap_growth_bytes": [
+        "int"
+      ],
+      "tree_cpu_seconds": [
+        "float",
+        "int"
+      ]
+    },
+    "shutdown": {
+      "buffers_erased": [
+        "bool"
+      ],
+      "calls": [
+        "int"
+      ],
+      "fixture_identities": [
+        "dict"
+      ],
+      "modules": [
+        "list"
+      ],
+      "phase_records": [
+        "dict"
+      ],
+      "process_cleanup_required": [
+        "bool"
+      ],
+      "shutdown": [
+        "bool"
+      ]
+    },
+    "stack": {
+      "after": [
+        "bool"
+      ],
+      "before": [
+        "bool"
+      ]
+    },
+    "witnesses": {
+      "checked": [
+        "int"
+      ],
+      "designated": [
+        "int"
+      ],
+      "expectation_code": [
+        "int"
+      ],
+      "fixture_id": [
+        "int"
+      ],
+      "full_class_words": [
+        "int"
+      ],
+      "passed": [
+        "bool"
+      ]
+    }
+  },
+  "method": "context field rosters from frozen qualification/timing receipt contract; partial records may omit fields but never add unrelated fields",
+  "object_fields": {
+    "": [
+      "acknowledged",
+      "asset_manifest",
+      "attempted",
+      "bindings",
+      "browser_launches",
+      "calls",
+      "cleanup",
+      "compile_count",
+      "complete",
+      "failure_diagnostic",
+      "final_asset_manifest",
+      "first_failure",
+      "fixture_identities",
+      "flag_probe",
+      "identity",
+      "operator_calls",
+      "optional_cache_metadata",
+      "outer_failure_diagnostic",
+      "outer_failure_observation",
+      "peak_artifact_bytes",
+      "peak_rss_bytes",
+      "phase_records",
+      "phases",
+      "resources",
+      "returncode",
+      "root_receipts",
+      "schema",
+      "source_release",
+      "stage",
+      "startup_gate_released",
+      "status",
+      "timing_calls",
+      "tree_cpu_seconds",
+      "wall_seconds"
+    ],
+    "after": [
+      "generations",
+      "host",
+      "processes",
+      "public_receipt_bytes",
+      "runtime_artifact_bytes"
+    ],
+    "asset_manifest": [
+      "admission",
+      "assets",
+      "logical_names",
+      "schema"
+    ],
+    "assets[]": [
+      "arm",
+      "bytes",
+      "name",
+      "role",
+      "sha256"
+    ],
+    "before": [
+      "generations",
+      "host",
+      "processes",
+      "public_receipt_bytes",
+      "runtime_artifact_bytes"
+    ],
+    "bindings": [
+      "bootstrap_helper_lock_sha256",
+      "build_recipe_sha256",
+      "emitted_review_sha256",
+      "fixture_manifest_sha256",
+      "host_id",
+      "job_id",
+      "launcher_sha256",
+      "plan_sha256",
+      "request_sha256",
+      "schedule_sha256",
+      "source_commit",
+      "source_review_sha256",
+      "source_tree_sha256",
+      "toolchain_lock_sha256",
+      "transition_verifier_sha256",
+      "workflow_sha256"
+    ],
+    "boundaries[]": [
+      "at_monotonic",
+      "host",
+      "label"
+    ],
+    "calibration": [
+      "empty_export_p99_ms",
+      "empty_export_samples",
+      "minimum_primary_ms",
+      "p99_resolution_censored",
+      "positive_samples",
+      "quantum_ms",
+      "reads",
+      "subtracted"
+    ],
+    "call": [
+      "arm",
+      "arm_position",
+      "call_index",
+      "comparison_words",
+      "coverage",
+      "dilation",
+      "dilation_position",
+      "fixture_id",
+      "operator_runs",
+      "pass_index",
+      "phase",
+      "reference",
+      "reference_words",
+      "retained",
+      "root",
+      "stage",
+      "stage_call_index"
+    ],
+    "calls[]": [
+      "call",
+      "checks",
+      "commands",
+      "duration_ms",
+      "evidence",
+      "resource_windows",
+      "worker_failure"
+    ],
+    "canaries": [
+      "after_bytes",
+      "before_bytes",
+      "caller_regions",
+      "compared_bytes",
+      "differences",
+      "hidden_allocator_padding_covered",
+      "prefix_bytes",
+      "suffix_bytes"
+    ],
+    "checks": [
+      "canaries",
+      "coverage",
+      "fixture_expectations",
+      "indirection",
+      "output",
+      "packed",
+      "phase",
+      "prepare",
+      "readonly",
+      "selector",
+      "stack"
+    ],
+    "cleanup": [
+      "cleanup_failure",
+      "confirmed",
+      "failure",
+      "remaining_processes",
+      "returncode",
+      "timed_out",
+      "unknown_generations",
+      "unresolved_owners",
+      "wall_seconds"
+    ],
+    "commands[]": [
+      "acknowledged",
+      "attempted",
+      "command",
+      "dispatch_ms",
+      "native_result",
+      "receipt_ms"
+    ],
+    "coverage": [
+      "callbacks",
+      "enabled",
+      "exact_disjoint",
+      "participants"
+    ],
+    "evidence": [
+      "canaries",
+      "coverage",
+      "fixture_sha256",
+      "geometry",
+      "output",
+      "packed",
+      "readonly",
+      "run_ack",
+      "stack",
+      "witnesses"
+    ],
+    "final_asset_manifest": [
+      "admission",
+      "assets",
+      "logical_names",
+      "schema"
+    ],
+    "first_failure": [
+      "check",
+      "cleanup_unconfirmed",
+      "known_calls",
+      "no_retry",
+      "phase",
+      "terminal_resource_observation_missing",
+      "type"
+    ],
+    "fixture_identities.*": [
+      "fixture_sha256",
+      "output_sha256",
+      "packed_sha256"
+    ],
+    "flag_probe": [
+      "accepted",
+      "actual_launch_argv",
+      "cleanup",
+      "identity",
+      "launch_argv_sha256",
+      "operator_calls",
+      "wall_seconds"
+    ],
+    "geometry": [
+      "actual_selector",
+      "actual_zero_sentinel",
+      "descriptor",
+      "indirection_words",
+      "live_descriptor",
+      "modulo_uint32_offset",
+      "phases",
+      "regions"
+    ],
+    "host": [
+      "available_bytes",
+      "swap_in_bytes",
+      "swap_out_bytes"
+    ],
+    "identity": [
+      "accepted_flags",
+      "architecture",
+      "boot_id",
+      "browser_installation_receipt_sha256",
+      "chrome_distribution_sha256",
+      "chrome_executable_sha256",
+      "chrome_product",
+      "chrome_support_tree_sha256",
+      "collection_method",
+      "cpu_family",
+      "cpu_model",
+      "cpu_stepping",
+      "cpu_vendor",
+      "isa_sha256",
+      "job_id",
+      "launch_argv_policy",
+      "os",
+      "v8_version"
+    ],
+    "initializations[]": [
+      "arm",
+      "backing_workers",
+      "calibration",
+      "distinct_backing_verified",
+      "hardware_concurrency",
+      "heap_bytes",
+      "pool_participants",
+      "ready",
+      "sequence",
+      "stage"
+    ],
+    "modules[]": [
+      "arm",
+      "backing_termination_requested",
+      "library_deinitialized",
+      "pool_destroy_returned",
+      "process_cleanup_required",
+      "sequence",
+      "shutdown"
+    ],
+    "optional_cache_metadata": [
+      "gating",
+      "rows",
+      "source",
+      "status"
+    ],
+    "outer_failure_observation": [
+      "acknowledged",
+      "cleanup",
+      "first_failure",
+      "wall_seconds"
+    ],
+    "outer_supervision": [
+      "cleanup",
+      "samples",
+      "startup_gate_released"
+    ],
+    "output": [
+      "compared_words",
+      "exact_uint32",
+      "finite_required",
+      "output_sha256",
+      "reference_capture",
+      "words"
+    ],
+    "packed": [
+      "bytes",
+      "differences",
+      "packed_sha256"
+    ],
+    "participants[]": [
+      "identity_sha256",
+      "label"
+    ],
+    "phase_records.*[]": [
+      "mod4096",
+      "mod64",
+      "region"
+    ],
+    "phases[]": [
+      "ceiling_seconds",
+      "deadline",
+      "finished",
+      "measurement_scope",
+      "mod4096",
+      "mod64",
+      "phase",
+      "region",
+      "started"
+    ],
+    "processes.*": [
+      "cpu_seconds",
+      "major_faults",
+      "rss_bytes",
+      "swap_bytes"
+    ],
+    "readonly": [
+      "bytes",
+      "differences",
+      "regions"
+    ],
+    "regions[]": [
+      "bytes",
+      "minimum_alignment",
+      "region"
+    ],
+    "resource_windows[]": [
+      "acknowledged",
+      "after",
+      "attempted",
+      "before",
+      "command",
+      "retained"
+    ],
+    "resources": [
+      "all_thread_children_verified",
+      "boundaries",
+      "generation_matching",
+      "min_available_bytes",
+      "missing_observations",
+      "observation_count",
+      "outer_controller_excluded",
+      "outer_supervision",
+      "ownership_method",
+      "peak_artifact_bytes",
+      "peak_rss_bytes",
+      "public_receipt_bytes",
+      "sampled_not_kernel_aggregate_quota",
+      "tree_cpu_seconds",
+      "wall_seconds"
+    ],
+    "root_receipts[]": [
+      "actual_launch_argv",
+      "cleanup",
+      "identity",
+      "initializations",
+      "launch_argv_sha256",
+      "root",
+      "shutdown"
+    ],
+    "rows[]": [
+      "coherency_line_size",
+      "level",
+      "size",
+      "type"
+    ],
+    "run_ack": [
+      "completed",
+      "elapsed_ms",
+      "heap_after_bytes",
+      "heap_before_bytes",
+      "native_result",
+      "sequence"
+    ],
+    "samples[]": [
+      "artifact_bytes",
+      "generations",
+      "host_available_bytes",
+      "host_swap_in_delta_bytes",
+      "host_swap_out_delta_bytes",
+      "monotonic_seconds",
+      "rss_bytes",
+      "target_swap_growth_bytes",
+      "tree_cpu_seconds"
+    ],
+    "shutdown": [
+      "buffers_erased",
+      "calls",
+      "fixture_identities",
+      "modules",
+      "phase_records",
+      "process_cleanup_required",
+      "shutdown"
+    ],
+    "stack": [
+      "after",
+      "before"
+    ],
+    "witnesses": [
+      "checked",
+      "designated",
+      "expectation_code",
+      "fixture_id",
+      "full_class_words",
+      "passed"
+    ]
+  },
+  "schema": "panel-public-scalar-context-schema-v1"
+}

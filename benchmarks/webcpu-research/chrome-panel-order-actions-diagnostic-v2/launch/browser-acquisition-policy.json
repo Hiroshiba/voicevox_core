@@ -1,0 +1,28 @@
+{
+  "allowed_redirect_urls": [
+    "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.12/linux64/chrome-headless-shell-linux64.zip"
+  ],
+  "bootstrap_helper_lock_sha256": "7da480db4bd0c665a71290fcfedc9e3246a841570167192a70fc1cdca08b8c20",
+  "chrome_product": "HeadlessChrome/153.0.8010.12",
+  "executable_name": "chrome-headless-shell-linux64/chrome-headless-shell",
+  "helper_sha256": "3e296ea98d7f6ce6585cf448a49a263eafc5a5e83a5939ce1e974f430c87936e",
+  "identity_scope": "acquired_once_and_pinned_within_ci_job",
+  "installation_scope": "complete_official_distribution_regular_files_no_symlinks",
+  "limits": {
+    "maximum_compressed_bytes": 268435456,
+    "maximum_scalar_receipt_bytes": 65536,
+    "maximum_single_member_bytes": 536870912,
+    "maximum_total_uncompressed_bytes": 1073741824,
+    "maximum_zip_entries": 10000,
+    "read_chunk_bytes": 1048576,
+    "socket_timeout_seconds": 15,
+    "wall_seconds": 180
+  },
+  "method": "HEAD_THEN_ONE_GET",
+  "platform": "linux64",
+  "playwright_core_bundle_sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+  "schema": "panel-browser-acquisition-policy-v1",
+  "source_metadata_sha256": "545d52f8382c391e605562c330e9c1c534a16045898203037a49bb8bd769a946",
+  "source_url": "https://cdn.playwright.dev/builds/cft/153.0.8010.12/linux64/chrome-headless-shell-linux64.zip",
+  "v8_version": "15.3.76.4"
+}

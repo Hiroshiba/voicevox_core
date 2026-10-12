@@ -1,0 +1,90 @@
+# REVIEW COPY ONLY, outside .github/workflows. Publication/trigger requires root GO.
+name: Chrome panel-order one-host conditional program
+on:
+  push:
+    branches: ['benchmark/native-browser-research-20261008']
+    paths: ['benchmarks/webcpu-research/panel-stage-requests/conditional-runtime.json']
+permissions:
+  contents: read
+concurrency:
+  group: chrome-panel-conditional-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  conditional-panel:
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      TZ: UTC
+    steps:
+      - name: Start complete provision and program clocks before checkout
+        shell: bash
+        run: |
+          python3 -B -I - <<'PY'
+          import json, os, time
+          with open(os.environ['RUNNER_TEMP']+'/panel-program-clock.json','x') as f:
+              json.dump({'started':time.monotonic(),'program_wall_seconds':6090},f)
+          PY
+      - name: Read immutable root request and independent source review
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          path: panel-request
+          sparse-checkout: |
+            benchmarks/webcpu-research/panel-stage-requests/conditional-runtime.json
+            benchmarks/webcpu-research/panel-stage-requests/source-review.json
+          sparse-checkout-cone-mode: false
+      - name: Select exact source provenance commit from root request
+        id: source
+        shell: bash
+        run: |
+          python3 -B -I - <<'PY'
+          import json, os, re
+          p='panel-request/benchmarks/webcpu-research/panel-stage-requests/conditional-runtime.json'
+          r=json.load(open(p)); commit=r['source_release']
+          if not re.fullmatch('[0-9a-f]{40}',commit):raise SystemExit('invalid source commit')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('commit='+commit+'\n')
+          PY
+      - name: Checkout the separately reviewed source release explicitly
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ steps.source.outputs.commit }}
+          persist-credentials: false
+          path: panel-source
+          sparse-checkout: |
+            benchmarks/webcpu-research/chrome-panel-order-actions-diagnostic-v2
+          sparse-checkout-cone-mode: false
+      - name: Run exactly one root-authorized conditional program on this host
+        shell: bash
+        run: |
+          SOURCE="$GITHUB_WORKSPACE/panel-source/benchmarks/webcpu-research/chrome-panel-order-actions-diagnostic-v2"
+          REQUEST="$GITHUB_WORKSPACE/panel-request/benchmarks/webcpu-research/panel-stage-requests"
+          python3 -B -I "$SOURCE/tools/program.py" --actions \
+            --request "$REQUEST/conditional-runtime.json" \
+            --source-review "$REQUEST/source-review.json" \
+            --source-manifest "$SOURCE/MANIFEST.json" \
+            --work "$RUNNER_TEMP/panel-order-screen-attempt" \
+            --clock "$RUNNER_TEMP/panel-program-clock.json"
+      # 2700 provision +600 compile +900 qual +30 transition +1800 timing +60
+      # finalization =6090; outer job6300. Checkout and initial helper bootstrap
+      # consume provision2700 before production ownership becomes available.
+      # Only one fixed per-job attempt root; no rerun, retry, rebuild or pause.
+      # Only the closed redacted scalar projection may leave this private job.
+      # It remains unreviewed runtime evidence requiring independent terminal audit.
+      - name: Upload only unreviewed bounded numerical and gate evidence
+        if: ${{ always() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: UNREVIEWED-chrome-panel-scalar-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/panel-order-screen-attempt/public-scalars/receipt.json
+            ${{ runner.temp }}/panel-order-screen-attempt/public-scalars/manifest.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+          overwrite: false
+          include-hidden-files: false

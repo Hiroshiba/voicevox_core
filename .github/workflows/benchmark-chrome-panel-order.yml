@@ -55,12 +55,12 @@ jobs:
           persist-credentials: false
           path: panel-source
           sparse-checkout: |
-            benchmarks/webcpu-research/chrome-panel-order-actions-activation-v1
+            benchmarks/webcpu-research/chrome-panel-order-actions-diagnostic-v2
           sparse-checkout-cone-mode: false
       - name: Run exactly one root-authorized conditional program on this host
         shell: bash
         run: |
-          SOURCE="$GITHUB_WORKSPACE/panel-source/benchmarks/webcpu-research/chrome-panel-order-actions-activation-v1"
+          SOURCE="$GITHUB_WORKSPACE/panel-source/benchmarks/webcpu-research/chrome-panel-order-actions-diagnostic-v2"
           REQUEST="$GITHUB_WORKSPACE/panel-request/benchmarks/webcpu-research/panel-stage-requests"
           python3 -B -I "$SOURCE/tools/program.py" --actions \
             --request "$REQUEST/conditional-runtime.json" \

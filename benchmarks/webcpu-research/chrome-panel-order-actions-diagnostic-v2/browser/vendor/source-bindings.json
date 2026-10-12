@@ -1,0 +1,296 @@
+{
+  "schema": "panel-browser-production-safety-donors-v1",
+  "status": "EXECUTION_CAPABLE_SOURCE_NOT_EXECUTED",
+  "records": [
+    {
+      "name": "operator_browser.py",
+      "donor": "remaining-simd-research/add-core-speed-experiment-v2/browser/vendor/operator_browser.py",
+      "donor_sha256": "4ed257f022951f3dc677ab02e6386d76c30e6401de457a7155107f67be9e18e4",
+      "reference": "browser/vendor/reference/operator_browser.py.txt",
+      "guarded": "browser/vendor/operator_browser.py",
+      "guarded_sha256": "be91b5536a226256f4c254bb200b487c179c558efe8cbef229e8d08a7e93a261",
+      "only_delta": "\n# Activation uses only the shared immutable root/child admission contract.\nfrom launch.source_only import require_execution_admission, child_python_command\nrequire_execution_admission('browser.vendor.operator_browser')\n",
+      "guard_after_future_import": true,
+      "integration_deltas": [
+        {
+          "before": "launch_end = min(self.deadline, time.monotonic()+600)",
+          "after": "launch_end = min(self.deadline, time.monotonic()+60)",
+          "reason": "Clamp root startup60s while preserving independent ownerstageceiling."
+        },
+        {
+          "before": "        self.page = self.browser.new_page()\n        self.page.set_default_timeout(600000)",
+          "after": "        argv = root.cmdline()\n        need(root.create_time() == self.identity[1] and root.is_running(), 'resource_gate')\n        need(type(argv) is list and 0 < len(argv) <= 128 and all(type(x) is str and 0 < len(x) <= 4096 for x in argv), 'configuration_gate')\n        need(sum(len(x) for x in argv) <= 32768, 'configuration_gate')\n        executable_sha256 = file_sha(Path(root.exe()))\n        need(root.create_time() == self.identity[1] and root.is_running(), 'resource_gate')\n        self.info.update(actual_launch_argv=argv, launch_argv_sha256=stable_sha(argv), chrome_executable_sha256=executable_sha256)\n        self.page = self.browser.new_page()\n        self.page.set_default_timeout(600000)",
+          "reason": "Captureboundedactualargvandexecutablebytesundergenerationcheckbeforerootpagework."
+        },
+        {
+          "before": "                              browser_instance_sha256=active.info['browser_instance_sha256'], cleanup_confirmed=False)",
+          "after": "                              browser_instance_sha256=active.info['browser_instance_sha256'], cleanup_confirmed=False,\n                              actual_launch_argv=active.info['actual_launch_argv'],\n                              launch_argv_sha256=active.info['launch_argv_sha256'],\n                              chrome_executable_sha256=active.info['chrome_executable_sha256'])",
+          "reason": "Zerooperatorprobebindssameactualargvandexecutablebytes."
+        },
+        {
+          "before": "        selector.register(process.stdout, selectors.EVENT_READ, (out, 4096))",
+          "after": "        selector.register(process.stdout, selectors.EVENT_READ, (out, 65536))",
+          "reason": "Boundedsclarprobeenvelopemustincludecompleteactualargvupto32768characters."
+        },
+        {
+          "before": "        result = base.flag_acceptance_from_capture(bytes(out), bytes(err), receipt['returncode'])",
+          "after": "        capture = json.loads(bytes(out))\n        need(type(capture) is dict and all(k in capture for k in ('actual_launch_argv','launch_argv_sha256','chrome_executable_sha256')), 'configuration_gate')\n        extra = {k:capture.pop(k) for k in ('actual_launch_argv','launch_argv_sha256','chrome_executable_sha256')}\n        need(stable_sha(extra['actual_launch_argv']) == extra['launch_argv_sha256'], 'configuration_gate')\n        result = base.flag_acceptance_from_capture(json.dumps(capture, separators=(',', ':')).encode(), bytes(err), receipt['returncode'])\n        result.update(extra)",
+          "reason": "Preserveoriginalstrictflagacceptanceparserwhilenewboundedcapturefieldsareverifiedandretained."
+        },
+        {
+          "before": "    import selectors\n    assert_no_unresolved_owners()\n    end = min(deadline, time.monotonic()+120) if deadline is not None else time.monotonic()+120\n    cleanup_end = cleanup_deadline if cleanup_deadline is not None else end+6",
+          "after": "    import selectors\n    probe_started = time.monotonic()\n    cleanup_started_monotonic = None\n    assert_no_unresolved_owners()\n    end = min(deadline, probe_started+60) if deadline is not None else probe_started+60\n    cleanup_end = min(cleanup_deadline, end+30) if cleanup_deadline is not None else end+30",
+          "reason": "Full flag-probe limit is60seconds; failure-only owned cleanup can use at most30additional seconds inside suppliedstagecap."
+        },
+        {
+          "before": "        extra = {k:capture.pop(k) for k in ('actual_launch_argv','launch_argv_sha256','chrome_executable_sha256')}\n        need(stable_sha(extra['actual_launch_argv']) == extra['launch_argv_sha256'], 'configuration_gate')",
+          "after": "        extra = {k:capture.pop(k) for k in ('actual_launch_argv','launch_argv_sha256','chrome_executable_sha256')}\n        cleanup_started_monotonic = capture.pop('cleanup_started_monotonic', None)\n        need(type(cleanup_started_monotonic) in (int,float) and math.isfinite(cleanup_started_monotonic)\n             and probe_started <= cleanup_started_monotonic <= time.monotonic(), 'cleanup_gate')\n        need(stable_sha(extra['actual_launch_argv']) == extra['launch_argv_sha256'], 'configuration_gate')",
+          "reason": "Private cross-process monotonic start binds true browserclose through final ownedreap; strip it before legacyparser and publicprojection."
+        },
+        {
+          "before": "        owner.release_streams()\n        out.clear(); err.clear()\n    if first is not None or not cleanup['confirmed']:",
+          "after": "        owner.release_streams()\n        cleanup_completed_monotonic = time.monotonic()\n        out.clear(); err.clear()\n    if first is None and cleanup['confirmed']:\n        if cleanup_started_monotonic is None or cleanup_completed_monotonic > end or not 0 <= cleanup_completed_monotonic-cleanup_started_monotonic <= 30:\n            first = GateFailure('deadline_gate')\n        else:\n            result['cleanup_wall_seconds'] = cleanup_completed_monotonic-cleanup_started_monotonic\n    if first is not None or not cleanup['confirmed']:",
+          "reason": "Normal cleanup duration includes browserclose, driverexit and all outer ownedclose/reap; validresult requires both60secondprobe and30secondcleanup ceilings."
+        },
+        {
+          "before": "                if active is not None:\n                    active.close()\n                    # The outer disposable owner establishes descendant cleanup",
+          "after": "                if active is not None:\n                    cleanup_started = time.monotonic()\n                    active.close()\n                    if result is not None:\n                        result['cleanup_started_monotonic'] = cleanup_started\n                    # The outer disposable owner establishes descendant cleanup",
+          "reason": "Start measurement immediately before actual browserclose, excluding launch/identity/probe work."
+        },
+        {
+          "before": "    def __init__(self, pw, url, base, psutil):\n        self.browser = None\n        try:\n            self.browser = pw.chromium.launch(headless=True, args=list(base.FLAGS))",
+          "after": "    def __init__(self, pw, url, base, psutil, chrome_executable, chrome_executable_sha256):\n        self.browser = None\n        need(type(chrome_executable) is str and Path(chrome_executable).is_absolute()\n             and Path(chrome_executable).is_file() and not Path(chrome_executable).is_symlink(), 'input_gate')\n        need(type(chrome_executable_sha256) is str and HEX.fullmatch(chrome_executable_sha256)\n             and file_sha(Path(chrome_executable)) == chrome_executable_sha256, 'input_gate')\n        try:\n            self.browser = pw.chromium.launch(headless=True, args=list(base.FLAGS), executable_path=chrome_executable)",
+          "reason": "Launch only explicitly admitted installed executable after complete-byte rehash; no implicit Playwright executable or fallback."
+        },
+        {
+          "before": "    def __init__(self, pw, url, base, psutil, *, deadline=None, cleanup_deadline=None):",
+          "after": "    def __init__(self, pw, url, base, psutil, *, deadline=None, cleanup_deadline=None, chrome_executable=None, chrome_executable_sha256=None):",
+          "reason": "Bind explicit admitted Chrome selection at production owned root API."
+        },
+        {
+          "before": "        assert_no_unresolved_owners()\n        try:\n            self._launch_started = True",
+          "after": "        assert_no_unresolved_owners()\n        need(type(chrome_executable) is str and Path(chrome_executable).is_absolute()\n             and type(chrome_executable_sha256) is str and HEX.fullmatch(chrome_executable_sha256), 'input_gate')\n        try:\n            self._launch_started = True",
+          "reason": "Reject missing explicit executable binding before any owned browser child."
+        },
+        {
+          "before": "                 '--helpers-root', str(helpers), '--url', url],",
+          "after": "                 '--helpers-root', str(helpers), '--url', url, '--chrome-executable', chrome_executable,\n                 '--chrome-executable-sha256', chrome_executable_sha256],",
+          "reason": "Transmit reviewed executable path/hash as owned-child arguments, never an environment authorization."
+        },
+        {
+          "before": "def owned_browser_child(helpers_root, url):",
+          "after": "def owned_browser_child(helpers_root, url, chrome_executable, chrome_executable_sha256):",
+          "reason": "Require explicit executable binding in owned RPC child."
+        },
+        {
+          "before": "            active = _LocalOperatorBrowser(pw, url, base, psutil)",
+          "after": "            active = _LocalOperatorBrowser(pw, url, base, psutil, chrome_executable, chrome_executable_sha256)",
+          "reason": "RPC child rehashes and launches only admitted executable."
+        },
+        {
+          "before": "def strict_flag_acceptance_probe(base, helpers_root, *, deadline=None, cleanup_deadline=None):",
+          "after": "def strict_flag_acceptance_probe(base, helpers_root, *, deadline=None, cleanup_deadline=None, chrome_executable=None, chrome_executable_sha256=None):",
+          "reason": "Zero-operator probe receives same explicit executable binding as operator roots."
+        },
+        {
+          "before": "    cleanup_end = min(cleanup_deadline, end+30) if cleanup_deadline is not None else end+30\n    try:",
+          "after": "    cleanup_end = min(cleanup_deadline, end+30) if cleanup_deadline is not None else end+30\n    need(type(chrome_executable) is str and Path(chrome_executable).is_absolute()\n         and type(chrome_executable_sha256) is str and HEX.fullmatch(chrome_executable_sha256), 'input_gate')\n    try:",
+          "reason": "Missing executable binding blocks before probe owned-child startup."
+        },
+        {
+          "before": "             '--helpers-root', str(Path(helpers_root).resolve())], deadline=end, cleanup_deadline=cleanup_end,",
+          "after": "             '--helpers-root', str(Path(helpers_root).resolve()), '--chrome-executable', chrome_executable,\n             '--chrome-executable-sha256', chrome_executable_sha256], deadline=end, cleanup_deadline=cleanup_end,",
+          "reason": "Propagate exact executable binding into zero-operator owned probe."
+        },
+        {
+          "before": "def strict_flag_acceptance_child(helpers_root):",
+          "after": "def strict_flag_acceptance_child(helpers_root, chrome_executable, chrome_executable_sha256):",
+          "reason": "Probe child requires admitted executable inputs."
+        },
+        {
+          "before": "                active = _LocalOperatorBrowser(pw, 'about:blank', base, psutil)",
+          "after": "                active = _LocalOperatorBrowser(pw, 'about:blank', base, psutil, chrome_executable, chrome_executable_sha256)",
+          "reason": "Probe uses same explicit-path launch and prelaunch executable-byte check."
+        },
+        {
+          "before": "    parser.add_argument('--url', default='about:blank', help=argparse.SUPPRESS)",
+          "after": "    parser.add_argument('--url', default='about:blank', help=argparse.SUPPRESS)\n    parser.add_argument('--chrome-executable', help=argparse.SUPPRESS)\n    parser.add_argument('--chrome-executable-sha256', help=argparse.SUPPRESS)",
+          "reason": "Parse explicit owned-child Chrome binding; source-only import blocker remains first."
+        },
+        {
+          "before": "        return owned_browser_child(args.helpers_root, args.url)",
+          "after": "        return owned_browser_child(args.helpers_root, args.url, args.chrome_executable, args.chrome_executable_sha256)",
+          "reason": "Pass bound selection to owned RPC child."
+        },
+        {
+          "before": "        return strict_flag_acceptance_child(args.helpers_root)",
+          "after": "        return strict_flag_acceptance_child(args.helpers_root, args.chrome_executable, args.chrome_executable_sha256)",
+          "reason": "Pass bound selection to owned zero-operator probe child."
+        },
+        {
+          "before": "def run(manifest, private, helpers_root=DEFAULT_HELPERS):\n",
+          "after": "def run(manifest, private, helpers_root=DEFAULT_HELPERS):\n    raise RuntimeError(\"LEGACY_DONOR_WORKLOAD_DISABLED\")\n",
+          "reason": "Prevent the retained unrelated donor experiment from entering the admitted panel run."
+        },
+        {
+          "before": "DEFAULT_HELPERS = ROOT.parent / 'vendor' / 'browser'\nif not DEFAULT_HELPERS.is_dir():\n    DEFAULT_HELPERS = ROOT.parents[1] / 'off-attribution-recovery' / 'helpers'",
+          "after": "DEFAULT_HELPERS = ROOT",
+          "reason": "Bind exact same-directory packaged helpers; do not discover another checkout."
+        },
+        {
+          "before": "    'affine_browser.py': '7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc',",
+          "after": "    'affine_browser.py': '50c9c5351e81ab64fde5416c8eb320a7eebcdade1529120a494073c8d6cd0222',",
+          "reason": "Pin exact reviewed derivative after admission-only activation and legacy-route suppression."
+        },
+        {
+          "before": "    'attribution_browser.py': '6db16d7a19ff6ba56e6ed259b7d29c5665fc7ea56e832b57ca8b05036df773df',",
+          "after": "    'attribution_browser.py': '3cacb0533b79fca2ebce64d14e2c80b47fc11873d77f56e30a01268f2ea3ed34',",
+          "reason": "Pin exact reviewed derivative after admission-only activation and legacy-route suppression."
+        },
+        {
+          "before": "[sys.executable, str(Path(__file__).resolve()), '--owned-browser-child',\n                 '--helpers-root', str(helpers), '--url', url, '--chrome-executable', chrome_executable,\n                 '--chrome-executable-sha256', chrome_executable_sha256]",
+          "after": "child_python_command(Path(__file__).resolve(), ['--owned-browser-child',\n                 '--helpers-root', str(helpers), '--url', url, '--chrome-executable', chrome_executable,\n                 '--chrome-executable-sha256', chrome_executable_sha256])",
+          "reason": "Explicit immutable admission descriptor and verified helper routing for the owned RPC child."
+        },
+        {
+          "before": "[sys.executable, str(Path(__file__).resolve()), '--strict-flag-acceptance-probe',\n             '--helpers-root', str(Path(helpers_root).resolve()), '--chrome-executable', chrome_executable,\n             '--chrome-executable-sha256', chrome_executable_sha256]",
+          "after": "child_python_command(Path(__file__).resolve(), ['--strict-flag-acceptance-probe',\n             '--helpers-root', str(Path(helpers_root).resolve()), '--chrome-executable', chrome_executable,\n             '--chrome-executable-sha256', chrome_executable_sha256])",
+          "reason": "Explicit immutable admission descriptor and verified helper routing for the owned flag probe."
+        },
+        {
+          "before": "    args = parser.parse_args(argv)\n    if args.owned_browser_child:",
+          "after": "    args = parser.parse_args(argv)\n    need(args.owned_browser_child or args.strict_flag_acceptance_probe, 'input_gate')\n    if args.owned_browser_child:",
+          "reason": "Only fixed private panel browser child modes are executable; old donor CLI workloads stay disabled."
+        }
+      ],
+      "source_parent_sha256": "6fd62c44a2bc31210a58c4d3cb9c704ce98c2aefae8ceb8dcd92d9ca6a78c95e"
+    },
+    {
+      "name": "strict_resources.py",
+      "donor": "remaining-simd-research/add-core-speed-experiment-v2/browser/vendor/strict_resources.py",
+      "donor_sha256": "8b87bd0ccb8c85a4008744bdb55aeeb5446646a93aad45d8c8506d1d909b9609",
+      "reference": "browser/vendor/reference/strict_resources.py.txt",
+      "guarded": "browser/vendor/strict_resources.py",
+      "guarded_sha256": "0d0b6612dca35ba7f01784676011a76e6ab508f4f6dfef33b40335b4cb7d5d9f",
+      "only_delta": "\n# Activation uses only the shared immutable root/child admission contract.\nfrom launch.source_only import require_execution_admission, child_python_command\nrequire_execution_admission('browser.vendor.strict_resources')\n",
+      "guard_after_future_import": true,
+      "source_parent_sha256": "d23eaa91a78dd1e8fb1f12d0d2dd32ffd06a472114f5851d0b565c528d216e8d"
+    },
+    {
+      "name": "affine_browser.py",
+      "donor": "remaining-simd-research/add-core-speed-experiment-v2/browser/vendor/affine_browser.py",
+      "donor_sha256": "7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc",
+      "reference": "browser/vendor/reference/affine_browser.py.txt",
+      "guarded": "browser/vendor/affine_browser.py",
+      "guarded_sha256": "50c9c5351e81ab64fde5416c8eb320a7eebcdade1529120a494073c8d6cd0222",
+      "only_delta": "\n# Activation uses only the shared immutable root/child admission contract.\nfrom launch.source_only import require_execution_admission, child_python_command\nrequire_execution_admission('browser.vendor.affine_browser')\n",
+      "guard_after_future_import": true,
+      "source_parent_sha256": "d072bdc2074a05fa0bfa86fc09e2f8e9429c8d3464f05f6fe61132b619b741dc",
+      "integration_deltas": [
+        {
+          "before": "def run(manifest,helpers_root,private,stage_callback=None):\n",
+          "after": "def run(manifest,helpers_root,private,stage_callback=None):\n    raise RuntimeError(\"LEGACY_DONOR_WORKLOAD_DISABLED\")\n",
+          "reason": "Prevent the retained unrelated donor experiment from entering the admitted panel run."
+        },
+        {
+          "before": "def flag_acceptance_probe():\n",
+          "after": "def flag_acceptance_probe():\n    raise RuntimeError(\"LEGACY_UNOWNED_BROWSER_DISABLED\")\n",
+          "reason": "Only the production owned flag probe may launch Chrome."
+        },
+        {
+          "before": "def _flag_acceptance_child():\n",
+          "after": "def _flag_acceptance_child():\n    raise RuntimeError(\"LEGACY_UNOWNED_BROWSER_DISABLED\")\n",
+          "reason": "Only the production owned flag probe may launch Chrome."
+        },
+        {
+          "before": "    def __init__(self,pw,url,key,artifacts,psutil,profile=False):\n",
+          "after": "    def __init__(self,pw,url,key,artifacts,psutil,profile=False):\n        raise RuntimeError(\"LEGACY_UNOWNED_BROWSER_DISABLED\")\n",
+          "reason": "Prevent retained donor unowned Browser constructor; activated adapter exclusively uses the owned OperatorBrowser."
+        }
+      ]
+    },
+    {
+      "name": "attribution_browser.py",
+      "donor": "remaining-simd-research/add-core-speed-experiment-v2/browser/vendor/attribution_browser.py",
+      "donor_sha256": "6db16d7a19ff6ba56e6ed259b7d29c5665fc7ea56e832b57ca8b05036df773df",
+      "reference": "browser/vendor/reference/attribution_browser.py.txt",
+      "guarded": "browser/vendor/attribution_browser.py",
+      "guarded_sha256": "3cacb0533b79fca2ebce64d14e2c80b47fc11873d77f56e30a01268f2ea3ed34",
+      "only_delta": "\n# Activation uses only the shared immutable root/child admission contract.\nfrom launch.source_only import require_execution_admission, child_python_command\nrequire_execution_admission('browser.vendor.attribution_browser')\n",
+      "guard_after_future_import": true,
+      "source_parent_sha256": "ac9c3b57eee46722093151573124fc887b2803f29f86d2f601757f8587c55bbc",
+      "integration_deltas": [
+        {
+          "before": "def run(manifest,helpers_root=DEFAULT_HELPERS,private=None):\n",
+          "after": "def run(manifest,helpers_root=DEFAULT_HELPERS,private=None):\n    raise RuntimeError(\"LEGACY_DONOR_WORKLOAD_DISABLED\")\n",
+          "reason": "Prevent the retained unrelated donor experiment from entering the admitted panel run."
+        },
+        {
+          "before": "    root=Path(payload);path=root/'affine_browser.py'\n    if not path.is_file() and root==DEFAULT_HELPERS:path=root.parent/'baseline'/'affine_browser.py'\n",
+          "after": "    root=Path(payload);path=root/'affine_browser.py'\n",
+          "reason": "No alternate checkout helper fallback in the portable activation tree."
+        },
+        {
+          "before": "BASE_SHA='7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc'",
+          "after": "BASE_SHA='50c9c5351e81ab64fde5416c8eb320a7eebcdade1529120a494073c8d6cd0222'",
+          "reason": "Pin the reviewed activated derivative, retaining original donor bytes separately."
+        }
+      ]
+    },
+    {
+      "name": "process_guard.py",
+      "donor": "remaining-simd-research/add-core-speed-experiment-v2/tools/process_guard.py",
+      "donor_sha256": "182052888a9ddfe704de62c42048617fd6b3c696ad3c197c42300da8c0dc7a0c",
+      "reference": "browser/vendor/reference/process_guard.py.txt",
+      "guarded": "tools/process_guard.py",
+      "guarded_sha256": "961cb9126ecb108f9babcde32cfbf655e7a7c4abf8107f6f5e659571c4efbaf6",
+      "only_delta": "\n# Activation uses only the shared immutable root/child admission contract.\nfrom launch.source_only import require_execution_admission, child_python_command\nrequire_execution_admission('tools.process_guard')\n",
+      "guard_after_future_import": true,
+      "integration_deltas": [
+        {
+          "before": "def _supervise(command, cwd, control_fd, deadline, cleanup_deadline):\n    control = socket.socket(fileno=control_fd)",
+          "after": "def _supervise(command, cwd, control_fd, deadline, cleanup_deadline, cpu_limit=None):\n    if cpu_limit is not None:\n        require(type(cpu_limit) is int and 0 < cpu_limit <= 86400, 'Invalid per-process CPU limit')\n        import resource\n        resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))\n        require(resource.getrlimit(resource.RLIMIT_CPU) == (cpu_limit, cpu_limit), 'CPU limit not established')\n    control = socket.socket(fileno=control_fd)",
+          "reason": "Apply exact per-process CPU limit to ownership supervisor before any owned command; descendants inherit."
+        },
+        {
+          "before": "                 env=None, stdin=None, stdout=None, stderr=None):",
+          "after": "                 env=None, stdin=None, stdout=None, stderr=None, cpu_limit=None):",
+          "reason": "Optional reviewed per-process CPU limit parameter; None preserves inherited limits."
+        },
+        {
+          "before": "        require(command, 'Missing owned command')",
+          "after": "        require(cpu_limit is None or type(cpu_limit) is int and 0 < cpu_limit <= 86400, 'Invalid per-process CPU limit')\n        require(command, 'Missing owned command')",
+          "reason": "Validate CPU limit before ownership startup."
+        },
+        {
+          "before": "            if cwd is not None:\n                args += ['--cwd', str(cwd)]",
+          "after": "            if cpu_limit is not None:\n                args += ['--cpu-limit', str(cpu_limit)]\n            if cwd is not None:\n                args += ['--cwd', str(cwd)]",
+          "reason": "Bind supervisor limit in explicit argument, never environment authorization."
+        },
+        {
+          "before": "    parser.add_argument('--cleanup-deadline', type=float)",
+          "after": "    parser.add_argument('--cleanup-deadline', type=float)\n    parser.add_argument('--cpu-limit', type=int)",
+          "reason": "Parse optional CPU bound."
+        },
+        {
+          "before": "return _supervise(command, args.cwd, args.control_fd, valid_deadline(args.deadline), valid_deadline(args.cleanup_deadline))",
+          "after": "return _supervise(command, args.cwd, args.control_fd, valid_deadline(args.deadline), valid_deadline(args.cleanup_deadline), args.cpu_limit)",
+          "reason": "Pass parsed CPU bound before any owned command launch."
+        },
+        {
+          "before": "args = [sys.executable, str(Path(__file__).resolve()), '--control-fd', str(child.fileno())]",
+          "after": "args = child_python_command(Path(__file__).resolve(), ['--control-fd', str(child.fileno())])",
+          "reason": "Every ownership supervisor revalidates the exact root request/source/job admission in a fresh isolated child."
+        },
+        {
+          "before": "            args = child_python_command(Path(__file__).resolve(), ['--control-fd', str(child.fileno())])\n            if cpu_limit is not None:\n                args += ['--cpu-limit', str(cpu_limit)]\n            if cwd is not None:\n                args += ['--cwd', str(cwd)]\n            if deadline is not None:\n                args += ['--deadline', str(deadline)]\n            if cleanup_deadline is not None:\n                args += ['--cleanup-deadline', str(cleanup_deadline)]\n            args += ['--', *map(str, command)]\n",
+          "after": "            args = ['--control-fd', str(child.fileno())]\n            if cpu_limit is not None:\n                args += ['--cpu-limit', str(cpu_limit)]\n            if cwd is not None:\n                args += ['--cwd', str(cwd)]\n            if deadline is not None:\n                args += ['--deadline', str(deadline)]\n            if cleanup_deadline is not None:\n                args += ['--cleanup-deadline', str(cleanup_deadline)]\n            args += ['--', *map(str, command)]\n            # Bind the complete supervisor argv once; never append after leasing.\n            args = child_python_command(Path(__file__).resolve(), args)\n",
+          "reason": "Assemble all supervisor arguments before creating its one-use exact-command child lease."
+        }
+      ],
+      "source_parent_sha256": "b31235d7849bd4b239c6a2c0859f64ad377533704182b21814e05cebf3315b78"
+    }
+  ],
+  "runtime_integration_requires_independent_review": true,
+  "activation_authority": "shared_hash_bound_root_request_and_explicit_child_descriptor_no_environment_override"
+}

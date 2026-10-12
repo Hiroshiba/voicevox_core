@@ -1,0 +1,69 @@
+{
+  "Chrome_330call_qualification_completed": false,
+  "asset_count": 13,
+  "asset_total_bytes": 1620318,
+  "assets_manifest_canonical_sha256": "e00ac372d473b4c0c691c11a2ae013f458b738b9477240104202e1caf77c2c2a",
+  "assets_manifest_file_sha256": "613cd86fbbe063ade683a01cf44eb2a3a8b09273664594efd61655ea0b7bf3bb",
+  "bindings": {
+    "activation_manifest_sha256": "2787082b04b7df2cce8b552f39ed1aa8aecba1b35040bb9f1bcba747059ce2c7",
+    "commands_sha256": "da91da77b8e39be92247809c2d4a51203eefc01ea999a112b200a7a0c7cb9034",
+    "input_inventory_sha256": "eed851f61c64ad6afe110e3503fe6f7388e3b885ee2004a4cd260c763804b868",
+    "panel_manifest_sha256": "edb4b5457edae250a80d3862dc0be832df510f18f22ddbc0956d52c0e7838a3a",
+    "profile_sha256": "1b616e8883b11cd127b08f11b72e4a5913d4d30d37f25343847db5da1af415a9",
+    "proposal_independent_review_sha256": "dc6de292ecb51ffbbbd11c85a00d0e1ba6d059a8781bb13e1c32456f13c7ed55",
+    "proposal_manifest_sha256": "50c1a5bc55dc1882e1eb1c62a0034f2f16938729f71b0fa80101f7720dc67c6c"
+  },
+  "closure_audit_sha256": "3ee854a10b2652d19145f642a8c04bf39852a414f1cff296c57b19ccb30702c9",
+  "closure_recorded_checks": 23142,
+  "closure_review_sha256": "000e3b31ac451397dc4d3b57c23ad4ea8126f29c7b029fd8650aced299416e6b",
+  "control_file_hashes": {
+    "archive-scope.json": "1623b1b1166e6abbecb881533cb701c7598a33afe560bfcf67ea049b0a16dd34",
+    "artifacts.json": "f679042ed9d05e36026ca28e8cd8fb3b1427f9afe620ab40f15d46a9b64fea36",
+    "compile-complete.json": "e2202fb87d46597322a6c843633f1a34c6e302b380e147becd278003dc6ec1ea",
+    "cpu-observations.json": "f3905aa65a40a57a29565d38cbe5dad9b753d22d292ca78b8022f609a6138ed7",
+    "origin.json": "71ca2e5c105cebaaddec33921a20e680a66ec9d41e158638f50ca28172e34a91",
+    "supervision.json": "8e4c1171ae60a2ef3e57e3c9f72732601c510c16ed7728f85f7f29f5b4d52d05"
+  },
+  "cross_host_CI_rebuild_equality_demonstrated": false,
+  "emitted_recorded_checks": 94,
+  "external_exit_receipt_sha256": {
+    "preferred_v2": "60b70e20296abef0cefcb50c93b301f2ff40084f7cab272cec5a759e1f0bce53",
+    "preserved_v1": "3957b55ef809d19a0eda18c92d6af1ae582018ba6f60c2a9292e5f6a4630194c"
+  },
+  "final189artifact_rehash_after_report": true,
+  "host_activation_requires_exact_delta_review_and_manifest_rebind": true,
+  "host_sources_still_disabled": true,
+  "limits": [
+    "owned-group cleanup does not prove absence of escaped descendants",
+    "sampled resource evidence is not a hard aggregate quota; unsampled exited processes and transients may be missed",
+    "saved CPU precedes final publication; exact external whole-launch wall not measured",
+    "Wasm/LLVM evidence does not prove Chrome NaN payload choice, native register allocation or runtime dispatcher/phase/worker behavior",
+    "same complete asset identity is required before Chrome, followed by all prespecified330 qualification and600 timing calls with unchanged gates"
+  ],
+  "new_operator_calls": 0,
+  "open_blockers": [],
+  "performance_or_advancement_claim": false,
+  "post_compile_asset_modification_or_normalization": false,
+  "prohibited_review_invocation_attempts": [],
+  "review_files": {
+    "B-callback.wat.txt": "04b6df2586a824cacd385e9bea57df23c4c4bbc51bbb45079f9f7158508fc140",
+    "P-callback.wat.txt": "42ef593222321798d0298655490b9c656b4c492cbdc6b12d803cbbef40cd2de3",
+    "Q-callback.wat.txt": "761d5c5df6920bda7cec6fcb46e06be0f5064ae986b27c97441f76ae9eb5eb7a",
+    "REVIEW.md": "d97a64050df29bb647dbed41cf69639f45fd9bc99d03f3fb35ad5c60d3366526",
+    "audit_emitted.py": "d643d694d9357794c3692334b55eedc26ba6f54e19dd9d55d5cd4beabe4ce036",
+    "emitted-audit.json": "2be157920484ceb313620bde361dcd644354527ba4a8d27de0dcd6b18ab8823e"
+  },
+  "reviewed_at_utc": "2026-10-12T00:55:30Z",
+  "root_GO_sha256": "8d30728e7c3f07e143947eaa21e3c7a92981536cd046ce2a411fc7c9af9941de",
+  "runtime_browser_model_ci_publication_authority": false,
+  "schema": "independent-panel-compile-and-emitted-admission-v1",
+  "source_admission_sha256": "0780b9e6657a3f4eb04a2bd1ac83cba59b3443b87ab482afbb73ec4ff5977f32",
+  "status": "PASS_COMPILE_CLOSURE_AND_STATIC_EMITTED_ADMISSION",
+  "whole_wasm_sha256": {
+    "A": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce",
+    "B": "6e0d7af74d1d7ddd1ee88a6baa1dd61eacd84c0d9808e27fb275fd7c7231bd60",
+    "P": "b515a39e82e65fd9089778b6a58cb75094ad793d97a3b7091ad97cd2e289cf87",
+    "Q": "f2f67abb44c8bcfa88ec971345053399639f21bc277a1a52d40dc7745327a254",
+    "R": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce"
+  }
+}

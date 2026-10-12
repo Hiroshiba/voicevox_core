@@ -1,0 +1,87 @@
+{
+  "authoritative_validator": "tools/transition.py",
+  "browser_provisioning": {
+    "archive_and_installed_roster_verified_before_any_browser": true,
+    "cross_host_binary_reproducibility_claim": false,
+    "identity_scope": "acquired_once_and_pinned_within_ci_job",
+    "policy": "launch/browser-acquisition-policy.json",
+    "product_v8_and_off_flag_verified_before_operator_work": true,
+    "runtime_identity_fields": [
+      "chrome_distribution_sha256",
+      "chrome_executable_sha256",
+      "chrome_support_tree_sha256",
+      "browser_installation_receipt_sha256"
+    ],
+    "validator": "tools/build_driver.py:validate_browser_provisioning_receipt"
+  },
+  "call_fields": [
+    "call",
+    "commands",
+    "checks",
+    "evidence",
+    "duration_ms",
+    "worker_failure",
+    "resource_windows"
+  ],
+  "command_order": [
+    "prepare",
+    "run",
+    "verify",
+    "delete"
+  ],
+  "evidence_fields": [
+    "geometry",
+    "fixture_sha256",
+    "run_ack",
+    "output",
+    "readonly",
+    "packed",
+    "witnesses",
+    "coverage",
+    "canaries",
+    "stack"
+  ],
+  "execution_authority": "explicit_root_GO_and_independent_source_review_only",
+  "mandatory_invariants": [
+    "exact full schedule and integer types",
+    "every expected field present, unknown fields rejected",
+    "all acknowledgements before acceptance",
+    "same reviewed source/assets/engine and sealed observed host",
+    "fixed memory and complete readonly/canary comparison extents",
+    "single global phase record per D carried through transition and roots",
+    "actual two participants and complete disjoint callback grid",
+    "complete fixture specific witnesses and exact raw output words",
+    "complete startup-through-cleanup owned phase observations",
+    "retained whole assets rehashed before flag probes and operator work",
+    "no raw tensor/pointer/model payload in Python receipts",
+    "no normalization, subset, fallback, retry or override",
+    "retained official browser archive and entire installed support tree rehashed before every probe/root and stage transition"
+  ],
+  "qualification": {
+    "calls": 330,
+    "comparison_words": 2340569088,
+    "comparisons": 297,
+    "competing_nan_designated_witnesses": 6144,
+    "references": 33,
+    "timing_samples": 0
+  },
+  "resource_window_fields": [
+    "command",
+    "retained",
+    "before",
+    "after",
+    "attempted",
+    "acknowledged"
+  ],
+  "schema": "panel-receipt-contract-v1",
+  "source_validation_is_execution_authority": false,
+  "status": "ACTIVATION_SOURCE_PREPARED_NO_RUNTIME_EVIDENCE",
+  "timing": {
+    "calls": 600,
+    "comparison_words": 4492001280,
+    "comparisons": 570,
+    "fresh_roots": 10,
+    "references": 30,
+    "retained_samples": 150
+  }
+}

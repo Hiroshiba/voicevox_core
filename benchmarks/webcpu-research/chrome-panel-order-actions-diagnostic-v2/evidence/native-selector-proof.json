@@ -1,0 +1,27 @@
+{
+  "schema": "chrome-panel-selector-source-binding-v1",
+  "status": "SOURCE_ONLY_NO_FRESH_NEGATIVE_PROBES",
+  "current_selector_before_assignment_sha256": "33a3c086fa8af39d21b647b11a735f49d7994d9727a256f118bc54a9ae0c2db5",
+  "current_selector_sha256": "084e8719ecffb4e2d838437a67a34543e464b643f727a0e1a57959ec93f69a33",
+  "guard_relation": "Every precondition and branch before the final task assignment is byte-identical to the accepted v3 selector. Only the historical third-arm C callback target becomes Q; B=1 and P=2 remain unchanged. Q=3 has no alternative selector.",
+  "historical_source_evidence": [
+    {
+      "path": "ks-blocking-qualification/harness/guard-cases.json",
+      "sha256": "b0f742f850768f33a4982b94f864ba5cc6373ab6ec9014e9492433dbb116632a",
+      "scope": "90 historical mutable negative descriptor cases"
+    },
+    {
+      "path": "ks-blocking-qualification/evidence/harness-source-tests.json",
+      "sha256": "d387ec107049d0827cf7724090e9b967c6745f80b7a26e43e24114a0cd2e69df",
+      "scope": "Historical integer and source checks only"
+    },
+    {
+      "path": "ks-blocking-qualification/launch/attempt/synthetic-receipt.json",
+      "sha256": "548de264bd7959ff2f9c0da13e06865d36c6c3a00db9274aa81c7d8958a38d8d",
+      "scope": "Historical Node qualification recorded90 guard cases,zero failures. It exercised R/A/B/P/C,not new Q or Chrome bundles. Referenced only; no runtime files copied or results inherited."
+    }
+  ],
+  "pre_setup_lifecycle": "Production reshape calls this selector after persistent indirection creation while ctx.c=NULL,ctx.a_offset=0,ctx.zero_size=0. Every new prepare verifies actual chosen callback and descriptor before setup. Setup then establishes output,actual modulo32 offset,and context zero_size528; every run/after validates live geometry. Operator allocation zero_size remains528 throughout.",
+  "new_runtime_scope": "Only the330 prescribed full-shape qualification calls. No new negative-descriptor probes,out-of-shape arithmetic,general-fallback qualification or local execution.",
+  "emitted_review_pending": true
+}

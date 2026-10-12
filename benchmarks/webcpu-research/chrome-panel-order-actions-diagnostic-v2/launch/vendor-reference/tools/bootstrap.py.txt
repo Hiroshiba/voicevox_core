@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Prepare a fresh source-only compile context; never build CORE or run models.
+
+Offline: --plan, --verify-vendor. Execution: --cache DIR --output FILE.
+The selected cache must be empty or owned by this bootstrap. Existing study
+caches are not a supported target. SDK installation and ORT configuration occur
+only on explicit execution. ORT builds only three generated ONNX header targets.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.metadata
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+VENDOR = ROOT / 'vendor'
+MANIFEST_SHA256 = '611acddc3a5e1f502132649b88de68fe4b34b994d2d09a4748c6d6d02ffe7b93'
+OWNER_NAME = '.actual-operator-bootstrap.json'
+DEPENDENCIES = {'cmake': '4.4.3', 'ninja': '1.13.2', 'libclang': '18.1.1'}
+RUNTIME = {
+    'url': 'https://github.com/Hiroshiba/onnxruntime-builder/releases/download/onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2/onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2.tgz',
+    'filename': 'onnxruntime-wasm-static-simd-threaded-xnnpack-1.23.2.tgz',
+    'sha256': '76182743b15a31e0d361432d8db297a78e3da64aad356730fe93576993af5a2a',
+    'bytes': 42870864,
+}
+SDK = {
+    'version': '4.0.8',
+    'commit': '419021fa040428bc69ef1559b325addb8e10211f',
+    'sha256': '26c3ef13fc8285a209fde5ac3e6eec17e2a24e59d6af76f92f54e6bf62998a72',
+    'bytes': 199058,
+}
+XNN_COMMIT = 'fe98e0b93565382648129271381c14d6205255e3'
+HEADER_TARGETS = ['gen_onnx_proto', 'gen_onnx_operators_proto', 'gen_onnx_data_proto']
+PATH_FIELDS = ('archive', 'sdk', 'activation', 'deps', 'source', 'compile_commands', 'em_cache')
+
+
+def require(value, message):
+    if not value:
+        raise ValueError(message)
+
+
+def file_sha(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def write_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    require(not path.is_symlink(), 'Refusing symlink output')
+    temporary = path.with_name(path.name + '.tmp')
+    require(not temporary.is_symlink(), 'Refusing symlink temporary output')
+    temporary.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n')
+    temporary.replace(path)
+
+
+def verify_vendor(directory=VENDOR):
+    directory = Path(directory).resolve()
+    manifest_path = directory / 'manifest.json'
+    require(file_sha(manifest_path) == MANIFEST_SHA256, 'Vendor manifest pin mismatch')
+    manifest = json.loads(manifest_path.read_text())
+    require(manifest.get('schema') == 'actual-operator-vendor-v1', 'Vendor schema mismatch')
+    require(len(manifest.get('files', {})) == 11, 'Vendor file scope mismatch')
+    for name, row in manifest['files'].items():
+        path = directory / name
+        require(not Path(name).is_absolute() and '..' not in Path(name).parts, 'Unsafe vendor path')
+        require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(directory), 'Missing or redirected vendor file: ' + name)
+        require(path.stat().st_size == row['bytes'] and file_sha(path) == row['sha256'], 'Vendor source pin mismatch: ' + name)
+    return manifest
+
+
+def module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    result = importlib.util.module_from_spec(spec)
+    sys.modules[name] = result
+    spec.loader.exec_module(result)
+    return result
+
+
+def load_helpers():
+    verify_vendor()
+    # The source helper imports two sibling modules. Never create bytecode in
+    # the immutable vendored tree, including on offline plan/import checks.
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(VENDOR / 'source'))
+    source = module(VENDOR / 'source/prepare_inplace_leaky_source.py', '_actual_bootstrap_source')
+    base = module(VENDOR / 'source/base/voicevox_webcpu_research.py', '_actual_bootstrap_base')
+    toolchain = module(VENDOR / 'toolchain/affine_toolchain.py', '_actual_bootstrap_toolchain')
+    require(source.PINS['emsdk_commit'] == SDK['commit'] and source.PINS['emsdk_version'] == SDK['version'], 'SDK/source pins disagree')
+    require(base.XNNPACK_ORT_URL == RUNTIME['url'] and base.ORT_ARCHIVE_SHA256[RUNTIME['filename']] == RUNTIME['sha256'], 'Runtime/source pins disagree')
+    for name, pin in (('inplace_leaky.patch', 'source_patch_sha256'), ('xnnpack-static-dependencies.patch', 'release_patch_sha256')):
+        require(file_sha(VENDOR / 'source' / name) == source.PINS[pin], 'Source patch pins disagree: ' + name)
+    return source, base, toolchain
+
+
+def plan():
+    source, _, _ = load_helpers()
+    return {
+        'schema': 'actual-operator-bootstrap-plan-v1',
+        'offline': True,
+        'performed_downloads': False,
+        'performed_configuration': False,
+        'performed_compilation': False,
+        'performed_execution': False,
+        'vendor_manifest_sha256': MANIFEST_SHA256,
+        'runtime_download': RUNTIME,
+        'sdk_source': {**SDK, 'url': 'https://github.com/emscripten-core/emsdk/archive/' + SDK['commit'] + '.tar.gz'},
+        'ort_source': {'commit': source.PINS['source_commit'], 'sha256': source.PINS['source_tar_sha256'], 'bytes': source.PINS['source_tar_bytes']},
+        'python_requirements': DEPENDENCIES,
+        'configuration_entrypoint': 'source.configure_source',
+        'generated_header_targets_only': HEADER_TARGETS,
+        'output_path_fields': list(PATH_FIELDS),
+        'scope': 'Fresh owned cache; pinned official archive and SDK; pinned ORT update/configuration plus generated headers; complete compiler/header provenance checks.',
+        'never_called': ['base.ensure_toolchains', 'affine_toolchain.ensure', 'source.prepare', 'base.build_runner'],
+        'not_evidence_of': ['fresh CI success', 'operator correctness', 'browser execution', 'timing', 'performance improvement'],
+    }
+
+
+def claim_cache(cache):
+    cache = Path(cache).expanduser().resolve()
+    require(not cache.is_relative_to(VENDOR.resolve()), 'Cache must not be inside vendor sources')
+    owner = {'schema': 'actual-operator-bootstrap-cache-v1', 'vendor_manifest_sha256': MANIFEST_SHA256}
+    marker = cache / OWNER_NAME
+    if cache.exists():
+        require(cache.is_dir(), 'Cache target is not a directory')
+        if any(cache.iterdir()):
+            require(marker.is_file() and not marker.is_symlink(), 'Refusing nonempty cache not owned by this bootstrap')
+            require(json.loads(marker.read_text()) == owner, 'Cache belongs to a different bootstrap source revision')
+    cache.mkdir(parents=True, exist_ok=True)
+    write_json(marker, owner)
+    return cache
+
+
+def clean_environment(source):
+    # Reject inherited SDK/compiler configuration by replacing it with this
+    # owned SDK. Keep the pinned strict flags provided by the source helper.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(('EMSDK', 'EMCC_', 'EMMAKEN_', 'EM_'))}
+    env = source.clean_environment(env)
+    env['PYTHONDONTWRITEBYTECODE'] = '1'
+    return env
+
+
+def bootstrap(cache, output):
+    source, base, toolchain = load_helpers()
+    require(os.name == 'posix' and sys.version_info >= (3, 12), 'POSIX and Python 3.12 or newer required')
+    require(shutil.which('cc') and shutil.which('c++') and shutil.which('git') and shutil.which('patch'), 'Native C/C++, git and patch are required')
+    for package, expected in DEPENDENCIES.items():
+        require(importlib.metadata.version(package) == expected, 'Install pinned package: ' + package + '==' + expected)
+    cache = claim_cache(cache)
+    output = Path(output).expanduser()
+    require(not output.is_symlink(), 'Refusing symlink output')
+    output = output.resolve()
+    require(not output.is_relative_to(VENDOR.resolve()), 'Output must not replace vendor sources')
+    # A failed new bootstrap must not leave a stale success manifest in place.
+    output.unlink(missing_ok=True)
+    activation = cache / 'activation'
+    activation.mkdir(exist_ok=True)
+    env = clean_environment(source)
+
+    release = base.cached_download(RUNTIME['url'], cache, RUNTIME['filename'], expected_sha256=RUNTIME['sha256'])
+    require(release.stat().st_size == RUNTIME['bytes'], 'Runtime release size mismatch')
+    runtime_root = base.unpack_cached(release, cache / 'runtime')
+    build_info = base.verify_threaded_runtime(runtime_root, xnnpack=True)
+    require(build_info.get('builder_commit') == source.PINS['archive_builder_commit'], 'Runtime builder lineage mismatch')
+    require(build_info.get('xnnpack_source_commit') == XNN_COMMIT, 'Runtime XNNPACK source mismatch')
+    archive = base.find_one(runtime_root, 'libonnxruntime_webassembly.a')
+    require(file_sha(archive) == source.PINS['pristine_runtime_archive_sha256'], 'Native runtime archive mismatch')
+
+    sdk_tar = base.cached_download('https://github.com/emscripten-core/emsdk/archive/' + SDK['commit'] + '.tar.gz', cache, 'emsdk-4.0.8.tar.gz', expected_sha256=SDK['sha256'])
+    require(sdk_tar.stat().st_size == SDK['bytes'], 'SDK source archive size mismatch')
+    sdk_tree = base.unpack_cached(sdk_tar, cache / 'sdk')
+    sdk = base.find_one(sdk_tree, 'emsdk.py').parent
+    # Provision only the official SDK. Deliberately avoid the generic helper's
+    # Rust/model/CORE preparation and the broader affine prepare entry point.
+    source.run([sys.executable, sdk / 'emsdk.py', 'install', SDK['version']], env=env, log=activation / 'sdk-install.log')
+    source.run([sys.executable, sdk / 'emsdk.py', 'activate', SDK['version']], env=env, log=activation / 'sdk-activate.log')
+    for name, expected in source.PINS['compiler_source_sha256'].items():
+        require(file_sha(sdk / name) == expected, 'SDK compiler source mismatch: ' + name)
+    node = base.find_one(sdk / 'node', 'node')
+    import clang.cindex
+    # Use the canonical SDK cache path: the complete pinned source dependency
+    # inventory includes this sysroot. All of it is in this owned fresh cache.
+    em_cache = sdk / 'upstream/emscripten/cache'
+    env.update(EMSDK=str(sdk), EM_CONFIG=str(sdk / '.emscripten'), EMSDK_NODE=str(node),
+               EMSDK_PYTHON=sys.executable, EM_CACHE=str(em_cache),
+               LIBCLANG_PATH=str(Path(clang.cindex.__file__).parent / 'native'))
+    env['PATH'] = os.pathsep.join((str(Path(sys.executable).parent), str(sdk / 'upstream/emscripten'), str(node.parent), env['PATH']))
+
+    # Same narrow source-only path as the accepted configure_source_only
+    # provenance helper. Official-installer mode preserves the ORT driver.
+    provisioning = toolchain.configure_driver(base, source, cache, activation, env, 'official_installer')
+    roots, _ = source.configure_source(base, cache, activation, env)
+    compiler = source.compiler_provenance(roots, env)
+    commands = roots['build'] / 'compile_commands.json'
+    require(commands.is_file(), 'Missing source-only compilation database')
+    receipt_path = cache / 'bootstrap-receipt.json'
+    receipt = {
+        'schema': 'actual-operator-bootstrap-receipt-v1',
+        'vendor_manifest_sha256': MANIFEST_SHA256,
+        'configured': True, 'generated_header_targets': HEADER_TARGETS,
+        'full_runtime_built': False, 'core_linked': False, 'models_downloaded': False,
+        'rust_installed': False, 'inference_executed': False, 'performance_measured': False,
+        'runtime_download': RUNTIME, 'native_archive_sha256': file_sha(archive),
+        'runtime_build_info': build_info,
+        'sdk_source': SDK, 'sdk_mode': 'official_installer',
+        'toolchain_provisioning': provisioning, 'compiler_provenance': compiler,
+        'python_requirements': DEPENDENCIES,
+    }
+    write_json(receipt_path, receipt)
+    paths = {
+        'schema': 'actual-operator-toolchain-paths-v1',
+        'archive': str(archive), 'sdk': str(sdk), 'activation': str(activation),
+        'deps': str(roots['dependencies']), 'source': str(roots['source']),
+        'compile_commands': str(commands), 'em_cache': str(em_cache),
+        'node': str(node), 'proofdir': str(VENDOR / 'source'),
+        'vendor_manifest_sha256': MANIFEST_SHA256,
+        'bootstrap_receipt': str(receipt_path), 'bootstrap_receipt_sha256': file_sha(receipt_path),
+    }
+    require(all(Path(paths[name]).is_absolute() and Path(paths[name]).exists() for name in PATH_FIELDS), 'Incomplete toolchain paths')
+    write_json(output, paths)
+    return {'configured': True, 'core_linked': False, 'inference_executed': False,
+            'performance_measured': False, 'toolchain_paths': str(output)}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cache', type=Path)
+    parser.add_argument('--output', type=Path, default=ROOT / 'build/toolchain-paths.json')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--plan', action='store_true')
+    mode.add_argument('--verify-vendor', action='store_true')
+    args = parser.parse_args(argv)
+    if args.plan:
+        value = plan()
+    elif args.verify_vendor:
+        value = {'verified': True, 'files': len(verify_vendor()['files']), 'vendor_manifest_sha256': MANIFEST_SHA256, 'execution_performed': False}
+    else:
+        if args.cache is None:
+            parser.error('--cache is required for source-only preparation; use --plan for offline inspection')
+        value = bootstrap(args.cache, args.output)
+    print(json.dumps(value, sort_keys=True, indent=2))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

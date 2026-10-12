@@ -1,0 +1,104 @@
+{
+  "environment_preconditions": {
+    "PLAYWRIGHT_LEGACY_SCREENSHOT": "absent_in_closed_phase_environment",
+    "PWDEBUG": "absent_in_closed_phase_environment",
+    "SELENIUM_REMOTE_URL": "absent_in_closed_phase_environment"
+  },
+  "fixed_launch_options": {
+    "args": [
+      "--js-flags=--no-wasm-revectorize"
+    ],
+    "chromium_sandbox": false,
+    "executable_path": "admitted_once_acquired_and_rehashed_Chrome_executable",
+    "headless": true,
+    "ignore_default_args": false,
+    "persistent_context": false,
+    "proxy": null
+  },
+  "identity_policy": {
+    "accepted_flags": [
+      "--js-flags=--no-wasm-revectorize"
+    ],
+    "architecture": "x86_64",
+    "chrome_product": "HeadlessChrome/153.0.8010.12",
+    "collection_method": "proc_cpuinfo_chrome_bytes_cdp_v1",
+    "launch_argv_policy": [
+      "<ADMITTED_CHROME_EXECUTABLE>",
+      "--disable-field-trial-config",
+      "--disable-background-networking",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-back-forward-cache",
+      "--disable-breakpad",
+      "--disable-client-side-phishing-detection",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-component-update",
+      "--no-default-browser-check",
+      "--disable-default-apps",
+      "--disable-dev-shm-usage",
+      "--disable-edgeupdater",
+      "--disable-extensions",
+      "--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion",
+      "--enable-features=CDPScreenshotNewSurface",
+      "--allow-pre-commit-input",
+      "--disable-hang-monitor",
+      "--disable-ipc-flooding-protection",
+      "--disable-popup-blocking",
+      "--disable-prompt-on-repost",
+      "--disable-renderer-backgrounding",
+      "--disable-updater-scheduler",
+      "--force-color-profile=srgb",
+      "--metrics-recording-only",
+      "--no-first-run",
+      "--password-store=basic",
+      "--use-mock-keychain",
+      "--no-service-autorun",
+      "--export-tagged-pdf",
+      "--disable-search-engine-choice-screen",
+      "--unsafely-disable-devtools-self-xss-warnings",
+      "--edge-skip-compat-layer-relaunch",
+      "--disable-infobars",
+      "--disable-search-engine-choice-screen",
+      "--disable-sync",
+      "--enable-unsafe-swiftshader",
+      "--headless",
+      "--hide-scrollbars",
+      "--mute-audio",
+      "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+      "--no-sandbox",
+      "--js-flags=--no-wasm-revectorize",
+      "--user-data-dir=<OWNED_PROFILE_DIR>",
+      "--remote-debugging-pipe",
+      "--no-startup-window"
+    ],
+    "os": "Linux",
+    "v8_version": "15.3.76.4"
+  },
+  "no_runtime_success_claim": true,
+  "pinned_core_bundle": {
+    "bytes": 3477183,
+    "name": "driver/package/lib/coreBundle.js",
+    "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171"
+  },
+  "playwright_version": "1.63.0",
+  "schema": "panel-source-derived-chrome-argv-policy-v1",
+  "source_sections": {
+    "browserType.ts": [
+      39748,
+      39815
+    ],
+    "chromium.ts": [
+      43317,
+      43368
+    ],
+    "chromiumSwitches.ts": [
+      34816,
+      34916
+    ]
+  },
+  "status": "prospective_source_derived_no_browser_probe",
+  "variable_fields": {
+    "index_0": "exact owned installation executable substituted before stage admission; executable bytes rehashed before launch",
+    "user_data_dir": "fixed stage tmp root plus playwright_chromiumdev_profile- and bounded ASCII suffix; never a learned normalization"
+  }
+}

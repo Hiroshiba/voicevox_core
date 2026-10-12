@@ -1,0 +1,81 @@
+"""Optional reuse of an explicitly selected, fully pinned installed SDK."""
+from pathlib import Path
+import ast, os, shutil, sys
+
+DRIVER_SHA = '8217445502c9072362ee0961194747ad15f3828eeb17458fbc471b33e53465a1'
+OLD = '''            log.info("Installing emsdk...")
+            run_subprocess([emsdk_file, "install", emsdk_version], cwd=emsdk_dir)
+            log.info("Activating emsdk...")
+            run_subprocess([emsdk_file, "activate", emsdk_version], cwd=emsdk_dir)'''
+NEW = '''            log.info("Installing emsdk...")
+            log.info("Local CT integration: reuse separately verified Emscripten 4.0.8; SDK install omitted")
+            log.info("Activating emsdk...")
+            log.info("Local CT integration: reuse separately verified Emscripten 4.0.8; SDK activate omitted")'''
+
+
+
+def parse_sdk_config(text, sdk, require):
+    config = {}
+    for node in ast.parse(text).body:
+        require(isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name), 'Explicit SDK config must contain only literal assignments')
+        key=node.targets[0].id
+        require(key in {'LLVM_ROOT','BINARYEN_ROOT','NODE_JS'} and key not in config, 'Unexpected or duplicate SDK config key')
+        try:value=ast.literal_eval(node.value)
+        except (ValueError,TypeError,SyntaxError):raise ValueError('Explicit SDK config assignment must be literal') from None
+        config[key]=value
+    require(set(config)=={'LLVM_ROOT','BINARYEN_ROOT','NODE_JS'}, 'Explicit SDK config requires LLVM, Binaryen and Node roots')
+    for key,expected in [('LLVM_ROOT',sdk/'upstream/bin'),('BINARYEN_ROOT',sdk/'upstream')]:
+        require(isinstance(config[key],str) and Path(config[key]).is_absolute() and Path(config[key]).resolve()==expected.resolve(), 'Explicit SDK config tool root mismatch')
+    node=config['NODE_JS']
+    if isinstance(node,list):
+        require(len(node)==1, 'Explicit SDK Node invocation must have no extra arguments');node=node[0]
+    require(isinstance(node,str) and Path(node).is_absolute() and Path(node).is_file(), 'Explicit SDK requires an installed Node executable')
+    return node
+
+
+def ensure(base, source, cache, sdk_path=None):
+    if sdk_path is None:
+        return source.clean_environment(base.ensure_toolchains(cache)), 'official_installer'
+    sdk = Path(sdk_path).expanduser().resolve()
+    source.require(sdk.is_dir() and (sdk / '.emscripten').is_file(), 'Explicit SDK missing activated configuration')
+    for name,digest in source.PINS['compiler_source_sha256'].items():
+        source.require(source.file_sha(sdk/name)==digest, 'Explicit SDK compiler source mismatch')
+    source.require(source.PINS['llvm_commit'] in source.run([sdk/'upstream/bin/clang','--version']), 'Explicit SDK LLVM commit mismatch')
+    node = parse_sdk_config((sdk/'.emscripten').read_text(), sdk, source.require)
+    source.require(shutil.which('cc') and shutil.which('c++'), 'Native C/C++ compiler required')
+    import clang.cindex
+    env = source.clean_environment(dict(os.environ))
+    env.update(RUSTUP_HOME=str(cache/'rustup'), CARGO_HOME=str(cache/'cargo'),
+               LIBCLANG_PATH=str(Path(clang.cindex.__file__).parent/'native'),
+               EMSDK=str(sdk), EM_CONFIG=str(sdk/'.emscripten'), EMSDK_NODE=node, EMSDK_PYTHON=sys.executable)
+    env['PATH']=os.pathsep.join([str(cache/'cargo/bin'),str(sdk/'upstream/emscripten'),str(Path(node).parent),env['PATH']])
+    rustup=cache/'cargo/bin/rustup'
+    if not rustup.is_file():
+        _, triple=base.native_platform()
+        installer=base.cached_download(f'https://static.rust-lang.org/rustup/dist/{triple}/rustup-init',cache,'rustup-init')
+        installer.chmod(0o755)
+        source.run([installer,'-y','--no-modify-path','--profile','minimal','--default-toolchain',base.RUST_VERSION,'--target','wasm32-unknown-emscripten'],env=env)
+    source.run([rustup,'toolchain','install',base.RUST_VERSION,'--profile','minimal','--target','wasm32-unknown-emscripten','--component','rust-src'],env=env)
+    version=source.run([cache/'cargo/bin/rustc','+'+base.RUST_VERSION,'--version'],env=env)
+    source.require(version.startswith('rustc 1.96.0 '), 'Explicit SDK mode Rust version mismatch')
+    return env, 'verified_preinstalled_sdk'
+
+
+def configure_driver(base, source, cache, activation, env, mode):
+    """The optional adapter skips only redundant SDK provisioning, never compilation."""
+    commit=source.PINS['source_commit']
+    archive=base.cached_download(f'https://codeload.github.com/microsoft/onnxruntime/tar.gz/{commit}',cache,
+                                 f'onnxruntime-{commit}.tar.gz',expected_sha256=source.PINS['source_tar_sha256'])
+    tree=base.unpack_cached(archive,activation/'sources')
+    driver=tree/('onnxruntime-'+commit)/'tools/ci_build/build.py'
+    text=driver.read_text()
+    if NEW in text:
+        source.require(text.count(NEW)==1 and source.sha(text.replace(NEW,OLD).encode())==DRIVER_SHA, 'Prior SDK adapter differs')
+        text=text.replace(NEW,OLD)
+    source.require(source.sha(text.encode())==DRIVER_SHA and text.count(OLD)==1, 'Pinned ORT build driver changed')
+    if mode=='verified_preinstalled_sdk':text=text.replace(OLD,NEW)
+    else:source.require(mode=='official_installer','Unsupported toolchain mode')
+    driver.write_text(text)
+    return {'mode':mode,'original_ort_build_driver_sha256':DRIVER_SHA,
+            'configured_ort_build_driver_sha256':source.file_sha(driver),
+            'compiler_and_ir_pins_unchanged':True}

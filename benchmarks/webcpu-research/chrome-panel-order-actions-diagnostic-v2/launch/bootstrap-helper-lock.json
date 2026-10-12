@@ -1,0 +1,1772 @@
+{
+  "donor_manifest_sha256": "611acddc3a5e1f502132649b88de68fe4b34b994d2d09a4748c6d6d02ffe7b93",
+  "donor_source_files": [
+    {
+      "bytes": 13610,
+      "name": "tools/bootstrap.py",
+      "packaged_reference": "launch/vendor-reference/tools/bootstrap.py.txt",
+      "sha256": "ff8e9c80c3e89c5f62678a9f4c399fc574f0c9ddd3d4791004fd698067ab2bf7"
+    },
+    {
+      "bytes": 59976,
+      "name": "vendor/browser/affine_browser.py",
+      "packaged_reference": "launch/vendor-reference/vendor/browser/affine_browser.py.txt",
+      "sha256": "7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc"
+    },
+    {
+      "bytes": 37840,
+      "name": "vendor/browser/attribution_browser.py",
+      "packaged_reference": "launch/vendor-reference/vendor/browser/attribution_browser.py.txt",
+      "sha256": "6db16d7a19ff6ba56e6ed259b7d29c5665fc7ea56e832b57ca8b05036df773df"
+    },
+    {
+      "bytes": 2692,
+      "name": "vendor/manifest.json",
+      "packaged_reference": "launch/vendor-reference/vendor/manifest.json.txt",
+      "sha256": "611acddc3a5e1f502132649b88de68fe4b34b994d2d09a4748c6d6d02ffe7b93"
+    },
+    {
+      "bytes": 5626,
+      "name": "vendor/source/base/kernel/make_archive_variants.py",
+      "packaged_reference": "launch/vendor-reference/vendor/source/base/kernel/make_archive_variants.py.txt",
+      "sha256": "183468c51a29746ae50871e2f637ab2fc4c941294358b4531f78c854ea067647"
+    },
+    {
+      "bytes": 193894,
+      "name": "vendor/source/base/voicevox_webcpu_research.py",
+      "packaged_reference": "launch/vendor-reference/vendor/source/base/voicevox_webcpu_research.py.txt",
+      "sha256": "d35499049d49bd8bdfef62f9a4ba788da6b36066ef324ce722833d41c1fb5dfe"
+    },
+    {
+      "bytes": 4284,
+      "name": "vendor/source/callback_discovery.py",
+      "packaged_reference": "launch/vendor-reference/vendor/source/callback_discovery.py.txt",
+      "sha256": "e9472d5115159ce9e3293a1ac82352a8e24841c1fdae709efa96315935027977"
+    },
+    {
+      "bytes": 1476,
+      "name": "vendor/source/inplace_leaky.patch",
+      "packaged_reference": "launch/vendor-reference/vendor/source/inplace_leaky.patch.txt",
+      "sha256": "154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd"
+    },
+    {
+      "bytes": 37685,
+      "name": "vendor/source/prepare_inplace_leaky_source.py",
+      "packaged_reference": "launch/vendor-reference/vendor/source/prepare_inplace_leaky_source.py.txt",
+      "sha256": "455315f69283a223538a4d8f6a3c624011008a3bb0e5cb53ab5aa787a2a79afe"
+    },
+    {
+      "bytes": 282961,
+      "name": "vendor/source/source_pins.json",
+      "packaged_reference": "launch/vendor-reference/vendor/source/source_pins.json.txt",
+      "sha256": "8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc"
+    },
+    {
+      "bytes": 13388,
+      "name": "vendor/source/source_proof.py",
+      "packaged_reference": "launch/vendor-reference/vendor/source/source_proof.py.txt",
+      "sha256": "5209cad45e355afb42eba8f199e1c1639aaf7834ce0127558bc7447e611d9fdd"
+    },
+    {
+      "bytes": 8407,
+      "name": "vendor/source/xnnpack-static-dependencies.patch",
+      "packaged_reference": "launch/vendor-reference/vendor/source/xnnpack-static-dependencies.patch.txt",
+      "sha256": "5af16bc0cd746b6bc666b225972cbae3ad524d4ae22b36302bdfbf1270458b2a"
+    },
+    {
+      "bytes": 5498,
+      "name": "vendor/toolchain/affine_toolchain.py",
+      "packaged_reference": "launch/vendor-reference/vendor/toolchain/affine_toolchain.py.txt",
+      "sha256": "a1650fe45ab15e5c9eb3e7883b296d5d72b44c1ae05ffeb37c9d0ef4ae972efd"
+    }
+  ],
+  "no_import_install_execution": true,
+  "runtime_helper_packages": {
+    "greenlet": {
+      "bytecode_policy": "no __pycache__ or .pyc allowed in future installed runtime tree",
+      "package_files": [
+        {
+          "bytes": 3652,
+          "name": "CObjects.cpp",
+          "sha256": "770ae1393bbfeb607e03ece2f6cb1df3d1fa019caaf3622b75d7a69f6ab1f6a3"
+        },
+        {
+          "bytes": 28229,
+          "name": "PyGreenlet.cpp",
+          "sha256": "b39958128526967819cccdef275e9bf8607f174902cbc14c480345fd48f0b689"
+        },
+        {
+          "bytes": 1463,
+          "name": "PyGreenlet.hpp",
+          "sha256": "d994253b160da32ed0c03ee6a691683977bf02de7a348b09d1e36c13f8684acc"
+        },
+        {
+          "bytes": 4156,
+          "name": "PyGreenletUnswitchable.cpp",
+          "sha256": "5f1a6a3da40b3976847164d37ca312f11eceb1adf2ce9ec1fd061b173c5cd1c9"
+        },
+        {
+          "bytes": 8794,
+          "name": "PyModule.cpp",
+          "sha256": "64a4fa28d831aa62c2160b9c88dc3208f2fce29410b5321c2d77dbb839d2267d"
+        },
+        {
+          "bytes": 1021,
+          "name": "TBrokenGreenlet.cpp",
+          "sha256": "b26376eae0bb6a101b358892d74aed58f8c27931b88debccf2c880dac8c98978"
+        },
+        {
+          "bytes": 1359,
+          "name": "TExceptionState.cpp",
+          "sha256": "53b0adc3d7c174dada4b4775ef8328416edb37e69edb4f536b426e88aa5ca552"
+        },
+        {
+          "bytes": 26390,
+          "name": "TGreenlet.cpp",
+          "sha256": "3018023703f4c914c56ca84e14025d04eb7e2006f0d15b58e2b5315d4df2a3b3"
+        },
+        {
+          "bytes": 30302,
+          "name": "TGreenlet.hpp",
+          "sha256": "af90fcb5052cbde9e98252c18079d0108dfb956a32ccc92bdd5c228f9e3886f7"
+        },
+        {
+          "bytes": 3930,
+          "name": "TGreenletGlobals.cpp",
+          "sha256": "0268f488e3ff254a9f0df61eaadc3f2b82a535c291d9ca831ae53a03a5bc9c9b"
+        },
+        {
+          "bytes": 3593,
+          "name": "TMainGreenlet.cpp",
+          "sha256": "8211073dd8c09dcd5e31c128f1a834d1f64f47f25e33c6896f2f25fc841ec2d7"
+        },
+        {
+          "bytes": 25879,
+          "name": "TPythonState.cpp",
+          "sha256": "2937f9d3fbd8764df1ee6ad10c9d8dcf3e989035986ddfa78ca6ec6d88384f63"
+        },
+        {
+          "bytes": 7381,
+          "name": "TStackState.cpp",
+          "sha256": "578e3823c263f43850cfef657955bff5db624918da13534c9600c6d365f1abe6"
+        },
+        {
+          "bytes": 23902,
+          "name": "TThreadState.hpp",
+          "sha256": "b46670b15f035afedc674741f1c52e05131762b7471499e26a8f2075fa0c6132"
+        },
+        {
+          "bytes": 2767,
+          "name": "TThreadStateCreator.hpp",
+          "sha256": "588392753d04cba285aa733daa3dc3f79b3dabb91416c4d20601101b76db7c92"
+        },
+        {
+          "bytes": 8178,
+          "name": "TThreadStateDestroy.cpp",
+          "sha256": "b145a3bc9e214fd9db25dea4f492f08c3a8572fd9374568efd7f5de3545b8281"
+        },
+        {
+          "bytes": 24485,
+          "name": "TUserGreenlet.cpp",
+          "sha256": "2447bc77a66eb26d93b1b2161ec46fddb83b0d16d31af5d3d1b5f7757dc3cb2b"
+        },
+        {
+          "bytes": 1442,
+          "name": "__init__.py",
+          "sha256": "0262f8c1fe8973d3c0d6f559826ee915ce5ecf788f3be1fc31e8338ed24a3ad2"
+        },
+        {
+          "bytes": 1383880,
+          "name": "_greenlet.cpython-312-x86_64-linux-gnu.so",
+          "sha256": "a39d6693c3aee88d76b6156e2fe915639bd47b0106c88676efa96ccb62df4e65"
+        },
+        {
+          "bytes": 11088,
+          "name": "greenlet.cpp",
+          "sha256": "0b2dd6bd8b1073db7a2b78565188f10329a43d6f8a1af132c9b195a2ce0f0282"
+        },
+        {
+          "bytes": 4755,
+          "name": "greenlet.h",
+          "sha256": "b33e69611490a9e7603add80320c4b65d4e33bea9caff24cbe0884251f48009f"
+        },
+        {
+          "bytes": 1835,
+          "name": "greenlet_allocator.hpp",
+          "sha256": "9f6f2bc23efa4554a7ec1e500c0d349cbf0e0637c57a238cd501ab56b1e17ec9"
+        },
+        {
+          "bytes": 4346,
+          "name": "greenlet_compiler_compat.hpp",
+          "sha256": "9d1c692cdf6235b9cb57214379598ec3279e366eac710ace79dd65ec94183023"
+        },
+        {
+          "bytes": 3325,
+          "name": "greenlet_cpython_compat.hpp",
+          "sha256": "328d98a9cbd9b02ed96964135ce2fba327e94a3a3eee7131321bacd0a5f1d935"
+        },
+        {
+          "bytes": 4503,
+          "name": "greenlet_exceptions.hpp",
+          "sha256": "d3a071f350ed55a2536ba46d88c715d78d5bf971efe29a4481522d91b95c2d66"
+        },
+        {
+          "bytes": 2768,
+          "name": "greenlet_internal.hpp",
+          "sha256": "602aa717ab5b8960e5227362679014f511bc882ddd425185afc964fc932d6364"
+        },
+        {
+          "bytes": 4913,
+          "name": "greenlet_msvc_compat.hpp",
+          "sha256": "dc3b2e8817948b84a4648c46242e1e4ae945a9667d661c592e5b3421ed4e4425"
+        },
+        {
+          "bytes": 38067,
+          "name": "greenlet_refs.hpp",
+          "sha256": "3aeb2e4c6c8785c2c4a86a2a570f5502c16f43a301bcefc0806a462a47263d80"
+        },
+        {
+          "bytes": 3298,
+          "name": "greenlet_slp_switch.hpp",
+          "sha256": "4f563ec34d7204196378f8878146960acdd765276d1d2aed2efbe431714350de"
+        },
+        {
+          "bytes": 867,
+          "name": "greenlet_thread_support.hpp",
+          "sha256": "5d427a9635a37fd398cae3882e2cfc7bfc87bd3ddf6da5221dd8623cd414578b"
+        },
+        {
+          "bytes": 0,
+          "name": "platform/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 143,
+          "name": "platform/setup_switch_x64_masm.cmd",
+          "sha256": "6690a5509794d2e8c43d24d63527a93f45b67fd5e2610280f10292a15a2ef045"
+        },
+        {
+          "bytes": 4307,
+          "name": "platform/switch_aarch64_gcc.h",
+          "sha256": "18a0b4c963579db2b65fef97e9a82e442323d9383b8435356649774658c3bc2f"
+        },
+        {
+          "bytes": 671,
+          "name": "platform/switch_alpha_unix.h",
+          "sha256": "67e4af17c250577a31593f0945b2fd445bb88111713dd27b72f88cf186b2326c"
+        },
+        {
+          "bytes": 2748,
+          "name": "platform/switch_amd64_unix.h",
+          "sha256": "11c485081968744061aa12a3709a98ff90e7fe39fba4aa642653afa7b8055cb2"
+        },
+        {
+          "bytes": 2479,
+          "name": "platform/switch_arm32_gcc.h",
+          "sha256": "6772a41eccdd82aeae53860ddc1c6f28c1b601d0e7a2fc0208daea1966752f2a"
+        },
+        {
+          "bytes": 1892,
+          "name": "platform/switch_arm32_ios.h",
+          "sha256": "9a6e7f47d69707dda1cb1cc547007bd4ceb41fa025bc78eba53adcef63f3de5f"
+        },
+        {
+          "bytes": 1245,
+          "name": "platform/switch_arm64_masm.asm",
+          "sha256": "e24a53b5fcbbadf72bf23d42a492c02b6d44b59a460c025759153af07132e40f"
+        },
+        {
+          "bytes": 746,
+          "name": "platform/switch_arm64_masm.obj",
+          "sha256": "0e62e7201fe2728107033d676ae7bfa493d366047d12533bf8d9b3b6bfa8f7f5"
+        },
+        {
+          "bytes": 398,
+          "name": "platform/switch_arm64_msvc.h",
+          "sha256": "46a2b93072e65c8dd0f8543bb66df62969db0cd64a9e425dabc091f3d733eb8d"
+        },
+        {
+          "bytes": 1331,
+          "name": "platform/switch_csky_gcc.h",
+          "sha256": "9038a4ca23e97b03fbd4aa016503bf32e9034d74d70620bbc7e845d3fd832f4c"
+        },
+        {
+          "bytes": 779,
+          "name": "platform/switch_loongarch64_linux.h",
+          "sha256": "eccf8385ce10f2d45b2422616a50cbc14e92f4cc7c32398dd516d30e022f4133"
+        },
+        {
+          "bytes": 928,
+          "name": "platform/switch_m68k_gcc.h",
+          "sha256": "5526ba369661bf2caf17e439f024c8592a440e8e052b280ec93cf4d3085cb65c"
+        },
+        {
+          "bytes": 1462,
+          "name": "platform/switch_mips_unix.h",
+          "sha256": "0ec6cd2e1dcd75edd68672b977035a56ef6beb48805a80b211e9b1c0104e1c12"
+        },
+        {
+          "bytes": 3860,
+          "name": "platform/switch_ppc64_aix.h",
+          "sha256": "fc12f48b246bdd903988f96bdee93d489e6c35158660bad7719e73f8213d6a71"
+        },
+        {
+          "bytes": 3815,
+          "name": "platform/switch_ppc64_linux.h",
+          "sha256": "d2bae24f95f2c4f6f41aab124a7fdb3fd890b278ec3db066bb4caaa398284b24"
+        },
+        {
+          "bytes": 2941,
+          "name": "platform/switch_ppc_aix.h",
+          "sha256": "a47038b251235053f72774989b54c094d3e181bd86fcf02d6b1e5c3bc0447b50"
+        },
+        {
+          "bytes": 2759,
+          "name": "platform/switch_ppc_linux.h",
+          "sha256": "630ae5294cf1957ba228c42aafa305015d5b3f35a79af93a5f502a2591293965"
+        },
+        {
+          "bytes": 2624,
+          "name": "platform/switch_ppc_macosx.h",
+          "sha256": "67a28dfee7749fa9c2de5b49acdcf6aadbc447abe7440551347f667480e93316"
+        },
+        {
+          "bytes": 2652,
+          "name": "platform/switch_ppc_unix.h",
+          "sha256": "f991bb31248f100e4de2a3bd3d00a1b72109f859baa889e1c999bf6411d3b4c8"
+        },
+        {
+          "bytes": 949,
+          "name": "platform/switch_riscv_unix.h",
+          "sha256": "eb4e95e800837fbf45cff58622d9e481b8c8274a4683fb0798fc83c5060a2b9f"
+        },
+        {
+          "bytes": 2763,
+          "name": "platform/switch_s390_unix.h",
+          "sha256": "451946bbde7bc9b9aaf79a8d358e10c3599c6a84f77819d6e4a6d5c2ee3c297f"
+        },
+        {
+          "bytes": 901,
+          "name": "platform/switch_sh_gcc.h",
+          "sha256": "99c449053bbed9405fe2466d5fad35aa87f0b83bb2f98fa19f126dadc681edda"
+        },
+        {
+          "bytes": 2797,
+          "name": "platform/switch_sparc_sun_gcc.h",
+          "sha256": "c598ac87d1ac3070627a751b50cb17d7e659f9ab3b86cdfab15858204ddec3c6"
+        },
+        {
+          "bytes": 1509,
+          "name": "platform/switch_x32_unix.h",
+          "sha256": "9ccf7c3cab734d673595c33b4d1314649cec915751d42ebd53552a651597d061"
+        },
+        {
+          "bytes": 1841,
+          "name": "platform/switch_x64_masm.asm",
+          "sha256": "9eeea7dac5b25ee5dfa4fc78d1df5898b7c75d4735b0781e4ef5f5914ceebc43"
+        },
+        {
+          "bytes": 1078,
+          "name": "platform/switch_x64_masm.obj",
+          "sha256": "18db5337161da3b89d15462c42ffa6ad75a0c93e4427ddfef6af7494deacbed4"
+        },
+        {
+          "bytes": 1805,
+          "name": "platform/switch_x64_msvc.h",
+          "sha256": "2c879ab322a8fef1f3b2974cccc1dba2c461ac17ca23806440e878a9c4c7c89c"
+        },
+        {
+          "bytes": 12838,
+          "name": "platform/switch_x86_msvc.h",
+          "sha256": "4ed18ec229db15f9e7e9c97130d902cfc8ba3a6801ea4551ad2868179893f6da"
+        },
+        {
+          "bytes": 3059,
+          "name": "platform/switch_x86_unix.h",
+          "sha256": "569956f47d051747191f0d4384974852ce6ae982d2e1cc1bda76308c5f37475b"
+        },
+        {
+          "bytes": 3959,
+          "name": "slp_platformselect.h",
+          "sha256": "8536f718575c3d46094eebb5318f778ececc6446b1d7f7b913e81f9698b44732"
+        },
+        {
+          "bytes": 9736,
+          "name": "tests/__init__.py",
+          "sha256": "12d4ed41fa510dd7b4321b1d00ce429bb2d821f4bf1ca508170aae887e10eda7"
+        },
+        {
+          "bytes": 7301,
+          "name": "tests/_test_extension.c",
+          "sha256": "908bd1862a5c4018e6e038bf887f9b0a08b4e48ccf1bac16d313904d462aaea2"
+        },
+        {
+          "bytes": 17328,
+          "name": "tests/_test_extension.cpython-312-x86_64-linux-gnu.so",
+          "sha256": "d866ac9629ca31687d31a95637df13ad2eb8400db52da6c729341d4be10d74f9"
+        },
+        {
+          "bytes": 6713,
+          "name": "tests/_test_extension_cpp.cpp",
+          "sha256": "3f6aad95dcde38b4d575feca4ba8a5df72ac3bd9a0da450ed279986d7bd515a1"
+        },
+        {
+          "bytes": 58728,
+          "name": "tests/_test_extension_cpp.cpython-312-x86_64-linux-gnu.so",
+          "sha256": "63ada081fee3bd401ecfc253ad6de3c353b1db8e134d963f1aef9b42ea0d9c40"
+        },
+        {
+          "bytes": 3382,
+          "name": "tests/fail_c_stack_refs_suspended_gc.py",
+          "sha256": "f4a32967669325cb09d9dc82434e2c6c2dd4c50d12ef6f8cd59bfdb2d9863ac4"
+        },
+        {
+          "bytes": 1263,
+          "name": "tests/fail_clearing_run_switches.py",
+          "sha256": "a38df7a00fe7502b4e3da30419cf1512164829aef58a65475c5c3b4ec5da3fc3"
+        },
+        {
+          "bytes": 985,
+          "name": "tests/fail_cpp_exception.py",
+          "sha256": "a3f65b8a95a292893c06373ebe3890bdc6f91478769d55be31c18a30b70cce1d"
+        },
+        {
+          "bytes": 1961,
+          "name": "tests/fail_initialstub_already_started.py",
+          "sha256": "b7110d9f9232cc6c76a7e5d1d5707ba97982f095ffe26283100f246015d440a7"
+        },
+        {
+          "bytes": 4000,
+          "name": "tests/fail_issue_515_freethread_gc.py",
+          "sha256": "e645b1181cd5cf8ec76da1a07df14c456fc4762b96e364a91eeb72c8a0dac053"
+        },
+        {
+          "bytes": 524,
+          "name": "tests/fail_slp_switch.py",
+          "sha256": "ac90597197d3591dded84450b4f02e77a60a4a1883b0ff383e6c0e25ba787b2d"
+        },
+        {
+          "bytes": 1481,
+          "name": "tests/fail_switch_critical_section.py",
+          "sha256": "7844efee221fd2798d9be63977416aaaa3b75f6107e6b33f51af3496c9230b3b"
+        },
+        {
+          "bytes": 956,
+          "name": "tests/fail_switch_three_greenlets.py",
+          "sha256": "cd28ad57bae43676a81d857300618b9f1cfec8fb68857249cda13c7a11434343"
+        },
+        {
+          "bytes": 1285,
+          "name": "tests/fail_switch_three_greenlets2.py",
+          "sha256": "14f25e9ec9f6109c68ae8a65d372524d53f79203f7de4d3887a683596a33ace9"
+        },
+        {
+          "bytes": 817,
+          "name": "tests/fail_switch_two_greenlets.py",
+          "sha256": "d42688f2cdf9d3855b6c5d6f8f5b8162ecbecf10475731cf2007752c873c38d8"
+        },
+        {
+          "bytes": 13613,
+          "name": "tests/leakcheck.py",
+          "sha256": "b73e0fd9120f23a085c0416af164b2c04fd283fe0cd03415618257f01b23e93d"
+        },
+        {
+          "bytes": 9564,
+          "name": "tests/test_contextvars.py",
+          "sha256": "6cc5af745dbabb16b03ccda14afb8fb1c76f4403f0404de000ceaacea12d6606"
+        },
+        {
+          "bytes": 3164,
+          "name": "tests/test_cpp.py",
+          "sha256": "438b08c3866b7a79e9ab440c685a95f22e5b5548e1ebc43aef08c91afe694f90"
+        },
+        {
+          "bytes": 4820,
+          "name": "tests/test_extension_interface.py",
+          "sha256": "53eea92aea10adc24421be31b413f4b8b87e462c700a787e5ebcabc005df0285"
+        },
+        {
+          "bytes": 5995,
+          "name": "tests/test_gc.py",
+          "sha256": "6f9940e2e84fc9f3b863de446fa2caaa222fd97d13a833c6a0258d5d59e1ffe5"
+        },
+        {
+          "bytes": 1240,
+          "name": "tests/test_generator.py",
+          "sha256": "b4e3578937fdf151a6df8ee8d5bfbcd7475a3e2c1d95ae5c6e9160e902354758"
+        },
+        {
+          "bytes": 3718,
+          "name": "tests/test_generator_nested.py",
+          "sha256": "eefe07398adfd5764fdfd764e4850cb9b759f32737ca7c1972a8fd1942723120"
+        },
+        {
+          "bytes": 53325,
+          "name": "tests/test_greenlet.py",
+          "sha256": "d9611fdb0d98af60af5cccb4258cb05644e56861de0b4bdf63a77fb477d44d99"
+        },
+        {
+          "bytes": 8369,
+          "name": "tests/test_greenlet_trash.py",
+          "sha256": "33de3399e981002150d46f657eeaabd9d099319d5801009a815b889f73bf4ee2"
+        },
+        {
+          "bytes": 33065,
+          "name": "tests/test_interpreter_shutdown.py",
+          "sha256": "1542efa9c7a4c237409f7721eb5802ca3dab4ecbf1c3444ee05592321b093739"
+        },
+        {
+          "bytes": 20486,
+          "name": "tests/test_leaks.py",
+          "sha256": "e0bff14e659129addf602f5bc593b245609bb73d6810c863a6acaef8f4f9ac94"
+        },
+        {
+          "bytes": 446,
+          "name": "tests/test_stack_saved.py",
+          "sha256": "7b2cea358d95086b86971853fc89fa4ef67a3a46f40171595720449cad630f00"
+        },
+        {
+          "bytes": 3712,
+          "name": "tests/test_throw.py",
+          "sha256": "bb64d0fd6bef09de8de89757588c5511c5e42aee5f7a90e5cfd764b58766b678"
+        },
+        {
+          "bytes": 8553,
+          "name": "tests/test_tracing.py",
+          "sha256": "370538678cfb62dd9e92fec607cf9d54cdda27764cc75bada9ba6fffe294e41f"
+        },
+        {
+          "bytes": 1528,
+          "name": "tests/test_version.py",
+          "sha256": "f25938f71d706afd51586a50939300f22fd93fe3343a1a475d47edbaa54def67"
+        },
+        {
+          "bytes": 883,
+          "name": "tests/test_weakref.py",
+          "sha256": "17c336ddbb4417cedb21ba69b4b341391a2c6d0a8d64689878a32a6235abb1a9"
+        }
+      ],
+      "package_tree_sha256": "41c2a15373fb3b9594420ac8d2e4153efcb38a7382cc61f046ff9c17aaf1f46c",
+      "provenance_metadata": [
+        {
+          "bytes": 2,
+          "name": "INSTALLER",
+          "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9"
+        },
+        {
+          "bytes": 3782,
+          "name": "METADATA",
+          "sha256": "b9b4cbbc1f3165e50fbc4696c433fe82b8a151fde65eede28fb6ec5efb3e1fab"
+        },
+        {
+          "bytes": 9179,
+          "name": "RECORD",
+          "sha256": "8ce9b5af8fb2057ace3f49a400e166e0cc2166a9a176e71d8cacd76e1f061a2b"
+        },
+        {
+          "bytes": 0,
+          "name": "REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 152,
+          "name": "WHEEL",
+          "sha256": "2c61c556d4f00d2ec7a32cf7a27daf3847890586ad39117b398ef4de200198d5"
+        },
+        {
+          "bytes": 1434,
+          "name": "licenses/LICENSE",
+          "sha256": "769831d6e5dfaf2c20802faccff1fafb4c2025dd8f6253dfa47fcad59d4d0979"
+        },
+        {
+          "bytes": 2424,
+          "name": "licenses/LICENSE.PSF",
+          "sha256": "e5ff3c23c110e494cd7d736c10fd96d462457bafeca310840db6527298c7d46b"
+        },
+        {
+          "bytes": 9,
+          "name": "top_level.txt",
+          "sha256": "6129d1b024683bad491a53f9ee8f2228beab74b5835ae8b2283f1e929594b037"
+        }
+      ],
+      "version": "3.5.6"
+    },
+    "playwright": {
+      "bytecode_policy": "no __pycache__ or .pyc allowed in future installed runtime tree",
+      "package_files": [
+        {
+          "bytes": 805,
+          "name": "__init__.py",
+          "sha256": "06c3acdadd13e2813fcb95ad91d53ee3885c2b5f473beccc45a579d9ceead70b"
+        },
+        {
+          "bytes": 1064,
+          "name": "__main__.py",
+          "sha256": "f8d65489384929eb763a34c14e3cec32cacd2f92fcb30059343e0f0b9b56ddc7"
+        },
+        {
+          "bytes": 0,
+          "name": "_impl/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 691,
+          "name": "_impl/__pyinstaller/__init__.py",
+          "sha256": "5a8c0cfeb2d84ed4287afdec24ffcec60d1ed827b92afdfbd82b2351ffae1c15"
+        },
+        {
+          "bytes": 695,
+          "name": "_impl/__pyinstaller/hook-playwright.async_api.py",
+          "sha256": "d4a8c45554b3ba55e8102f03f576bab6ea4abfb70cdc60095471d504e34a1014"
+        },
+        {
+          "bytes": 695,
+          "name": "_impl/__pyinstaller/hook-playwright.sync_api.py",
+          "sha256": "d4a8c45554b3ba55e8102f03f576bab6ea4abfb70cdc60095471d504e34a1014"
+        },
+        {
+          "bytes": 7314,
+          "name": "_impl/_api_structures.py",
+          "sha256": "7117217bc28b93311e0ded2232935bbb3e71cd36a69ace95faa5b5f019b6186d"
+        },
+        {
+          "bytes": 2702,
+          "name": "_impl/_artifact.py",
+          "sha256": "3596db711366248a193c6a0f1be8547034987b7274c949d2ccbe3c6d3198ac71"
+        },
+        {
+          "bytes": 36149,
+          "name": "_impl/_assertions.py",
+          "sha256": "c8063d4bb88121be4d73359b768b6737a439a4276ecd7cc992d8012a0c85b07e"
+        },
+        {
+          "bytes": 3242,
+          "name": "_impl/_async_base.py",
+          "sha256": "11d3ac217e1c6df2bba4da15e2a58ad4e6845b51ab983e7701c3592d22b941f7"
+        },
+        {
+          "bytes": 10465,
+          "name": "_impl/_browser.py",
+          "sha256": "49ab46355ff642472f46f07c6708d1bb965cc2b01eedd67fbcfd38e3d3414d41"
+        },
+        {
+          "bytes": 28054,
+          "name": "_impl/_browser_context.py",
+          "sha256": "595800a63fa0b9901b46e30a5a8defca46f746b8c2a20bd7e8cb02193151e494"
+        },
+        {
+          "bytes": 14330,
+          "name": "_impl/_browser_type.py",
+          "sha256": "52ab654cb0a1741c590fca4aa7ea447526a35881ec96816f533ffd4a71365b2e"
+        },
+        {
+          "bytes": 1625,
+          "name": "_impl/_cdp_session.py",
+          "sha256": "bf4e67bd5790e1c59bfbafd0600967c23c762d06ca6d0419f8921bbb7c32f4e9"
+        },
+        {
+          "bytes": 3040,
+          "name": "_impl/_clock.py",
+          "sha256": "49c61ec40edfa7eddc264c6f4610515431fff376f303276a3db37a3a23e2fe40"
+        },
+        {
+          "bytes": 26879,
+          "name": "_impl/_connection.py",
+          "sha256": "7a1fe6c84e5108024b58d2afa4f2d8323ca86d76adecde5e8a747c3bab2bd49b"
+        },
+        {
+          "bytes": 3123,
+          "name": "_impl/_console_message.py",
+          "sha256": "d21d639fe1b7c129ba3a991c2076d1ed35b1d9b9a9142f908a3341245ebd81db"
+        },
+        {
+          "bytes": 2037,
+          "name": "_impl/_credentials.py",
+          "sha256": "df6d9224a19c5cfaf0ba30b31d6a79179e265ef61cdeeacee1071a5d9ce7e514"
+        },
+        {
+          "bytes": 1978,
+          "name": "_impl/_debugger.py",
+          "sha256": "19584aa1e61a689600167922c00f199522845567c6bc707d88559d25ce4ef648"
+        },
+        {
+          "bytes": 2080,
+          "name": "_impl/_dialog.py",
+          "sha256": "1ae8bf9d12b694a4c737d6ee0ffef3ccee139efec47ffb7e22f0ee253fa148aa"
+        },
+        {
+          "bytes": 2933,
+          "name": "_impl/_disposable.py",
+          "sha256": "9796cf3d9fc674fe1f662d5040b51afdf63baf937c2501f14a482910faeae982"
+        },
+        {
+          "bytes": 1977,
+          "name": "_impl/_download.py",
+          "sha256": "064d6807d82b5dcd8094a2f1b910c1d336363bf135200ee194fef1ec3ba75e04"
+        },
+        {
+          "bytes": 1399,
+          "name": "_impl/_driver.py",
+          "sha256": "9a15469de4b0e15773169d32df12a2a694298a8b03ee68655c504532a27d4eaa"
+        },
+        {
+          "bytes": 15309,
+          "name": "_impl/_element_handle.py",
+          "sha256": "c5761618b1f08d9c0d6c3e104f97bef0cc72f72114c2ad90efe0b9c2843f2b00"
+        },
+        {
+          "bytes": 1950,
+          "name": "_impl/_errors.py",
+          "sha256": "49407bd6164ab563f82b2bf37863a265555071544dcabedbf7beba8be1b618cd"
+        },
+        {
+          "bytes": 1044,
+          "name": "_impl/_event_context_manager.py",
+          "sha256": "55ea0fab5a17acbb3f6f797610cf20a77efcbc7b62e8c19bac53a138f39c7127"
+        },
+        {
+          "bytes": 21249,
+          "name": "_impl/_fetch.py",
+          "sha256": "11b3b5489efd175631be5dff10a8b3b102a4862da21d9971eebeb7213cb824b8"
+        },
+        {
+          "bytes": 1859,
+          "name": "_impl/_file_chooser.py",
+          "sha256": "b51fd516285582608c8551812fb490ab8ea269528b2ba2557aeff0dec8c332a0"
+        },
+        {
+          "bytes": 1205,
+          "name": "_impl/_form_data.py",
+          "sha256": "a9f8b8c6ba2509de30b84e9062338e31114de64de35bd204b24f3a7e429a0a0c"
+        },
+        {
+          "bytes": 31620,
+          "name": "_impl/_frame.py",
+          "sha256": "b93ab0e6d457ca1f3e04b3668cdb6a2bc6226c3a7ba5fe45d487270ee024183a"
+        },
+        {
+          "bytes": 2269,
+          "name": "_impl/_glob.py",
+          "sha256": "af927c1cc1a33e12094224ca96158964ce2c7ad9f4b4de3ac60e16e0baf9f887"
+        },
+        {
+          "bytes": 1410,
+          "name": "_impl/_greenlets.py",
+          "sha256": "27456c0ecfc181a04a6a1245e0f72549129e3af0b611e60607cb5d29f4fe2634"
+        },
+        {
+          "bytes": 4492,
+          "name": "_impl/_har_router.py",
+          "sha256": "d970f6118cd53461d44432ef6796521dd902134d2a17329a0f8edf99948e7e7e"
+        },
+        {
+          "bytes": 19505,
+          "name": "_impl/_helper.py",
+          "sha256": "b6a448ddd5f0fbab04872932cdb5d88b35cfa031440fc3a372b29aa1328a7ed9"
+        },
+        {
+          "bytes": 5431,
+          "name": "_impl/_impl_to_api_mapping.py",
+          "sha256": "0fbe7a5abb606bbe519b0be953a43411163bd402f748c99cf5b3f289f1355a91"
+        },
+        {
+          "bytes": 3753,
+          "name": "_impl/_input.py",
+          "sha256": "00462564d19a5b9c46ae6e5fe81bdf0c9557d7de16202dedf20b0751839c2475"
+        },
+        {
+          "bytes": 10159,
+          "name": "_impl/_js_handle.py",
+          "sha256": "2db455b97af07dbf007e114ee3f546139ee09ab2f7a1d6b15293cdfb61792d79"
+        },
+        {
+          "bytes": 2616,
+          "name": "_impl/_json_pipe.py",
+          "sha256": "d6839b40db3ced87646e72c8e55c508226b11350ca4bfb9cbffc4ec1ef826469"
+        },
+        {
+          "bytes": 3388,
+          "name": "_impl/_local_utils.py",
+          "sha256": "684167aa077aaa9f404bb892cbc4a792ae0e220aa7d57a4daf168c0ebbe831c7"
+        },
+        {
+          "bytes": 32390,
+          "name": "_impl/_locator.py",
+          "sha256": "70be0d4933d5baa2f353fdf334b0770056b9a8f1e415ffe766048e9a7563c1bc"
+        },
+        {
+          "bytes": 1045,
+          "name": "_impl/_map.py",
+          "sha256": "606086b53edc29605a5ff0b22147dfc640e38c65089df790063aed9cb89bfaa7"
+        },
+        {
+          "bytes": 35253,
+          "name": "_impl/_network.py",
+          "sha256": "5194cbeecc43dde0a6f9009414505f821f435806da03ec1d5f2a4e0c9fcf96a6"
+        },
+        {
+          "bytes": 4406,
+          "name": "_impl/_object_factory.py",
+          "sha256": "577db2ad75ed58873b078c3a85bb8c9c6e347137140232e1c2d79b416347e513"
+        },
+        {
+          "bytes": 55317,
+          "name": "_impl/_page.py",
+          "sha256": "3b79b620022bb32786a39fe6338b3f7fdc84f1c8cc5699a95c0eea278d0d0fdd"
+        },
+        {
+          "bytes": 958,
+          "name": "_impl/_path_utils.py",
+          "sha256": "2c0c34e8c14e04d350044e5ecca4d804b4c5f9191a94c450f58e6a3f9d8bcd1c"
+        },
+        {
+          "bytes": 2091,
+          "name": "_impl/_playwright.py",
+          "sha256": "9656f14fc1d521b1cb54925599646d5aa00721b164b6b263256727712370c825"
+        },
+        {
+          "bytes": 5929,
+          "name": "_impl/_screencast.py",
+          "sha256": "96e3ac3025da420432545284f111d7c5657b50d9643fe56c90f1212a644d3839"
+        },
+        {
+          "bytes": 2636,
+          "name": "_impl/_selectors.py",
+          "sha256": "b57b4cc6cdbf574ee51313f8d997aee1463ac912643a0051f51d5f6e263f05b6"
+        },
+        {
+          "bytes": 5605,
+          "name": "_impl/_set_input_files_helpers.py",
+          "sha256": "a1ce8e5a4103719e6a9cf569a9192e5f48dfdf91199cf572d02a7715d0d471e0"
+        },
+        {
+          "bytes": 2403,
+          "name": "_impl/_str_utils.py",
+          "sha256": "0ff1b72ae6d0dfefc92939fca4cc0c2dcb7efe4fd8e520c72c630a6bd94b0fe3"
+        },
+        {
+          "bytes": 1673,
+          "name": "_impl/_stream.py",
+          "sha256": "8a016483e4d62ff5a64b4454a6e67ec5610b385cb16c5e849819bd30149a9df2"
+        },
+        {
+          "bytes": 4661,
+          "name": "_impl/_sync_base.py",
+          "sha256": "f9924a820f7e74ddd71514598142363f3484c364178935eefbe80f9db8998997"
+        },
+        {
+          "bytes": 10124,
+          "name": "_impl/_tracing.py",
+          "sha256": "dbd5e2562b4d297f203cabb4e447742c0bdf6d9594e5ae4b3161f9570e587401"
+        },
+        {
+          "bytes": 6656,
+          "name": "_impl/_transport.py",
+          "sha256": "edac83a94c76c0f7cda78b58beaed30432fd43f611bb65480e52e160da54425b"
+        },
+        {
+          "bytes": 2060,
+          "name": "_impl/_video.py",
+          "sha256": "63297dd16e3a143ca5ea93da3d23bcb859123e6e7baba779a838d6e4ccd1f36b"
+        },
+        {
+          "bytes": 6493,
+          "name": "_impl/_waiter.py",
+          "sha256": "a3666070cfb04dce7306eefc6a9aaef9253e3c06087becfb931f16824cce2023"
+        },
+        {
+          "bytes": 1420,
+          "name": "_impl/_web_error.py",
+          "sha256": "55df8219be4192cfa3fd3d9a8d330561a5473da48bd0505a9a515f7c2c1034fa"
+        },
+        {
+          "bytes": 2039,
+          "name": "_impl/_web_storage.py",
+          "sha256": "23ac268226374c4092e3a1079cd110420be3079ba8d1b08c648551ec55f6f6f0"
+        },
+        {
+          "bytes": 1472,
+          "name": "_impl/_writable_stream.py",
+          "sha256": "25fea9a4f7725300fe78d096c59843af97a3a13175359fc61862bdf7d79070bf"
+        },
+        {
+          "bytes": 530,
+          "name": "_repo_version.py",
+          "sha256": "badb07ba76fc374fb7723a895e40fdeedb2a615c69c6595ceef10b013a096ae4"
+        },
+        {
+          "bytes": 7833,
+          "name": "async_api/__init__.py",
+          "sha256": "941e8f56867f513330ed55fea08979a370f98b22a064ea59394c1cf6b7e52f6e"
+        },
+        {
+          "bytes": 2041,
+          "name": "async_api/_context_manager.py",
+          "sha256": "4d6591f906bd9a19a8391c805559ea8a75fa457e37a31c6bac652577f43a00fa"
+        },
+        {
+          "bytes": 972025,
+          "name": "async_api/_generated.py",
+          "sha256": "4ce7017cc59fb0e5d84596cbbc5c614fd302716aa855ddeaaa21d9f8605f6178"
+        },
+        {
+          "bytes": 157609,
+          "name": "driver/LICENSE",
+          "sha256": "5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace"
+        },
+        {
+          "bytes": 36,
+          "name": "driver/README.md",
+          "sha256": "944105984c9d52512719e08b4ab39e6dd4366df251e287235e2e5b1b35c95535"
+        },
+        {
+          "bytes": 126595440,
+          "name": "driver/node",
+          "sha256": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c"
+        },
+        {
+          "bytes": 11601,
+          "name": "driver/package/LICENSE",
+          "sha256": "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb"
+        },
+        {
+          "bytes": 254,
+          "name": "driver/package/NOTICE",
+          "sha256": "6d602191187b35b9b01d2cffa01c8469c2c8d9de8a96f1bf868e0f264f51c81d"
+        },
+        {
+          "bytes": 120,
+          "name": "driver/package/README.md",
+          "sha256": "d16ff7f8e38fa1fc954f695ad551cdc118d9c9bdd5f3d83203901f4c317d7d7e"
+        },
+        {
+          "bytes": 676,
+          "name": "driver/package/ThirdPartyNotices.txt",
+          "sha256": "a549d329bad8806fe279f0ecae0fc0270dec7e7c2dc8ec10f90e394f7c32b144"
+        },
+        {
+          "bytes": 174,
+          "name": "driver/package/bin/install_media_pack.ps1",
+          "sha256": "bc20f049badf021e3a53bdb4156603caa5ef482c9a9a251f927605e676a44171"
+        },
+        {
+          "bytes": 1464,
+          "name": "driver/package/bin/install_webkit_wsl.ps1",
+          "sha256": "bc61beda37a808eef27d39ce684baa792f6d17737a25a432b1a84d3b591ab815"
+        },
+        {
+          "bytes": 1217,
+          "name": "driver/package/bin/reinstall_chrome_beta_linux.sh",
+          "sha256": "dc8c22b9dde76583cece2857575b88094299615f3136a3c598149710c45dee3a"
+        },
+        {
+          "bytes": 563,
+          "name": "driver/package/bin/reinstall_chrome_beta_mac.sh",
+          "sha256": "a92eaeb4ebcf5633a4e9c981481e14c80764fc81b6fcbc0565398e50ff319433"
+        },
+        {
+          "bytes": 957,
+          "name": "driver/package/bin/reinstall_chrome_beta_win.ps1",
+          "sha256": "b6d9e44742feafb98d5edc56fa20042949973cf30d141a1c5b4fb384096967c5"
+        },
+        {
+          "bytes": 1212,
+          "name": "driver/package/bin/reinstall_chrome_stable_linux.sh",
+          "sha256": "dc72ab3567a4ce43bd8353d4ecf41f1d9c03e870169367cd3ed9043aabf67dd1"
+        },
+        {
+          "bytes": 519,
+          "name": "driver/package/bin/reinstall_chrome_stable_mac.sh",
+          "sha256": "bb43a96c192a6cc81524ade0264686fff7809c019a89f7db0a9849635879c3be"
+        },
+        {
+          "bytes": 923,
+          "name": "driver/package/bin/reinstall_chrome_stable_win.ps1",
+          "sha256": "3d96c4e2f4ebbb3fad44cf3ba58d9cf90af1c9fb3073e3b27d45a74cf005515b"
+        },
+        {
+          "bytes": 1494,
+          "name": "driver/package/bin/reinstall_msedge_beta_linux.sh",
+          "sha256": "10b26f35dbc2000b94edf1172d803a29c5873a4eb8d523afbc687997b642767e"
+        },
+        {
+          "bytes": 377,
+          "name": "driver/package/bin/reinstall_msedge_beta_mac.sh",
+          "sha256": "0036d738bc90d686100d81f328ba0003bf07863f5500b792c8da391d149750fa"
+        },
+        {
+          "bytes": 874,
+          "name": "driver/package/bin/reinstall_msedge_beta_win.ps1",
+          "sha256": "b173c378a59f0cc38033cee702de1f44f09276c9b2270d1a650ebe66ee312433"
+        },
+        {
+          "bytes": 1489,
+          "name": "driver/package/bin/reinstall_msedge_dev_linux.sh",
+          "sha256": "00e4947e7a4f8339c6db09c87976d808583c07f9179e4aa7694d88614b82fe95"
+        },
+        {
+          "bytes": 372,
+          "name": "driver/package/bin/reinstall_msedge_dev_mac.sh",
+          "sha256": "6f899e3b311f742c24ca37ff9e32298e8290514ffc14bf588cc51556a29da4c0"
+        },
+        {
+          "bytes": 869,
+          "name": "driver/package/bin/reinstall_msedge_dev_win.ps1",
+          "sha256": "46f7f98c81cb0abe687d7f4a5afea9b897a38d2a6dd6f6662fbd847f7a22bd51"
+        },
+        {
+          "bytes": 1507,
+          "name": "driver/package/bin/reinstall_msedge_stable_linux.sh",
+          "sha256": "ec0a31a5f09c565e108473a1850895a4458ab00c713ac1de3aa2001912e4668f"
+        },
+        {
+          "bytes": 371,
+          "name": "driver/package/bin/reinstall_msedge_stable_mac.sh",
+          "sha256": "3af1e893527ff2257aa2dbc3b259a053b92f45c3eadb13e38eba46e87902655d"
+        },
+        {
+          "bytes": 856,
+          "name": "driver/package/bin/reinstall_msedge_stable_win.ps1",
+          "sha256": "40bb5fcbfcebbbe2ce43c6e736e7c5deefc5be03b6e9c6914423c06ec1f591be"
+        },
+        {
+          "bytes": 1137,
+          "name": "driver/package/browsers.json",
+          "sha256": "545d52f8382c391e605562c330e9c1c534a16045898203037a49bb8bd769a946"
+        },
+        {
+          "bytes": 839,
+          "name": "driver/package/cli.js",
+          "sha256": "f1c4075aef116c766092250d7f37b3249a7cee6465d953207fc38c8f6145becd"
+        },
+        {
+          "bytes": 634,
+          "name": "driver/package/index.d.ts",
+          "sha256": "7a8ec10b0834eb7183e4bfcd929838ac77583828e343211bb73676d1e47f6f01"
+        },
+        {
+          "bytes": 697,
+          "name": "driver/package/index.js",
+          "sha256": "a58fb2cec4293e7dcf73c58a179898a4f3986666451a19da4e731fa3af63265b"
+        },
+        {
+          "bytes": 1063,
+          "name": "driver/package/index.mjs",
+          "sha256": "3d36e2132d3c8b62397d23f0bb4177336aaee503203ae2a2c90fbeb5bf3317dd"
+        },
+        {
+          "bytes": 3481,
+          "name": "driver/package/lib/bootstrap.js",
+          "sha256": "4637f4dbfef9cfc01baeb5f5d2cb63fa0901522c96915ea2227290558d27123e"
+        },
+        {
+          "bytes": 3477183,
+          "name": "driver/package/lib/coreBundle.js",
+          "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171"
+        },
+        {
+          "bytes": 197,
+          "name": "driver/package/lib/entry/cliDaemon.js",
+          "sha256": "062f256fb29a7bf91793a014b9c3f1f9cf2dc6b12e40a8a2ebba88a630ae16a0"
+        },
+        {
+          "bytes": 108,
+          "name": "driver/package/lib/entry/dashboardApp.js",
+          "sha256": "209962c6eaeef11629f226d6a2ab33ec7a2480754242b6e19590a9e6eb71d126"
+        },
+        {
+          "bytes": 442,
+          "name": "driver/package/lib/entry/mcp.js",
+          "sha256": "cc87dc0020cb41caebbf04f50e42bc7835b033a6d80e9c3f0a3d0b3dbdf341c7"
+        },
+        {
+          "bytes": 120,
+          "name": "driver/package/lib/entry/oopBrowserDownload.js",
+          "sha256": "87567cdbd67dd2f50bb232d47d3784701ece7c81e39c0287bb7d1b466b68cf06"
+        },
+        {
+          "bytes": 2112,
+          "name": "driver/package/lib/package.js",
+          "sha256": "9f938e1d44a0dd231b1660ca62f7dae964859b79cbdc370b8542c5d375ca3c05"
+        },
+        {
+          "bytes": 16565,
+          "name": "driver/package/lib/server/chromium/appIcon.png",
+          "sha256": "6ba994f05c5cf18e22d9b6bef9898fbdec6ad4d4d77f5187d0609cb42d72d01e"
+        },
+        {
+          "bytes": 4994,
+          "name": "driver/package/lib/server/electron/loader.js",
+          "sha256": "699fb5564539da34ed72f49e9821af28f9fc06940adb639cac55dc9c477cfe7c"
+        },
+        {
+          "bytes": 57039,
+          "name": "driver/package/lib/serverRegistry.js",
+          "sha256": "38025f08f335705b099b9f188bf45b5908a56a722825fe895b1e90f56d5595b6"
+        },
+        {
+          "bytes": 2982,
+          "name": "driver/package/lib/serverRegistry.js.LICENSE",
+          "sha256": "3098a6efcbc11752cbdf6075fa65480f5470f78c8d981fab9c0796dc9a41cefe"
+        },
+        {
+          "bytes": 7087,
+          "name": "driver/package/lib/tools/cli-client/channelSessions.js",
+          "sha256": "6b9c613e87340f48ad7182addd7495a8ff3fbe55feb1bbd0ce04f59f1552e126"
+        },
+        {
+          "bytes": 153,
+          "name": "driver/package/lib/tools/cli-client/cli.js",
+          "sha256": "dfde8e9dfde30c4b3914eb25ba1c5a8524ec64651d866171d75cd7b41a827180"
+        },
+        {
+          "bytes": 38799,
+          "name": "driver/package/lib/tools/cli-client/help.json",
+          "sha256": "e78d7a22d059196e838d1f076b563eae185b851e3e36063fa4ae77a8dc1415b1"
+        },
+        {
+          "bytes": 4109,
+          "name": "driver/package/lib/tools/cli-client/minimist.js",
+          "sha256": "9430489ebc06fd02231dccfe844516f743e812a9ac4fe8e6748a67718738851c"
+        },
+        {
+          "bytes": 11972,
+          "name": "driver/package/lib/tools/cli-client/output.js",
+          "sha256": "b4c3ebab965e73d621971cd3c76b60c22cf460a0921f14c5c6c51e46e06f02d2"
+        },
+        {
+          "bytes": 16373,
+          "name": "driver/package/lib/tools/cli-client/program.js",
+          "sha256": "55a9a10132c680ecdec25b5000afb12035745ac9e75dd9cc0ef3e5d5e08d7f3e"
+        },
+        {
+          "bytes": 6768,
+          "name": "driver/package/lib/tools/cli-client/registry.js",
+          "sha256": "4976cd5b2b3a25572cc1a4b5f055a756dacd4cc1b19d48987ee3253428e759b8"
+        },
+        {
+          "bytes": 9544,
+          "name": "driver/package/lib/tools/cli-client/session.js",
+          "sha256": "a71e03ba6dc99d6d9cca4577d534daa6d0c20c32e50065311823f41caba29b46"
+        },
+        {
+          "bytes": 18945,
+          "name": "driver/package/lib/tools/dashboard/appIcon.png",
+          "sha256": "38037bcf18c7f9b950da2e1a2d8800d38fb27637ccda293d38368a3704b67f18"
+        },
+        {
+          "bytes": 12726,
+          "name": "driver/package/lib/tools/skills/playwright-cli/SKILL.md",
+          "sha256": "1a609c93bff3eea9ab99fed93c0334c851fdc39fb6ac5335551bfb87c171d57c"
+        },
+        {
+          "bytes": 665,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/element-attributes.md",
+          "sha256": "bf19aa4671e0a50a0fefa9c790f39124e803060eefe395042b723c29fcb7faa2"
+        },
+        {
+          "bytes": 1690,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/playwright-tests.md",
+          "sha256": "c5b0719fef2cfdff50bd744051b2f9afc119775db4b48e9b2882c1cf3886797c"
+        },
+        {
+          "bytes": 2182,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/request-mocking.md",
+          "sha256": "54e801c9663fc2b6d68ceb058cb1c360724c2499f42acc7852a68e83e5b5f37c"
+        },
+        {
+          "bytes": 5642,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/running-code.md",
+          "sha256": "d95c539a5990b71d02d8bdf1d9414df16191eb6cff95b0063820518b7a13dcb2"
+        },
+        {
+          "bytes": 5671,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/session-management.md",
+          "sha256": "cd3e261b8763bf952f1e371b876cb78d054379afec85482f9250633e1b7e6c44"
+        },
+        {
+          "bytes": 5198,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/storage-state.md",
+          "sha256": "9ac47f9ae4a1aedcd2077f8ac9ab1ba6bee1962cb83ff51adcd36fb6d83b5ec6"
+        },
+        {
+          "bytes": 16114,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/test-generation.md",
+          "sha256": "12f54cfa718d9e559bad918120a4ca4f11c933167713d1b9c5f99872eddaf749"
+        },
+        {
+          "bytes": 3456,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/tracing.md",
+          "sha256": "ef73e71bee792e341df9cd4f60529c929ade48b538ac76e033f4f20843e8dbda"
+        },
+        {
+          "bytes": 5387,
+          "name": "driver/package/lib/tools/skills/playwright-cli/references/video-recording.md",
+          "sha256": "8555ab5400df0d90e66318aacc0a8a4418fbf872e7463824d55d5c41615abd83"
+        },
+        {
+          "bytes": 10404,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/SKILL.md",
+          "sha256": "60f57b31767d562c30cc5332081418c2945f4d9c998efa6e09191333654dd429"
+        },
+        {
+          "bytes": 6199,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/references/gallery-spec.md",
+          "sha256": "0ca25dde6112eb379f56eb618585b64dc2dfd13c2f7f956ac7eabbd76a68912b"
+        },
+        {
+          "bytes": 5031,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/references/migration.md",
+          "sha256": "bc3a336f7970bb7455fa5a38f937e45b35fb0c18d6c3b9f37916a4ff757b7acc"
+        },
+        {
+          "bytes": 3115,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/references/react.md",
+          "sha256": "54af9cc1cdb6d4ccdb8e811c0abb29b960d5c9304f4df7d1dcf9b8df3f973102"
+        },
+        {
+          "bytes": 6883,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/references/typing.md",
+          "sha256": "c511025b5c9b02d7f49034a5613c8b478193bf60c90ea6dddb3faf9c6985c82b"
+        },
+        {
+          "bytes": 3374,
+          "name": "driver/package/lib/tools/skills/playwright-component-testing/references/vue.md",
+          "sha256": "d1b129f126c700702a3c00ad8eb6c86898bc941c29a656c1191eb7230650bf8b"
+        },
+        {
+          "bytes": 4845,
+          "name": "driver/package/lib/tools/skills/playwright-trace/SKILL.md",
+          "sha256": "4124dd790915bb76108377121d1e6ca93a5544c90485c090fa5655235efe22aa"
+        },
+        {
+          "bytes": 4689,
+          "name": "driver/package/lib/tools/utils/extension.js",
+          "sha256": "404ae19e57a7c7c5ed3e6ecf9df26a3fcf95867250732f954823078ccb879e63"
+        },
+        {
+          "bytes": 3317,
+          "name": "driver/package/lib/tools/utils/socketConnection.js",
+          "sha256": "973c2bea70a1f1445f4673f99e9fa351e50a2ec9fd93d7381b2c41bb4de764dd"
+        },
+        {
+          "bytes": 3048692,
+          "name": "driver/package/lib/utilsBundle.js",
+          "sha256": "2d1ccc01d21b7d54ca99a6305991d7fb6e072ea4e725d7fec5eb6184188c52c9"
+        },
+        {
+          "bytes": 106591,
+          "name": "driver/package/lib/utilsBundle.js.LICENSE",
+          "sha256": "2495f30be29620d54b58339821eda0ebabdfb6ee9b09455f7285a06fd46fb9f3"
+        },
+        {
+          "bytes": 6251,
+          "name": "driver/package/lib/vite/dashboard/assets/codeMirrorModule--QdMvsKi.css",
+          "sha256": "20be824a82832b62cc04642d31da3c609fd280b23f1cdcb1e622c4f40aac5ab8"
+        },
+        {
+          "bytes": 307374,
+          "name": "driver/package/lib/vite/dashboard/assets/codeMirrorModule-CQ8RZGBm.js",
+          "sha256": "56b9c6a50c09dfac28eea5ec3e76c8ae85a26009b20ebac9928959cf3c3312bb"
+        },
+        {
+          "bytes": 80340,
+          "name": "driver/package/lib/vite/dashboard/assets/codicon-DCmgc-ay.ttf",
+          "sha256": "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9"
+        },
+        {
+          "bytes": 7488,
+          "name": "driver/package/lib/vite/dashboard/assets/firefox-1bWoP6pv.svg",
+          "sha256": "3f3742d1e78c0db6c2d3531250f70c30675ee5310de32fa89befaf738c54efd0"
+        },
+        {
+          "bytes": 9280,
+          "name": "driver/package/lib/vite/dashboard/assets/firefox-beta-k3eOH_eK.svg",
+          "sha256": "7eab5ffdc25903ba33a7202f7fffa1999f119c7be45a39e9e703c118904f917a"
+        },
+        {
+          "bytes": 9143,
+          "name": "driver/package/lib/vite/dashboard/assets/firefox-nightly-Cp5nfeDT.svg",
+          "sha256": "f311c074b0fa999fcd6b73441301fb54ee87a48ff3bf05f318647928110476da"
+        },
+        {
+          "bytes": 139111,
+          "name": "driver/package/lib/vite/dashboard/assets/index-AwgwcYie.css",
+          "sha256": "82d06f291a7d0860e1b1e1803ab6f2e49c637541779a37168652e10b062b67f9"
+        },
+        {
+          "bytes": 336491,
+          "name": "driver/package/lib/vite/dashboard/assets/index-hRvO4yU2.js",
+          "sha256": "3a05ed0b026442a1459952df25b9a836d4fa1a917838cf6f9357daefc0e42285"
+        },
+        {
+          "bytes": 5254,
+          "name": "driver/package/lib/vite/dashboard/assets/safari-na3_-uQk.svg",
+          "sha256": "80fd72ca5eb8545f1981277b31f4f92951d469d4efebd078e4086b676fe517dc"
+        },
+        {
+          "bytes": 1078,
+          "name": "driver/package/lib/vite/dashboard/index.html",
+          "sha256": "202903aad66040604bc1a0c85615dda4bfc7e6f4a4674e60d9eda4d44f6faea7"
+        },
+        {
+          "bytes": 5645,
+          "name": "driver/package/lib/vite/dashboard/playwright-logo.svg",
+          "sha256": "511524a1c145819303a18fb71870a4307c3e740f9e9722f7686a2b42b0995b6c"
+        },
+        {
+          "bytes": 464,
+          "name": "driver/package/lib/vite/htmlReport/index.html",
+          "sha256": "ce7c098020a0eb9ce10edd416245ea6da50dfeaab18dfd0a2176979d22643be6"
+        },
+        {
+          "bytes": 100452,
+          "name": "driver/package/lib/vite/htmlReport/report.css",
+          "sha256": "d98a244bf950333ade383b109e97d396f970f650b20f2e5ef5ecc2740205dff7"
+        },
+        {
+          "bytes": 415864,
+          "name": "driver/package/lib/vite/htmlReport/report.js",
+          "sha256": "3db0c0291241102b14b62af4b80d84dd8169a281bb2ff360c986b9d7da57c339"
+        },
+        {
+          "bytes": 6251,
+          "name": "driver/package/lib/vite/recorder/assets/codeMirrorModule--QdMvsKi.css",
+          "sha256": "20be824a82832b62cc04642d31da3c609fd280b23f1cdcb1e622c4f40aac5ab8"
+        },
+        {
+          "bytes": 307374,
+          "name": "driver/package/lib/vite/recorder/assets/codeMirrorModule-CVQWJZAA.js",
+          "sha256": "45f900fd93bf33545e6915308a964c49ce342c2e175a54aaef0898f05b25fcf5"
+        },
+        {
+          "bytes": 80340,
+          "name": "driver/package/lib/vite/recorder/assets/codicon-DCmgc-ay.ttf",
+          "sha256": "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9"
+        },
+        {
+          "bytes": 85502,
+          "name": "driver/package/lib/vite/recorder/assets/index-BZpYJZ-P.css",
+          "sha256": "cc24563b96f286614b88f74da413e9984de263227971c4cdfabe1f73be095514"
+        },
+        {
+          "bytes": 358603,
+          "name": "driver/package/lib/vite/recorder/assets/index-hrlLqLtq.js",
+          "sha256": "f7f3dfd9113b0119821adf1f3fc873fa5dddba8b2c278014e0fb0ecc1b3f492b"
+        },
+        {
+          "bytes": 1078,
+          "name": "driver/package/lib/vite/recorder/index.html",
+          "sha256": "5783e9b7e2cc78dd8a1a409d84b44b2431bf60f8f54b8be36c6e433c6a1086ed"
+        },
+        {
+          "bytes": 5033,
+          "name": "driver/package/lib/vite/recorder/playwright-logo.svg",
+          "sha256": "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9"
+        },
+        {
+          "bytes": 307393,
+          "name": "driver/package/lib/vite/traceViewer/assets/codeMirrorModule-BbkfBe3n.js",
+          "sha256": "274b964242426bf4e1c662a84f6345d8a99f67821caa508fb12c52e2d1dfd48c"
+        },
+        {
+          "bytes": 654294,
+          "name": "driver/package/lib/vite/traceViewer/assets/defaultSettingsView-Ds6CBOo0.js",
+          "sha256": "0b48f13034cfa075338cc0839f212297d22cadab9219d9699d161d2b18c79019"
+        },
+        {
+          "bytes": 2510,
+          "name": "driver/package/lib/vite/traceViewer/assets/urlMatch-L3liM589.js",
+          "sha256": "1bc6321e32d11c31a452bc75896f0b344e6153321854d9f1658818be7f845c16"
+        },
+        {
+          "bytes": 288730,
+          "name": "driver/package/lib/vite/traceViewer/assets/xtermModule-DywYcAf8.js",
+          "sha256": "2546783e4f74a432bbccd88a6763cf78ac4e951686262cdf85b54d5a26ca3995"
+        },
+        {
+          "bytes": 6251,
+          "name": "driver/package/lib/vite/traceViewer/codeMirrorModule.-QdMvsKi.css",
+          "sha256": "20be824a82832b62cc04642d31da3c609fd280b23f1cdcb1e622c4f40aac5ab8"
+        },
+        {
+          "bytes": 80340,
+          "name": "driver/package/lib/vite/traceViewer/codicon.DCmgc-ay.ttf",
+          "sha256": "0f1d5219934e96e83b8db162d60b4d8c09b5de1e7d38031cbafe4a3c0f2889c9"
+        },
+        {
+          "bytes": 107049,
+          "name": "driver/package/lib/vite/traceViewer/defaultSettingsView.Bqk9acqE.css",
+          "sha256": "cd1d3c277d4962246ed92d7d42734c5ffed6bac5c499232693f9c8331b71801f"
+        },
+        {
+          "bytes": 6628,
+          "name": "driver/package/lib/vite/traceViewer/index.B4cLoZK3.js",
+          "sha256": "7b96efd541639738a8d46e4b6ba9780ffaf57a5c104db66764e0cec46d9f64e8"
+        },
+        {
+          "bytes": 2055,
+          "name": "driver/package/lib/vite/traceViewer/index.B_TqY17P.css",
+          "sha256": "08a212fcacae1866f44f065654afcc4c7d03409c68c74b3315c5bda17a0ca003"
+        },
+        {
+          "bytes": 2363,
+          "name": "driver/package/lib/vite/traceViewer/index.html",
+          "sha256": "139ac80123fb450cfc0631296e9f01463313ca2fec961b3a247ec6c9528447a2"
+        },
+        {
+          "bytes": 429,
+          "name": "driver/package/lib/vite/traceViewer/manifest.webmanifest",
+          "sha256": "d8540500603a32a39fe7e5a0375dc0f9ebafd11118e06a846db7efc608223ab9"
+        },
+        {
+          "bytes": 5033,
+          "name": "driver/package/lib/vite/traceViewer/playwright-logo.svg",
+          "sha256": "6b0a4367bdeab10995bc239278f04c68c10e48adbec15e799e01909a0d66dcb9"
+        },
+        {
+          "bytes": 650,
+          "name": "driver/package/lib/vite/traceViewer/snapshot.B_Jk1wbt.js",
+          "sha256": "d4d09e05451d107d8e1a6bbd041405fe518b9fd2833890e4ebaaad83b7f554f5"
+        },
+        {
+          "bytes": 389,
+          "name": "driver/package/lib/vite/traceViewer/snapshot.html",
+          "sha256": "c608c8899c95c5a74d3f556e20146c3d852b9df85ae2854c659a7cc773c9b727"
+        },
+        {
+          "bytes": 95459,
+          "name": "driver/package/lib/vite/traceViewer/sw.bundle.js",
+          "sha256": "37b230329280e28e32b03df20738d2ed3bfd0ea45b408a69213158bb8400adb3"
+        },
+        {
+          "bytes": 38057,
+          "name": "driver/package/lib/vite/traceViewer/uiMode.CU5KtEkS.js",
+          "sha256": "0c0dc5e0c822c27e60420a5c1659683fda89398f1561e43608f9d829eafdc197"
+        },
+        {
+          "bytes": 54590,
+          "name": "driver/package/lib/vite/traceViewer/uiMode.CyMfwkXJ.css",
+          "sha256": "fb403cf0b07007bc1d771e29737f7408924da300e2fab8b289a3ef2e8fc08d7b"
+        },
+        {
+          "bytes": 727,
+          "name": "driver/package/lib/vite/traceViewer/uiMode.html",
+          "sha256": "c6e92923ea7f2b617db3a2128ac8889c6c1461a77764651588e0111b729c3a3d"
+        },
+        {
+          "bytes": 2853,
+          "name": "driver/package/lib/vite/traceViewer/xtermModule.kHJ-D0s7.css",
+          "sha256": "0dd60056134e6a2994a86b59a1e9789b9f04e92924da109aef8c923acaf08ce5"
+        },
+        {
+          "bytes": 8841,
+          "name": "driver/package/lib/webp_codec.LICENSE",
+          "sha256": "995c7ee35aceb7666829b7a501ca89c0864e12b493c1174b155774ab1e03d831"
+        },
+        {
+          "bytes": 565369,
+          "name": "driver/package/lib/webp_codec.wasm",
+          "sha256": "164cd9583a3e4d081f767d3b41ff0a730443dc7535fcc5caff83561463384b79"
+        },
+        {
+          "bytes": 32416,
+          "name": "driver/package/lib/xdg-open",
+          "sha256": "7d759d54f0d4ce1beeb34ee62c587985b5042374e8de237b0dcb8cd47aa698cf"
+        },
+        {
+          "bytes": 876,
+          "name": "driver/package/package.json",
+          "sha256": "f061c58427e47e843e26d201f0a57076c734e57c734ecbbd87d4a23b7a20db9b"
+        },
+        {
+          "bytes": 814210,
+          "name": "driver/package/types/protocol.d.ts",
+          "sha256": "0410ed82a9ac63269dc1471ed249b280e2d461249a3a331e71cdb54cdf10db33"
+        },
+        {
+          "bytes": 2455,
+          "name": "driver/package/types/structs.d.ts",
+          "sha256": "c9b9179b7291c8562eb0fb781219ddbdcf36149ebd7bd355e5b4a553d6b60b81"
+        },
+        {
+          "bytes": 1131883,
+          "name": "driver/package/types/types.d.ts",
+          "sha256": "2806f6d7810fba0306066d500cd716a6d1128d90af2c3cf71723e3ea0a8904c4"
+        },
+        {
+          "bytes": 0,
+          "name": "py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 7828,
+          "name": "sync_api/__init__.py",
+          "sha256": "d99c6765ea8213ae219ab4a41c4e336effcd2b9e1acd311458a7dbe38e3ab947"
+        },
+        {
+          "bytes": 3510,
+          "name": "sync_api/_context_manager.py",
+          "sha256": "4ad37eb82b50490219069bb3fd755e74947adf57b64acc9a49a20568c10e6e3f"
+        },
+        {
+          "bytes": 972691,
+          "name": "sync_api/_generated.py",
+          "sha256": "2fe12ee05ea24145f026c707e80d3502bd6cfca84a43e164339784c48c95b0ce"
+        }
+      ],
+      "package_tree_sha256": "1cca326f483be5cb586db697a13d711c1836905a623957761ddc504f8032b391",
+      "provenance_metadata": [
+        {
+          "bytes": 2,
+          "name": "INSTALLER",
+          "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9"
+        },
+        {
+          "bytes": 3328,
+          "name": "METADATA",
+          "sha256": "6b7333d9190588afc36f61995e10874d192ef86b5127c4e94a8912b876b4e789"
+        },
+        {
+          "bytes": 20567,
+          "name": "RECORD",
+          "sha256": "909655546a01eb13501959f689f77c5c27b265e0cee016a4b722087de44aa207"
+        },
+        {
+          "bytes": 0,
+          "name": "REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 91,
+          "name": "WHEEL",
+          "sha256": "69e6228a0d35958183cc1812f07c565ce837b95eb51bd8a33acba9fa4f68d6c9"
+        },
+        {
+          "bytes": 130,
+          "name": "entry_points.txt",
+          "sha256": "1be952e6d9d0c36d4f1dc5ca6d9146cbcd657338a775720351e8c879f1fc5686"
+        },
+        {
+          "bytes": 11399,
+          "name": "licenses/LICENSE",
+          "sha256": "7fab1461b41970ff376f1c9303a637076bfaaeb71cd12dd3a1c44aaf59a1a2b9"
+        },
+        {
+          "bytes": 11,
+          "name": "top_level.txt",
+          "sha256": "a188b3e7e65be32db700d668b768b794cb0af81022c17a93950e21cad2c962e1"
+        }
+      ],
+      "version": "1.63.0"
+    },
+    "psutil": {
+      "bytecode_policy": "no __pycache__ or .pyc allowed in future installed runtime tree",
+      "package_files": [
+        {
+          "bytes": 89878,
+          "name": "__init__.py",
+          "sha256": "d138a5786b163b56ba86ea0b2d5589dfca37e1bcdf8de1057fe1e933d6ab808a"
+        },
+        {
+          "bytes": 25254,
+          "name": "_common.py",
+          "sha256": "1bbce9fd97e6f5439a0d385f28401f527c5a9d978d9d062593d7ef6fe215fc75"
+        },
+        {
+          "bytes": 10970,
+          "name": "_ntuples.py",
+          "sha256": "9b8e8b938abae2786a515f686f4d8132218be897eb6b459b9324ed17d88a31c7"
+        },
+        {
+          "bytes": 17616,
+          "name": "_psaix.py",
+          "sha256": "afe4038d5e1454559f17dac9e6c2c56ad8cf873d43880f6503e8549cc06a18ec"
+        },
+        {
+          "bytes": 29263,
+          "name": "_psbsd.py",
+          "sha256": "c1a8314a9640649c99197ff261dbeec1f0080175e4a3f6b5cb370a39332deb94"
+        },
+        {
+          "bytes": 84787,
+          "name": "_pslinux.py",
+          "sha256": "a8a09bab87848075b691c46112b00692745785a8c9d5a2c87037ae124b469749"
+        },
+        {
+          "bytes": 15913,
+          "name": "_psosx.py",
+          "sha256": "89f0ea0e9c1fe38f224b612792bf31d07c8880d79281806e5379c00514f6b3f2"
+        },
+        {
+          "bytes": 11575,
+          "name": "_psposix.py",
+          "sha256": "288887b58f5939e3b00e021f6e7b490c2f7f4852804a359918ab7d9c6fb39839"
+        },
+        {
+          "bytes": 23934,
+          "name": "_pssunos.py",
+          "sha256": "cc348442008a54cb6054299b2ecae0d9a123c07bb4ba1f8e14b319487f83cee5"
+        },
+        {
+          "bytes": 150904,
+          "name": "_psutil_linux.abi3.so",
+          "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd"
+        },
+        {
+          "bytes": 35370,
+          "name": "_pswindows.py",
+          "sha256": "580ad391de734c113682200ee9f4245e34737f5e26af0a73a4e8c9b4458de220"
+        }
+      ],
+      "package_tree_sha256": "f42e980298e80724253c6bbf918769b31d7d2eb5a5d4da771c40f4ba90719c07",
+      "provenance_metadata": [
+        {
+          "bytes": 4,
+          "name": "INSTALLER",
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
+        },
+        {
+          "bytes": 1548,
+          "name": "LICENSE",
+          "sha256": "b89c063b3786e28e0c0a38f1931db61fed35e69dd2a2966fbecffee0f46c8d10"
+        },
+        {
+          "bytes": 22187,
+          "name": "METADATA",
+          "sha256": "525f8ba78523cf7bc3759d62a105e7c57fd679ea702402b9449fb0746aa0217f"
+        },
+        {
+          "bytes": 1879,
+          "name": "RECORD",
+          "sha256": "b28445afbcb938e8a146ed1e7357406fdb031c24c828c819a04b1ef502d683fb"
+        },
+        {
+          "bytes": 0,
+          "name": "REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 184,
+          "name": "WHEEL",
+          "sha256": "aca9cca3026cd7b9774535accd80fde13f5a55cf32141be943e4575a4e8835cd"
+        },
+        {
+          "bytes": 7,
+          "name": "top_level.txt",
+          "sha256": "8023619f9ef0ce4b038d20084a680c2746a25f342e964d062616f6f81032620c"
+        }
+      ],
+      "version": "7.2.2"
+    },
+    "pyee": {
+      "bytecode_policy": "no __pycache__ or .pyc allowed in future installed runtime tree",
+      "package_files": [
+        {
+          "bytes": 762,
+          "name": "__init__.py",
+          "sha256": "aa4f9a8ede4618ab005b60bf8751769ed424bbdc65ae0a65ed025aebebad9b81"
+        },
+        {
+          "bytes": 5655,
+          "name": "asyncio.py",
+          "sha256": "5b2a46661b00f08876efb9ff4d95c1a2518c5839fad0db3dc410d457fc7474af"
+        },
+        {
+          "bytes": 8547,
+          "name": "base.py",
+          "sha256": "4b39e4d616ba26df139d4c6f43c35e650a7b3b01a91c5cbc65dd1deafb892b6f"
+        },
+        {
+          "bytes": 2952,
+          "name": "cls.py",
+          "sha256": "75821cc1fbb36a79fa29beeb2e0cf49a649c22ee9f17409ea28728257627b8d0"
+        },
+        {
+          "bytes": 2528,
+          "name": "executor.py",
+          "sha256": "566a5bb888db751aa0c328b686510fcb94f06b6b7f1ca5e944d50259cef2c3f5"
+        },
+        {
+          "bytes": 0,
+          "name": "py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 4608,
+          "name": "trio.py",
+          "sha256": "c338ed0490030ce39af8c7349e17df2f727fc68c1edc53ae8acd5cc2755518bb"
+        },
+        {
+          "bytes": 2979,
+          "name": "twisted.py",
+          "sha256": "8edf2c192330f4ec3bb078354e4f57afd6f70c8241bc837f290439bc6d3e77d3"
+        },
+        {
+          "bytes": 6580,
+          "name": "uplift.py",
+          "sha256": "09835503965e8bcea9562eb8bf4278fa5881eb036a6857ac677f4053aa29e1fc"
+        }
+      ],
+      "package_tree_sha256": "066c0b3a128929e7e710a73dbd39ab6183032d15f5b6a661c11c569c87004e27",
+      "provenance_metadata": [
+        {
+          "bytes": 2,
+          "name": "INSTALLER",
+          "sha256": "e6184ce10e266134fdcfa401e8f1a95005bcd4f18d16b62b757323e2833fe9a9"
+        },
+        {
+          "bytes": 2951,
+          "name": "METADATA",
+          "sha256": "7512d063d60cb405124a6c5fdd2c688d78a4c6b6841b8eeb00a59474ef59d43c"
+        },
+        {
+          "bytes": 1187,
+          "name": "RECORD",
+          "sha256": "e546602c3140b5410279c7ba1ede8f74ec6cdd873e68435b12b099fe1067e169"
+        },
+        {
+          "bytes": 0,
+          "name": "REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 91,
+          "name": "WHEEL",
+          "sha256": "6027f0606398322e49870d9f538c8d83012bc9b6f6217e4f13004a57865b741a"
+        },
+        {
+          "bytes": 1080,
+          "name": "licenses/LICENSE",
+          "sha256": "1ff556ca206b107f10e1c562ae454d3292e0296c3510eb90eb7f114caee32a66"
+        },
+        {
+          "bytes": 5,
+          "name": "top_level.txt",
+          "sha256": "868bf9b972abc68a66ac58878534a0980ce2213f179c6935ab67dd71d4af4448"
+        }
+      ],
+      "version": "13.0.1"
+    },
+    "typing_extensions": {
+      "bytecode_policy": "reject_all_pyc_and_cache",
+      "layout": "standalone_module",
+      "package_files": [
+        {
+          "bytes": 165012,
+          "name": "typing_extensions.py",
+          "sha256": "4040ca1a1ecbee00d1385c12a93084d1c5bd46f0b774f07e5ae7e91c4f55e696"
+        }
+      ],
+      "package_tree_sha256": "6282ee7af6839db3ca4224cb68c247ae2739a763ea20f49495c79a8957bd9ed0",
+      "provenance_metadata": {
+        "source": "existing pinned official typing_extensions wheel contents; no execution"
+      },
+      "version": "4.16.0"
+    }
+  },
+  "schema": "panel-bootstrap-helper-source-lock-v1",
+  "scope": "Complete original operator bootstrap helper source and existing runtime helper package bytes; no Chrome bytes, OS tree, compiler execution or fresh installer success claim",
+  "source_reference_policy": "All donor Python stored as inert .py.txt; never import or execute broad donor entrypoints",
+  "status": "HASHED_EXISTING_BYTES_REQUIRES_INDEPENDENT_SOURCE_REVIEW"
+}

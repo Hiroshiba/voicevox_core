@@ -1,0 +1,61 @@
+{
+  "files": {
+    "browser/affine_browser.py": {
+      "bytes": 59976,
+      "provenance": "accepted-off-attribution/helpers/affine_browser.py",
+      "sha256": "7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc"
+    },
+    "browser/attribution_browser.py": {
+      "bytes": 37840,
+      "provenance": "accepted-off-attribution/helpers/attribution_browser.py",
+      "sha256": "6db16d7a19ff6ba56e6ed259b7d29c5665fc7ea56e832b57ca8b05036df773df"
+    },
+    "source/base/kernel/make_archive_variants.py": {
+      "bytes": 5626,
+      "provenance": "accepted-baseline/source/base/kernel/make_archive_variants.py",
+      "sha256": "183468c51a29746ae50871e2f637ab2fc4c941294358b4531f78c854ea067647"
+    },
+    "source/base/voicevox_webcpu_research.py": {
+      "bytes": 193894,
+      "provenance": "accepted-baseline/source/base/voicevox_webcpu_research.py",
+      "sha256": "d35499049d49bd8bdfef62f9a4ba788da6b36066ef324ce722833d41c1fb5dfe"
+    },
+    "source/callback_discovery.py": {
+      "bytes": 4284,
+      "provenance": "accepted-baseline/source/callback_discovery.py",
+      "sha256": "e9472d5115159ce9e3293a1ac82352a8e24841c1fdae709efa96315935027977"
+    },
+    "source/inplace_leaky.patch": {
+      "bytes": 1476,
+      "provenance": "accepted-baseline/source/inplace_leaky.patch",
+      "sha256": "154698ab9012a18c8183e0d92a9feac0d39da53f484dd19eaf00a20ad3cf77cd"
+    },
+    "source/prepare_inplace_leaky_source.py": {
+      "bytes": 37685,
+      "provenance": "accepted-baseline/source/prepare_inplace_leaky_source.py",
+      "sha256": "455315f69283a223538a4d8f6a3c624011008a3bb0e5cb53ab5aa787a2a79afe"
+    },
+    "source/source_pins.json": {
+      "bytes": 282961,
+      "provenance": "accepted-baseline/source/source_pins.json",
+      "sha256": "8cae1f6e8870e22cf29ce45bd539227e3bf48ad64dcfb41d7ed2a947c0e871cc"
+    },
+    "source/source_proof.py": {
+      "bytes": 13388,
+      "provenance": "accepted-baseline/source/source_proof.py",
+      "sha256": "5209cad45e355afb42eba8f199e1c1639aaf7834ce0127558bc7447e611d9fdd"
+    },
+    "source/xnnpack-static-dependencies.patch": {
+      "bytes": 8407,
+      "provenance": "accepted-baseline/source/xnnpack-static-dependencies.patch",
+      "sha256": "5af16bc0cd746b6bc666b225972cbae3ad524d4ae22b36302bdfbf1270458b2a"
+    },
+    "toolchain/affine_toolchain.py": {
+      "bytes": 5498,
+      "provenance": "accepted-off-attribution/helpers/affine_toolchain.py",
+      "sha256": "a1650fe45ab15e5c9eb3e7883b296d5d72b44c1ae05ffeb37c9d0ef4ae972efd"
+    }
+  },
+  "policy": "Exact copies of accepted source helpers; unused full-runtime entry points are never called by this bootstrap.",
+  "schema": "actual-operator-vendor-v1"
+}

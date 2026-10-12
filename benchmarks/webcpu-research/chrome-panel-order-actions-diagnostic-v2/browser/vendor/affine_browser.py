@@ -1,0 +1,903 @@
+"""Browser-only affine-addressing screen. Importing this module never builds or runs inference.
+
+run(manifest, helpers_root, private, stage_callback=None) returns only allowlisted,
+JSON-safe records. It never persists output buffers, profile events or browser logs.
+Each callback receives a fresh {stage, completed_primary_calls} dictionary.
+All failures preserve completed chronological rows, invalidate measurement and
+suppress effect estimates. The caller owns deletion of its private directory.
+"""
+from __future__ import annotations
+
+# Activation uses only the shared immutable root/child admission contract.
+from launch.source_only import require_execution_admission, child_python_command
+require_execution_admission('browser.vendor.affine_browser')
+
+import array
+import contextlib
+import copy
+import hashlib
+import html
+import http.server
+import importlib.metadata
+import io
+import itertools
+import json
+import math
+import os
+from pathlib import Path
+import random
+import re
+import shutil
+import statistics
+import struct
+import threading
+import time
+import wave
+
+KEYS = ('original', 'rebuilt', 'candidate')
+ALL_KEYS = KEYS + ('diagnostic_candidate',)
+MODEL_SHA = '51425e43e7ad5aa33af06464b77f86c64959ab9317353e8f549c1b7747150fc9'
+QUERY_SHA = '3d3b07b94d5a1159994888d72b4e9f3362acec551f2bf5275eb71d8fa6802d63'
+DISPATCH_SHA = 'abe7453d3feeaf6bc7f489452055a8ba0d02d22c7c158481112c51e0ada10c2b'
+FLAGS = ['--js-flags=--no-wasm-revectorize']
+RUNTIME = dict(wasm_simd_supported=True, shared_memory=True, pthreads=1, spin_off=True, fixed_length=962,
+               fixed_matches=1, xnn_threads=2, xnn_sessions=1, ort_global_threads=1)
+WAV_FORMAT = dict(channels=1, sample_bytes=2, sample_rate=24000, frames=239104)
+AFFINE_KC_BYTES = (128,256,512,1024)
+MAX_SAFE_INTEGER = 2**53-1
+MIN_AVAILABLE = 1024**3
+SENTINEL_BOUNDS = (0.8, 1.25)
+HEX = re.compile('[a-f0-9]{64}')
+STAGES = ('initializing','input_gates','browser_gates','provider_gates','callback_gates',
+          'primary_set_1','primary_set_2','primary_set_3','complete')
+ERRORS = {'input_gate','dependency_gate','engine_gate','configuration_gate','worker_gate',
+          'output_gate','profile_gate','callback_gate','resource_gate','sentinel_gate',
+          'cleanup_gate','report_gate','browser_unavailable','interrupted','internal_error'}
+
+class GateFailure(RuntimeError):
+    def __init__(self, code):
+        super().__init__(code if code in ERRORS else 'internal_error')
+        self.code = str(self)
+
+def need(value, code='report_gate'):
+    if not value:
+        raise GateFailure(code)
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+def file_sha(path):
+    h = hashlib.sha256()
+    with Path(path).open('rb') as f:
+        for b in iter(lambda: f.read(1024*1024), b''):
+            h.update(b)
+    return h.hexdigest()
+
+def number(x, *, positive=False):
+    return type(x) in (int,float) and math.isfinite(x) and (x > 0 if positive else x >= 0)
+
+def same(value, expected):
+    if type(value) is not type(expected):return False
+    if isinstance(value,dict):return value.keys()==expected.keys() and all(same(value[k],expected[k]) for k in value)
+    if isinstance(value,(list,tuple)):return len(value)==len(expected) and all(same(a,b) for a,b in zip(value,expected))
+    return value==expected
+
+def exact_keys(value, keys, code='report_gate'):
+    need(isinstance(value,dict) and set(value) == set(keys), code)
+
+def schedule():
+    """15 rounds: exact global position balance and 7/8 pair-order balance.
+
+    Each set contains five different permutations, with position counts 1/2 and
+    pair-order counts 2/3. Omit one different cyclic permutation per set. Seed
+    1729 randomizes condition labels, omitted-cycle order and within-set rounds.
+    """
+    rng = random.Random(1729)
+    labels = list(KEYS); rng.shuffle(labels)
+    cycles = [tuple(labels[i:]+labels[:i]) for i in range(3)]; rng.shuffle(cycles)
+    rows = []
+    for set_id, omitted in enumerate(cycles,1):
+        orders = [p for p in itertools.permutations(labels) if p != omitted]
+        rng.shuffle(orders)
+        rows.extend(dict(process_set=set_id, round=i, order=list(order)) for i,order in enumerate(orders,1))
+    return rows
+
+def design():
+    rows = schedule()
+    return dict(seed=1729, primary_calls=45, process_sets=3, rounds_per_set=5,
+                observations_per_condition=15, paired_comparisons_per_comparison=15,
+                conditions=list(KEYS), position_counts={k:[sum(x['order'][i]==k for x in rows) for i in range(3)] for k in KEYS},
+                pair_order_counts={a+'_before_'+b:sum(x['order'].index(a)<x['order'].index(b) for x in rows) for a,b in itertools.combinations(KEYS,2)},
+                independent_clusters=3)
+
+def configuration():
+    return dict(design=design(), schedule=schedule(), normal_tiering=True, revectorization='OFF',
+                browser_flags=list(FLAGS), playwright_version='1.63.0', chromium_major=153,
+                warmups_per_browser=5, hardware_concurrency_override=False,
+                output_repeats_per_phase=2, sentinel_ratio_bounds=list(SENTINEL_BOUNDS),
+                minimum_available_memory_bytes=MIN_AVAILABLE, major_faults_allowed=0,
+                primary_instrumentation='monotonic_clock_only',
+                resource_observation='process_and_host_boundaries_only', cpu_time_series_measured=False)
+
+def blank_report():
+    return dict(schema='affine-browser-screen-v1', status='incomplete', measurement_valid=False,
+                stage='initializing', error_code=None, configuration=configuration(),
+                fixture=dict(model_sha256=MODEL_SHA,query_sha256=QUERY_SHA,frames=962,style=302,xnn_threads=2,ort_threads=1),
+                artifacts={}, host={}, environment={}, diagnostics=dict(flag_acceptance=None,outputs={},providers={},callbacks={}),
+                output_reference=None, gates_complete_before_timing=False, process_sets=[],trials=[],summary=None,
+                privacy=dict(raw_outputs_persisted=False,profile_events_persisted=False,browser_logs_persisted=False,
+                             paths_in_public_report=False,output_checks='in_memory_exact_bytes_and_hashes'))
+
+def prepare_assets(manifest, helpers_root, private):
+    """Private paths are consumed here and never copied to the result."""
+    if isinstance(manifest,(str,Path)):
+        manifest = json.loads(Path(manifest).read_text())
+    need(isinstance(manifest,dict), 'input_gate')
+    entries = manifest.get('entries',manifest)
+    need(isinstance(entries,dict) and all(k in entries for k in ALL_KEYS), 'input_gate')
+    private, helpers_root = Path(private),Path(helpers_root)
+    root = private/'browser-assets'
+    need(not root.exists(), 'input_gate')
+    root.mkdir(parents=True,mode=0o700)
+    model = manifest.get('model',entries['original'].get('model'))
+    query = manifest.get('query',entries['original'].get('query'))
+    need(model and query, 'input_gate')
+    need(file_sha(model)==MODEL_SHA and file_sha(query)==QUERY_SHA,'input_gate')
+    for source,name in ((model,'sample.vvm'),(query,'query.json')):
+        shutil.copyfile(source,root/name)
+    artifacts = {}
+    for key in ALL_KEYS:
+        entry = entries[key]
+        binary = Path(entry.get('binary',entry.get('js','')))
+        wasm = Path(entry.get('wasm',binary.with_suffix('.wasm')))
+        expected_js = entry.get('js_sha256',entry.get('worker',{}).get('js_sha256'))
+        expected_wasm = entry.get('wasm_sha256',entry.get('worker',{}).get('wasm_sha256'))
+        need(isinstance(expected_js,str) and HEX.fullmatch(expected_js) and isinstance(expected_wasm,str) and HEX.fullmatch(expected_wasm),'input_gate')
+        need(file_sha(binary)==expected_js and file_sha(wasm)==expected_wasm,'input_gate')
+        target = root/key; target.mkdir(mode=0o700)
+        shutil.copyfile(binary,target/'voicevox_benchmark.js')
+        shutil.copyfile(wasm,target/'voicevox_benchmark.wasm')
+        # Ancillary Emscripten pthread worker is only accepted with an explicit pin.
+        for extra in entry.get('auxiliary',[]):
+            exact_keys(extra,('path','sha256'),'input_gate')
+            p = Path(extra['path']); need(p.name.endswith('.worker.js') and file_sha(p)==extra['sha256'],'input_gate')
+            shutil.copyfile(p,target/p.name)
+        artifacts[key] = dict(js_sha256=expected_js,wasm_sha256=expected_wasm)
+    # A rebuild may be bit-identical to the original. Candidate and diagnostic
+    # binaries must differ; source/archive provenance is the packager's gate.
+    need(artifacts['candidate']['wasm_sha256'] not in {artifacts[k]['wasm_sha256'] for k in ('original','rebuilt')},'input_gate')
+    need(all(artifacts[d]['wasm_sha256'] not in {artifacts[k]['wasm_sha256'] for k in KEYS} for d in ALL_KEYS[3:]),'input_gate')
+    dispatch = helpers_root/'core_dispatch_check.js'
+    if not dispatch.is_file():dispatch = helpers_root/'source/base/runtime/core_dispatch_check.js'
+    need(file_sha(dispatch)==DISPATCH_SHA,'input_gate')
+    shutil.copyfile(dispatch,root/'core_dispatch_check.js')
+    shutil.copyfile(helpers_root/'affine_browser_worker.js',root/'worker.js')
+    (root/'runtime_manifest.json').write_text(json.dumps(artifacts,separators=(',',':')))
+    (root/'index.html').write_text(PAGE)
+    return root,artifacts
+
+PAGE = '''<!doctype html><meta charset="utf-8"><title>Private affine-addressing benchmark</title><script>
+let worker=null,pending=null;
+window.request=data=>new Promise((resolve,reject)=>{
+ if(pending)return reject(new Error('concurrent_request'));
+ if(data.command==='init'){
+  worker=new Worker('/worker.js');
+  worker.onerror=()=>{if(pending){clearTimeout(pending.timer);pending.reject(new Error('worker_gate_failed'));pending=null;}worker.terminate();};
+  worker.onmessage=({data})=>{if(!pending)return;const p=pending;pending=null;clearTimeout(p.timer);
+   if(data.error){p.reject(new Error('worker_gate_failed'));return;}
+   if(data.wav)data.wav=Array.from(new Uint8Array(data.wav));
+   if(data.raw)data.raw=Array.from(new Uint8Array(data.raw));p.resolve(data);};
+ }
+ const timer=setTimeout(()=>{worker.terminate();pending=null;reject(new Error('worker_timeout'));},600000);
+ pending={resolve,reject,timer};worker.postMessage(data);
+});
+</script>'''
+
+@contextlib.contextmanager
+def serve_assets(root):
+    """Serve only the generated private asset directory, never arbitrary paths."""
+    allowed = {'/index.html','/worker.js','/core_dispatch_check.js','/runtime_manifest.json','/query.json','/sample.vvm'}
+    allowed.update('/'+str(p.relative_to(root)).replace(os.sep,'/') for p in root.glob('*/*') if p.is_file())
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            key = '/index.html' if self.path=='/' else self.path
+            if key not in allowed:
+                self.send_error(404);return
+            path = root/key.lstrip('/')
+            self.send_response(200)
+            self.send_header('Cross-Origin-Opener-Policy','same-origin')
+            self.send_header('Cross-Origin-Embedder-Policy','require-corp')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Type','application/wasm' if path.suffix=='.wasm' else 'application/javascript' if path.suffix=='.js' else 'text/html' if path.suffix=='.html' else 'application/octet-stream')
+            self.send_header('Content-Length',str(path.stat().st_size));self.end_headers()
+            try:
+                with path.open('rb') as f: shutil.copyfileobj(f,self.wfile)
+            except (BrokenPipeError,ConnectionResetError):pass
+        def log_message(self,*args):pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
+    thread = threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try: yield f'http://127.0.0.1:{server.server_port}'
+    finally: server.shutdown();server.server_close();thread.join()
+
+def compare_outputs(wav_bytes, raw, reference=None):
+    need(isinstance(wav_bytes,bytes) and isinstance(raw,bytes),'output_gate')
+    need(len(wav_bytes)==478252 and len(raw)==956416,'output_gate')
+    try:
+        with wave.open(io.BytesIO(wav_bytes),'rb') as w:
+            fmt = dict(channels=w.getnchannels(),sample_bytes=w.getsampwidth(),sample_rate=w.getframerate(),frames=w.getnframes())
+            need(w.getcomptype()=='NONE' and fmt==WAV_FORMAT,'output_gate')
+            pcm = w.readframes(w.getnframes());need(len(pcm)==478208,'output_gate')
+        finite = all(math.isfinite(x[0]) for x in struct.iter_unpack('<f',raw))
+    except (wave.Error,EOFError,struct.error):raise GateFailure('output_gate') from None
+    need(finite,'output_gate')
+    exact = reference is None or (wav_bytes==reference[0] and raw==reference[1])
+    result = dict(wav_bytes=len(wav_bytes),raw_bytes=len(raw),wav_sha256=sha(wav_bytes),raw_sha256=sha(raw),pcm_sha256=sha(pcm),
+                  finite=True,fp32_exact=reference is None or raw==reference[1],
+                  wav_exact=reference is None or wav_bytes==reference[0],pcm_exact=False,wav_format=fmt,fp32_samples=239104)
+    if reference is None:result['pcm_exact']=True
+    else:
+        with wave.open(io.BytesIO(reference[0]),'rb') as w:result['pcm_exact']=pcm==w.readframes(w.getnframes())
+    need(exact and result['pcm_exact'],'output_gate')
+    return result
+
+def parse_callback_summary(value):
+    """Accept bounded family/channel counts, never pointers or tensor contents.
+
+    The fixed fixture must exercise each supported linear C specialization.
+    Minmax is validated when observed but is not required for this model.
+    kc_bytes=0 groups unsupported channels and can only use the fallback.
+    """
+    exact_keys(value,('calls',),'callback_gate')
+    calls=value['calls']
+    need(isinstance(calls,list) and 4<=len(calls)<=10,'callback_gate')
+    seen=set()
+    for row in calls:
+        exact_keys(row,('family','kc_bytes','fallback_calls','affine_calls'),'callback_gate')
+        need(row['family'] in ('linear','minmax'),'callback_gate')
+        need(type(row['kc_bytes']) is int and row['kc_bytes'] in (0,*AFFINE_KC_BYTES),'callback_gate')
+        need(all(type(row[k]) is int and 0<=row[k]<=MAX_SAFE_INTEGER for k in ('fallback_calls','affine_calls')),'callback_gate')
+        total=row['fallback_calls']+row['affine_calls']
+        need(0<total<=MAX_SAFE_INTEGER and (row['kc_bytes']!=0 or row['affine_calls']==0),'callback_gate')
+        key=(row['family'],row['kc_bytes']);need(key not in seen,'callback_gate');seen.add(key)
+    for kc in AFFINE_KC_BYTES:
+        need(any(row['family']=='linear' and row['kc_bytes']==kc and row['affine_calls']>0 for row in calls),'callback_gate')
+    return dict(verified=True,calls=sorted(copy.deepcopy(calls),key=lambda x:(x['family'],x['kc_bytes'])),
+                inference_count=2,callback_metadata_scope='atomic_family_and_kc_bucket_counts',timing_permitted=False)
+
+def parse_provider_summary(value):
+    exact_keys(value,('unique_xnn_conv','unique_xnn_conv_transpose','unique_assignments','assignment_sha256'),'profile_gate')
+    need(same(value['unique_xnn_conv'],74) and same(value['unique_xnn_conv_transpose'],4) and same(value['unique_assignments'],200),'profile_gate')
+    need(isinstance(value['assignment_sha256'],str) and HEX.fullmatch(value['assignment_sha256']),'profile_gate')
+    return dict(verified=True,**value,timing_permitted=False)
+
+def host_snapshot(psutil):
+    m,s=psutil.virtual_memory(),psutil.swap_memory()
+    return dict(available_bytes=m.available,total_bytes=m.total,swap_used_bytes=s.used,swap_in_bytes=s.sin,swap_out_bytes=s.sout)
+
+def process_snapshot(psutil,pid):
+    records={}
+    try:processes=[psutil.Process(pid),*psutil.Process(pid).children(recursive=True)]
+    except psutil.Error:raise GateFailure('resource_gate') from None
+    for p in processes:
+        try:
+            # /proc stat: after comm, fields start with state (#3).
+            fields=Path(f'/proc/{p.pid}/stat').read_text().rsplit(')',1)[1].split()
+            status=Path(f'/proc/{p.pid}/status').read_text()
+            swap=next(int(x.split()[1])*1024 for x in status.splitlines() if x.startswith('VmSwap:'))
+            cpu=p.cpu_times()
+            records[(p.pid,p.create_time())]=dict(rss_bytes=p.memory_info().rss,cpu_seconds=cpu.user+cpu.system,
+                                                major_faults=int(fields[9]),minor_faults=int(fields[7]),swap_bytes=swap)
+        except (OSError,ValueError,StopIteration,psutil.Error):raise GateFailure('resource_gate') from None
+    need(bool(records),'resource_gate')
+    return dict(host=host_snapshot(psutil),processes=records)
+
+def resource_delta(before,after):
+    a,b=before['processes'],after['processes'];common=set(a)&set(b)
+    out=dict(before=copy.deepcopy(before['host']),after=copy.deepcopy(after['host']),
+             process_count_before=len(a),process_count_after=len(b),unmatched_processes=len(set(a)^set(b)),
+             counter_regressions=sum(b[k][field]<a[k][field] for k in common for field in ('major_faults','minor_faults','cpu_seconds'))+sum(after['host'][field]<before['host'][field] for field in ('swap_in_bytes','swap_out_bytes')),
+             rss_bytes_before=sum(x['rss_bytes'] for x in a.values()),rss_bytes_after=sum(x['rss_bytes'] for x in b.values()),
+             major_faults=sum(max(0,b[k]['major_faults']-a[k]['major_faults']) for k in common),
+             minor_faults=sum(max(0,b[k]['minor_faults']-a[k]['minor_faults']) for k in common),
+             target_swap_growth_bytes=sum(max(0,b[k]['swap_bytes']-a[k]['swap_bytes']) for k in common),
+             host_swap_in_delta=max(0,after['host']['swap_in_bytes']-before['host']['swap_in_bytes']),
+             host_swap_out_delta=max(0,after['host']['swap_out_bytes']-before['host']['swap_out_bytes']),
+             cpu_seconds_delta=sum(max(0,b[k]['cpu_seconds']-a[k]['cpu_seconds']) for k in common))
+    out['passed']=all(out[k]==0 for k in ('unmatched_processes','counter_regressions','major_faults','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta')) and min(out['before']['available_bytes'],out['after']['available_bytes'])>=MIN_AVAILABLE
+    return out
+
+def _checked_browser_process(browser, psutil):
+    """Bind argv to the live CDP browser PID and stable process birthtime.
+
+    Browser.getBrowserCommandLine is unavailable without --enable-automation.
+    No launch switch is added; only the CDP-confirmed OS process is inspected.
+    Raw argv stays local to this function and is never returned or logged.
+    """
+    session=browser.new_browser_cdp_session()
+    def browser_pid():
+        records=session.send('SystemInfo.getProcessInfo')['processInfo']
+        roots=[x['id'] for x in records if x['type']=='browser']
+        need(len(roots)==1,'resource_gate')
+        pid=roots[0]
+        need(type(pid) is int or isinstance(pid,str) and re.fullmatch(r'[1-9][0-9]*',pid),'resource_gate')
+        pid=int(pid);need(0<pid<2**31 and pid!=os.getpid(),'resource_gate')
+        return pid
+    try:
+        version=session.send('Browser.getVersion')
+        pid=browser_pid()
+        try:
+            root=psutil.Process(pid);born=root.create_time()
+            need(root.pid==pid and number(born,positive=True) and root.is_running(),'resource_gate')
+            argv=root.cmdline()
+            fresh=psutil.Process(pid)
+            need(fresh.pid==pid and fresh.create_time()==born and root.is_running() and fresh.is_running(),'resource_gate')
+        except (psutil.Error,OSError):raise GateFailure('resource_gate') from None
+        # The original CDP connection must still identify that same browser.
+        need(browser_pid()==pid,'resource_gate')
+        need(isinstance(argv,list) and all(isinstance(x,str) for x in argv),'configuration_gate')
+        jsflags=[x for x in argv if x.startswith('--js-flags=')]
+        v8_override=any(token.strip().startswith('V8') for x in argv if x.startswith(('--enable-features=','--disable-features=')) for token in x.split('=',1)[1].split(','))
+        need(jsflags==FLAGS and not v8_override,'configuration_gate')
+        need(isinstance(version.get('product'),str) and re.fullmatch(r'(?:Chrome|HeadlessChrome)/153\.[0-9.]+',version['product']) and isinstance(version.get('jsVersion'),str) and re.fullmatch(r'[0-9.]+',version['jsVersion']),'engine_gate')
+        return version,root,(pid,born)
+    finally:session.detach()
+
+class Browser:
+    def __init__(self,pw,url,key,artifacts,psutil,profile=False):
+        raise RuntimeError("LEGACY_UNOWNED_BROWSER_DISABLED")
+        self.browser=None;self.pid=None;self.psutil=psutil
+        try:
+            try:self.browser=pw.chromium.launch(headless=True,args=list(FLAGS))
+            except Exception:raise GateFailure('browser_unavailable') from None
+            version,root,self.identity=_checked_browser_process(self.browser,psutil)
+            self.pid=root.pid
+            self.page=self.browser.new_page();self.page.set_default_timeout(600000);self.page.goto(url,wait_until='load')
+            v=self.call('init',variant=key,profile=profile)
+            self.info=validate_initialization(v,artifacts[key],'affine_callbacks' if key.startswith('diagnostic_') else 'provider_profile' if profile else 'clock_only')
+            # Record the exact CDP engine identity without the user-agent or paths.
+            self.info['engine']=dict(product=version['product'],js_version=version['jsVersion'])
+            self.info['browser_instance_sha256']=sha(json.dumps(self.identity,separators=(',',':')).encode())
+        except BaseException:
+            self.close();raise
+    def call(self,command,**kwargs):
+        try:return self.page.evaluate('data=>request(data)',dict(command=command,**kwargs))
+        except Exception:raise GateFailure('worker_gate') from None
+    def close(self):
+        if self.browser is None:return dict(confirmed=True,remaining_processes=0)
+        targets=[]
+        if self.pid:
+            try:targets=[self.psutil.Process(self.pid),*self.psutil.Process(self.pid).children(recursive=True)]
+            except self.psutil.Error:pass
+        closed=True
+        try:self.browser.close()
+        except Exception:closed=False
+        remaining=[]
+        if targets:
+            _,pending=self.psutil.wait_procs(targets,timeout=10)
+            for p in pending:
+                try:
+                    if p.is_running() and p.status()!=self.psutil.STATUS_ZOMBIE:remaining.append(p)
+                except self.psutil.Error:pass
+        self.browser=None
+        return dict(confirmed=closed and not remaining,remaining_processes=len(remaining))
+
+def validate_initialization(v,artifact,instrumentation):
+    exact_keys(v,('ready','runtime','dispatch','wasm_sha256','js_sha256','instrumentation'),'worker_gate')
+    need(v['ready'] is True and same(v['runtime'],RUNTIME) and v['instrumentation']==instrumentation,'worker_gate')
+    need(v['wasm_sha256']==artifact['wasm_sha256'] and v['js_sha256']==artifact['js_sha256'],'worker_gate')
+    d=v['dispatch']
+    expected=dict(schema_version=1,source='actual_CORE_module',context='dedicated_worker',expected_dispatch='loadsplat',actual_dispatch='loadsplat',
+                  is_x86=True,relaxed_simd=False,mr=4,nr=8,splat_pointers=0,loadsplat_pointers=12,checked_pointers=12,probe_return_code=1,
+                  cross_origin_isolated=True,shared_memory=True,verified=True)
+    exact_keys(d,(*expected,'worker_hardware_concurrency','probe_hardware_concurrency'),'worker_gate')
+    need(all(same(d[k],value) for k,value in expected.items()),'worker_gate')
+    need(type(d['worker_hardware_concurrency']) is int and d['worker_hardware_concurrency']>=1 and same(d['probe_hardware_concurrency'],d['worker_hardware_concurrency']),'worker_gate')
+    return copy.deepcopy(v)
+
+def latency(value):
+    exact_keys(value,('elapsed_s','wav_bytes'),'worker_gate')
+    need(number(value['elapsed_s'],positive=True) and same(value['wav_bytes'],478252),'worker_gate')
+    return dict(elapsed_s=value['elapsed_s'],wav_bytes=478252)
+
+def write_checkpoint(report,private):
+    """Atomic private numeric/hash-only checkpoint; caller handles interruption recovery."""
+    directory=Path(private);directory.mkdir(parents=True,exist_ok=True,mode=0o700)
+    target=directory/'browser-checkpoint.json';temporary=directory/'browser-checkpoint.tmp'
+    data=(json.dumps(report,sort_keys=True,separators=(',',':'),allow_nan=False)+'\n').encode()
+    fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+    with os.fdopen(fd,'wb') as stream:
+        stream.write(data);stream.flush();os.fsync(stream.fileno())
+    os.replace(temporary,target)
+
+def run(manifest,helpers_root,private,stage_callback=None):
+    raise RuntimeError("LEGACY_DONOR_WORKLOAD_DISABLED")
+    """Run the pinned browser protocol; no build, download or external publishing."""
+    report=blank_report();reference=None;engine=None;hardware=None;identities=set();active=[]
+    def checkpoint():write_checkpoint(report,private)
+    def stage(name):
+        report['stage']=name
+        checkpoint()
+        if stage_callback:stage_callback(dict(stage=name,completed_primary_calls=len(report['trials'])))
+    def memory():need(host_snapshot(psutil)['available_bytes']>=MIN_AVAILABLE,'resource_gate')
+    def open_browser(key,profile=False):
+        nonlocal engine,hardware
+        memory();b=Browser(pw,url,key,report['artifacts'],psutil,profile);active.append(b)
+        current=b.info['engine'];hc=b.info['dispatch']['worker_hardware_concurrency']
+        if engine is None:engine=current
+        if hardware is None:hardware=hc
+        need(current==engine and hc==hardware,'engine_gate')
+        need(b.identity not in identities,'resource_gate');identities.add(b.identity)
+        report['environment']=dict(playwright_version='1.63.0',engine=copy.deepcopy(engine),worker_hardware_concurrency=hardware)
+        return b
+    def close_browser(b,record):
+        result=b.close();record['cleanup']=result
+        checkpoint()
+        if b in active:active.remove(b)
+        need(result['confirmed'],'cleanup_gate')
+    def check(b,phase,iteration):
+        nonlocal reference
+        memory();v=b.call('check');exact_keys(v,('wav','raw'),'output_gate')
+        try:wav_bytes,raw=bytes(v['wav']),bytes(v['raw'])
+        except (TypeError,ValueError):raise GateFailure('output_gate') from None
+        metrics=compare_outputs(wav_bytes,raw,reference)
+        if reference is None:
+            reference=(wav_bytes,raw)
+            report['output_reference']={k:metrics[k] for k in ('wav_sha256','raw_sha256','pcm_sha256')}
+        return dict(phase=phase,iteration=iteration,**metrics)
+    try:
+        stage('input_gates')
+        root,report['artifacts']=prepare_assets(manifest,helpers_root,private)
+        report['host']=host_info();checkpoint()
+        need(importlib.metadata.version('playwright')=='1.63.0','dependency_gate')
+        import psutil
+        need(os.name=='posix' and Path('/proc/self/stat').is_file(),'resource_gate')
+        from playwright.sync_api import sync_playwright
+        stage('browser_gates')
+        report['diagnostics']['flag_acceptance']=flag_acceptance_probe();checkpoint()
+        engine=report['diagnostics']['flag_acceptance']['engine']
+        with serve_assets(root) as url,sync_playwright() as pw:
+            for key in KEYS:
+                b=open_browser(key);record=dict(initialization=b.info,checks=[]);report['diagnostics']['outputs'][key]=record;checkpoint()
+                try:
+                    for i in (1,2):record['checks'].append(check(b,'gate',i));checkpoint()
+                finally:close_browser(b,record)
+            stage('provider_gates')
+            assignments=set()
+            for key in KEYS:
+                b=open_browser(key,True);record=dict(initialization=b.info,checks=[]);report['diagnostics']['providers'][key]=record;checkpoint()
+                try:
+                    record['checks'].append(check(b,'provider',1));checkpoint()
+                    record['profile']=parse_provider_summary(b.call('profile'));assignments.add(record['profile']['assignment_sha256']);checkpoint()
+                finally:close_browser(b,record)
+            need(len(assignments)==1,'profile_gate')
+            stage('callback_gates')
+            for key in ALL_KEYS[3:]:
+                b=open_browser(key);record=dict(initialization=b.info,checks=[]);report['diagnostics']['callbacks'][key]=record;checkpoint()
+                try:
+                    record['checks'].append(check(b,'callback',1));checkpoint()
+                    record['callback']=parse_callback_summary(b.call('diagnostic'));checkpoint()
+                finally:close_browser(b,record)
+            report['gates_complete_before_timing']=True;checkpoint()
+            for set_id in (1,2,3):
+                stage('primary_set_'+str(set_id));browsers={}
+                creation=list(KEYS[set_id-1:]+KEYS[:set_id-1])
+                group=dict(id=set_id,creation_order=creation,runtime={},warmups={},checks=[],sentinels=[],cleanup={},sentinel_ratio=None,sentinel_passed=False)
+                report['process_sets'].append(group)
+                try:
+                    for key in creation:
+                        b=open_browser(key);browsers[key]=b;group['runtime'][key]=b.info;group['warmups'][key]=0;checkpoint()
+                        for i in range(5):memory();latency(b.call('synthesize'));group['warmups'][key]+=1;checkpoint()
+                        for i in (1,2):group['checks'].append(dict(condition=key,**check(b,'before',i)));checkpoint()
+                    def sentinel(position):
+                        memory();b=browsers['original'];before=process_snapshot(psutil,b.pid)
+                        value=latency(b.call('synthesize'));after=process_snapshot(psutil,b.pid)
+                        resources=resource_delta(before,after)
+                        group['sentinels'].append(dict(position=position,**value,resources=resources));checkpoint()
+                        need(resources['passed'],'resource_gate')
+                    sentinel('before')
+                    for block in (x for x in schedule() if x['process_set']==set_id):
+                        for position,key in enumerate(block['order'],1):
+                            memory();b=browsers[key];before=process_snapshot(psutil,b.pid)
+                            value=latency(b.call('synthesize'))
+                            row=dict(index=len(report['trials'])+1,process_set=set_id,round=block['round'],position=position,condition=key,
+                                     **value,resources=None)
+                            report['trials'].append(row);checkpoint()
+                            after=process_snapshot(psutil,b.pid)
+                            row['resources']=resource_delta(before,after);checkpoint()
+                            if stage_callback:stage_callback(dict(stage=report['stage'],completed_primary_calls=len(report['trials'])))
+                            need(row['resources']['passed'],'resource_gate')
+                    sentinel('after')
+                    ratio=group['sentinels'][1]['elapsed_s']/group['sentinels'][0]['elapsed_s']
+                    group['sentinel_ratio']=ratio;group['sentinel_passed']=SENTINEL_BOUNDS[0]<=ratio<=SENTINEL_BOUNDS[1]
+                    # Preserve repeated postchecks even if the drift gate invalidates timing.
+                    for key in creation:
+                        for i in (1,2):group['checks'].append(dict(condition=key,**check(browsers[key],'after',i)));checkpoint()
+                    need(group['sentinel_passed'],'sentinel_gate')
+                finally:
+                    cleanup_ok=True
+                    for key,b in browsers.items():
+                        result=b.close();group['cleanup'][key]=result;active.remove(b);checkpoint()
+                        cleanup_ok=cleanup_ok and result['confirmed']
+                    need(cleanup_ok,'cleanup_gate')
+            report['status']='complete';report['measurement_valid']=True;stage('complete')
+            validate_report(report,allow_missing_summary=True)
+            report['summary']=summarize(report);checkpoint()
+    except GateFailure as exc:report['error_code']=exc.code
+    except (KeyboardInterrupt,SystemExit):report['error_code']='interrupted'
+    except importlib.metadata.PackageNotFoundError:report['error_code']='dependency_gate'
+    except (PermissionError,OSError):report['error_code']='browser_unavailable'
+    except Exception:report['error_code']='internal_error'
+    finally:
+        for b in active:
+            if not b.close()['confirmed']:report['error_code']='cleanup_gate'
+        reference=None
+        if report['error_code'] is not None:
+            report['status']='incomplete';report['measurement_valid']=False;report['summary']=None
+    # No exception text, subprocess stderr, filenames, URLs, PIDs, user-agent or
+    # native profile event names can enter a returned public record.
+    validate_report(report)
+    checkpoint()
+    return report
+
+def geometric_mean(values):
+    return math.exp(statistics.mean(math.log(v) for v in values))
+
+def summarize(report):
+    need(report['status']=='complete' and report['measurement_valid'] and len(report['trials'])==45,'report_gate')
+    effects={}
+    for numerator,denominator in (('rebuilt','original'),('candidate','original'),('candidate','rebuilt')):
+        pairs=[]
+        for block in schedule():
+            rows={x['condition']:x for x in report['trials'] if (x['process_set'],x['round'])==(block['process_set'],block['round'])}
+            pairs.append(dict(process_set=block['process_set'],round=block['round'],ratio=rows[numerator]['elapsed_s']/rows[denominator]['elapsed_s'],
+                              numerator_first=block['order'].index(numerator)<block['order'].index(denominator)))
+        ratios=[x['ratio'] for x in pairs]
+        effects[numerator+'_vs_'+denominator]=dict(pairs=pairs,median_ratio=statistics.median(ratios),geometric_mean_ratio=geometric_mean(ratios),
+            per_process_set=[dict(process_set=s,geometric_mean_ratio=geometric_mean([x['ratio'] for x in pairs if x['process_set']==s])) for s in (1,2,3)],
+            leave_one_process_set_out=[dict(omitted_set=s,geometric_mean_ratio=geometric_mean([x['ratio'] for x in pairs if x['process_set']!=s])) for s in (1,2,3)],
+            order_sensitivity=[dict(numerator_first=first,observations=sum(x['numerator_first']==first for x in pairs),
+                              geometric_mean_ratio=geometric_mean([x['ratio'] for x in pairs if x['numerator_first']==first])) for first in (True,False)])
+    return dict(primary_calls=45,observations_per_condition=15,independent_clusters=3,
+                conditions={key:dict(median_s=statistics.median(x['elapsed_s'] for x in report['trials'] if x['condition']==key),
+                                  minimum_s=min(x['elapsed_s'] for x in report['trials'] if x['condition']==key),
+                                  maximum_s=max(x['elapsed_s'] for x in report['trials'] if x['condition']==key)) for key in KEYS},
+                paired_effects=effects,sentinel_ratios=[x['sentinel_ratio'] for x in report['process_sets']],
+                cpu_time_series_measured=False,scope='descriptive_fixed_fixture_three_process_set_screen')
+
+def validate_report(r, *, allow_missing_summary=False):
+    """Exact recursive schema, bounded values and cross-record consistency.
+
+    Incomplete reports can retain a prefix of the frozen schedule. They never
+    contain an effect estimate or claim a valid completed measurement.
+    """
+    exact_keys(r,blank_report())
+    def bounded_tree(value,depth=0):
+        need(depth<=16)
+        if isinstance(value,dict):
+            need(len(value)<=32 and all(isinstance(k,str) and len(k)<=80 for k in value))
+            for v in value.values():bounded_tree(v,depth+1)
+        elif isinstance(value,list):
+            need(len(value)<=60)
+            for v in value:bounded_tree(v,depth+1)
+        elif isinstance(value,str):need(len(value)<=256)
+        elif type(value) in (int,float):need(math.isfinite(value) and abs(value)<=10**18)
+        else:need(value is None or type(value) is bool)
+    bounded_tree(r)
+    for field in ('schema','configuration','fixture','privacy'):
+        need(same(r[field],blank_report()[field]))
+    need(r['status'] in ('incomplete','complete') and type(r['measurement_valid']) is bool)
+    need(r['stage'] in STAGES and (r['error_code'] is None or r['error_code'] in ERRORS))
+    need(type(r['gates_complete_before_timing']) is bool)
+    complete=r['status']=='complete'
+    need(r['measurement_valid']==complete and (not complete or r['stage']=='complete' and r['error_code'] is None))
+    if not complete:need(r['summary'] is None)
+    def digest(v):need(isinstance(v,str) and HEX.fullmatch(v))
+    def hashes(x):
+        exact_keys(x,('wasm_sha256','js_sha256'))
+        for v in x.values():digest(v)
+    need(isinstance(r['artifacts'],dict) and set(r['artifacts']) in (set(),set(ALL_KEYS)))
+    for a in r['artifacts'].values():hashes(a)
+    def engine(e):
+        exact_keys(e,('product','js_version'))
+        need(isinstance(e['product'],str) and re.fullmatch(r'(?:Chrome|HeadlessChrome)/153\.[0-9.]{1,40}',e['product']))
+        need(isinstance(e['js_version'],str) and re.fullmatch(r'[0-9.]{1,40}',e['js_version']))
+    if r['host']:validate_host_info(r['host'])
+    else:need(not complete)
+    if r['environment']:
+        e=r['environment'];exact_keys(e,('playwright_version','engine','worker_hardware_concurrency'))
+        need(e['playwright_version']=='1.63.0');engine(e['engine'])
+        need(type(e['worker_hardware_concurrency']) is int and 1<=e['worker_hardware_concurrency']<=65536)
+    else:need(not complete)
+    if r['output_reference'] is not None:
+        exact_keys(r['output_reference'],('wav_sha256','raw_sha256','pcm_sha256'))
+        for v in r['output_reference'].values():digest(v)
+    browser_instances=set()
+    flag=r['diagnostics'].get('flag_acceptance') if isinstance(r['diagnostics'],dict) else None
+    if flag is not None:
+        validate_flag_acceptance(flag);browser_instances.add(flag['browser_instance_sha256'])
+        if r['environment']:need(flag['engine']==r['environment']['engine'])
+    if complete or r['gates_complete_before_timing']:need(flag is not None)
+    def init(x,key,kind):
+        exact_keys(x,('ready','runtime','dispatch','wasm_sha256','js_sha256','instrumentation','engine','browser_instance_sha256'))
+        need(key in r['artifacts'])
+        data={k:v for k,v in x.items() if k not in ('engine','browser_instance_sha256')}
+        digest(x['browser_instance_sha256']);need(x['browser_instance_sha256'] not in browser_instances)
+        browser_instances.add(x['browser_instance_sha256'])
+        validate_initialization(data,r['artifacts'][key],kind)
+        engine(x['engine']);need(r['environment'] and x['engine']==r['environment']['engine'])
+        need(x['dispatch']['worker_hardware_concurrency']==r['environment']['worker_hardware_concurrency'])
+    def cleanup(x):
+        exact_keys(x,('confirmed','remaining_processes'))
+        need(type(x['confirmed']) is bool and type(x['remaining_processes']) is int and 0<=x['remaining_processes']<=65536)
+        need(not x['confirmed'] or x['remaining_processes']==0)
+        if complete:need(x['confirmed'])
+    def output(x,phases,condition=False):
+        fields=('phase','iteration','wav_bytes','raw_bytes','wav_sha256','raw_sha256','pcm_sha256','finite','fp32_exact','wav_exact','pcm_exact','wav_format','fp32_samples')
+        exact_keys(x,fields+('condition',) if condition else fields)
+        need(x['phase'] in phases and type(x['iteration']) is int and x['iteration'] in (1,2))
+        if condition:need(x['condition'] in KEYS)
+        need(same(x['wav_bytes'],478252) and same(x['raw_bytes'],956416) and same(x['fp32_samples'],239104) and same(x['wav_format'],WAV_FORMAT))
+        need(all(x[k] is True for k in ('finite','fp32_exact','wav_exact','pcm_exact')))
+        need(r['output_reference'] is not None)
+        for k in ('wav_sha256','raw_sha256','pcm_sha256'):digest(x[k]);need(x[k]==r['output_reference'][k])
+    exact_keys(r['diagnostics'],('flag_acceptance','outputs','providers','callbacks'))
+    for section,allowed,kind,phase in (('outputs',KEYS,'clock_only','gate'),('providers',KEYS,'provider_profile','provider'),('callbacks',ALL_KEYS[3:],'affine_callbacks','callback')):
+        records=r['diagnostics'][section]
+        need(isinstance(records,dict) and set(records)<=set(allowed))
+        if complete or r['gates_complete_before_timing']:need(set(records)==set(allowed))
+        for key,value in records.items():
+            fields={'initialization','checks','cleanup'}
+            extra='profile' if section=='providers' else 'callback' if section=='callbacks' else None
+            need(isinstance(value,dict) and {'initialization','checks'}<=set(value) and set(value)<=fields|({extra} if extra else set()))
+            init(value['initialization'],key,kind)
+            if 'cleanup' in value:cleanup(value['cleanup'])
+            expected=2 if section=='outputs' else 1
+            need(isinstance(value['checks'],list) and len(value['checks'])<=expected)
+            for i,x in enumerate(value['checks'],1):output(x,(phase,));need(x['iteration']==i)
+            if extra in value:
+                if extra=='profile':
+                    x=value[extra];exact_keys(x,('verified','unique_xnn_conv','unique_xnn_conv_transpose','unique_assignments','assignment_sha256','timing_permitted'))
+                    expected_value=parse_provider_summary({k:v for k,v in x.items() if k not in ('verified','timing_permitted')});need(same(x,expected_value))
+                else:
+                    x=value[extra];exact_keys(x,('verified','calls','inference_count','callback_metadata_scope','timing_permitted'))
+                    expected_value=parse_callback_summary({'calls':x['calls']});need(same(x,expected_value))
+            if complete or r['gates_complete_before_timing']:
+                need(len(value['checks'])==expected and value.get('cleanup',{}).get('confirmed') is True and (extra is None or extra in value))
+    if r['gates_complete_before_timing']:
+        need(len({x['profile']['assignment_sha256'] for x in r['diagnostics']['providers'].values()})==1)
+    def resources(x):
+        exact_keys(x,('before','after','process_count_before','process_count_after','unmatched_processes','counter_regressions','rss_bytes_before','rss_bytes_after','major_faults','minor_faults','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta','cpu_seconds_delta','passed'))
+        for phase in ('before','after'):
+            exact_keys(x[phase],('available_bytes','total_bytes','swap_used_bytes','swap_in_bytes','swap_out_bytes'))
+            need(all(type(v) is int and 0<=v<=10**18 for v in x[phase].values()))
+            need(x[phase]['available_bytes']<=x[phase]['total_bytes'])
+        for k,v in x.items():
+            if k in ('before','after','passed'):continue
+            need(number(v) and (k=='cpu_seconds_delta' or type(v) is int))
+        need(x['process_count_before']>0 and x['process_count_after']>0 and type(x['passed']) is bool)
+        passed=all(x[k]==0 for k in ('unmatched_processes','counter_regressions','major_faults','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta')) and min(x['before']['available_bytes'],x['after']['available_bytes'])>=MIN_AVAILABLE
+        need(x['passed']==passed)
+        need(x['host_swap_in_delta']==max(0,x['after']['swap_in_bytes']-x['before']['swap_in_bytes']))
+        need(x['host_swap_out_delta']==max(0,x['after']['swap_out_bytes']-x['before']['swap_out_bytes']))
+        if complete:need(passed)
+    need(isinstance(r['process_sets'],list) and len(r['process_sets'])<=3)
+    for set_id,g in enumerate(r['process_sets'],1):
+        exact_keys(g,('id','creation_order','runtime','warmups','checks','sentinels','cleanup','sentinel_ratio','sentinel_passed'))
+        need(same(g['id'],set_id) and g['creation_order']==list(KEYS[set_id-1:]+KEYS[:set_id-1]))
+        for name in ('runtime','warmups','cleanup'):need(isinstance(g[name],dict) and set(g[name])<=set(KEYS))
+        for k,x in g['runtime'].items():init(x,k,'clock_only')
+        for k,x in g['warmups'].items():need(type(x) is int and 0<=x<=5)
+        for x in g['cleanup'].values():cleanup(x)
+        need(isinstance(g['checks'],list) and len(g['checks'])<=12)
+        seen=set()
+        for x in g['checks']:
+            output(x,('before','after'),True);key=(x['condition'],x['phase'],x['iteration']);need(key not in seen);seen.add(key)
+        need(isinstance(g['sentinels'],list) and len(g['sentinels'])<=2)
+        for i,x in enumerate(g['sentinels']):
+            exact_keys(x,('position','elapsed_s','wav_bytes','resources'));need(x['position']==('before','after')[i])
+            latency({k:x[k] for k in ('elapsed_s','wav_bytes')});resources(x['resources'])
+        need(type(g['sentinel_passed']) is bool)
+        if g['sentinel_ratio'] is not None:
+            need(len(g['sentinels'])==2 and number(g['sentinel_ratio'],positive=True))
+            need(g['sentinel_ratio']==g['sentinels'][1]['elapsed_s']/g['sentinels'][0]['elapsed_s'])
+            need(g['sentinel_passed']==(SENTINEL_BOUNDS[0]<=g['sentinel_ratio']<=SENTINEL_BOUNDS[1]))
+        else:need(not g['sentinel_passed'])
+        if complete:
+            need(all(set(g[k])==set(KEYS) for k in ('runtime','warmups','cleanup')) and all(x==5 for x in g['warmups'].values()))
+            need(len(seen)==12 and g['sentinel_passed'])
+    expected=[(b['process_set'],b['round'],i,k) for b in schedule() for i,k in enumerate(b['order'],1)]
+    need(isinstance(r['trials'],list) and len(r['trials'])<=45)
+    for i,x in enumerate(r['trials'],1):
+        exact_keys(x,('index','process_set','round','position','condition','elapsed_s','wav_bytes','resources'))
+        need(same(x['index'],i) and all(type(x[k]) is int for k in ('process_set','round','position')) and (x['process_set'],x['round'],x['position'],x['condition'])==expected[i-1])
+        latency({k:x[k] for k in ('elapsed_s','wav_bytes')})
+        if x['resources'] is None:need(not complete and r['error_code'] in ERRORS and i==len(r['trials']))
+        else:resources(x['resources'])
+        need(r['gates_complete_before_timing'] and len(r['process_sets'])>=x['process_set'])
+    if complete:
+        need(r['gates_complete_before_timing'] and len(r['trials'])==45 and len(r['process_sets'])==3 and len(browser_instances)==17)
+        if not allow_missing_summary or r['summary'] is not None:need(same(r['summary'],summarize(r)))
+    return True
+
+def validate_public_report(report):
+    """Public validation entry point: refuses unknown content or partial successes."""
+    return validate_report(report)
+
+def render_html(report):
+    """Deterministic standalone report, including all 45 chronological slots."""
+    validate_public_report(report)
+    e=lambda x:html.escape(str(x),quote=True)
+    valid=report['measurement_valid']
+    status='VALID COMPLETED SCREEN' if valid else 'INCOMPLETE / MEASUREMENTS INVALID'
+    summary=''
+    if valid:
+        summary='<h2>Paired results</h2><p>Ratios are candidate or rebuild latency divided by reference latency; below 1 is faster. These are descriptive results from three independent process-set clusters.</p><table><thead><tr><th>Comparison</th><th>Pairs</th><th>Median ratio</th><th>Geometric mean</th></tr></thead><tbody>'
+        for key,x in report['summary']['paired_effects'].items():summary+=f'<tr><td>{e(key)}</td><td>15</td><td>{x["median_ratio"]:.6f}</td><td>{x["geometric_mean_ratio"]:.6f}</td></tr>'
+        summary+='</tbody></table>'
+    else:summary='<p>No effect estimates are published because completion or a required validity gate is missing.</p>'
+    completed={x['index']:x for x in report['trials']};rows=[]
+    plan=[(b['process_set'],b['round'],p,k) for b in schedule() for p,k in enumerate(b['order'],1)]
+    for i,(s,r,p,k) in enumerate(plan,1):
+        x=completed.get(i)
+        rows.append(f'<tr><td>{i}</td><td>{s}</td><td>{r}</td><td>{p}</td><td>{e(k)}</td><td>{format(x["elapsed_s"],".6f") if x else "Not collected"}</td><td>{str(x["resources"]["major_faults"]) if x and x['resources'] else "Unavailable" if x else ""}</td><td>{"pass" if x and x['resources'] and x["resources"]["passed"] else "fail" if x else ""}</td></tr>')
+    engine=report['environment'].get('engine',{}).get('product','Not verified')
+    host=report['host']
+    host_label=(str(host['cpu_model'])+'; '+str(host['architecture'])+'; affinity CPUs '+str(host['affinity_logical_cpus'])+'; quota cores '+str(host['cgroup_cpu_quota_cores'])) if host else 'Not recorded'
+    callback_ok=all(report['diagnostics']['callbacks'].get(k,{}).get('callback',{}).get('verified') for k in ALL_KEYS[3:])
+    provider_ok=all(report['diagnostics']['providers'].get(k,{}).get('profile',{}).get('verified') for k in KEYS)
+    return f'''<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Affine-addressing browser benchmark</title><style>body{{font:15px system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#17232d}}h1{{font-size:1.8rem}}table{{width:100%;border-collapse:collapse;margin:1rem 0 2rem}}th,td{{border-bottom:1px solid #ddd;text-align:left;padding:.55rem}}th{{background:#f0f4f7}}.status{{padding:1rem;background:{'#e8f6ec' if valid else '#fff1d6'};font-weight:700}}.note{{color:#52616c}}code{{word-break:break-all}}@media(max-width:650px){{table{{font-size:11px}}th,td{{padding:.3rem}}}}</style>
+<body><h1>Affine-addressing browser benchmark</h1><p class="status">{status}</p>
+<p>Stage: {e(report['stage'])}. Primary calls collected: {len(report['trials'])}/45. Error code: {e(report['error_code'] or 'none')}.</p>
+<p>Three conditions: original strict-loadsplat and in-place LeakyReLU baseline, unchanged rebuild of the two MR4 kernels, and affine pointer-only fast paths in the linear/minmax MR4 kernels. No ConvTranspose policy patch is applied.</p>
+<p>Revectorization OFF; normal tiering; Playwright 1.63.0; Chromium 153. Actual engine: {e(engine)}. Five warmups per primary browser. Three fresh process sets, five balanced rounds each, 15 matched comparisons per comparison.</p>
+<p>Host: {e(host_label)}.</p>
+<p>Actual provider profile: {'verified' if provider_ok else 'not fully verified'} (74 XNN Conv + 4 XNN ConvTranspose; exactly 200 identical assignments across conditions). Separate affine callback diagnostic: {'verified' if callback_ok else 'not fully verified'}. All four supported linear channel counts (C=32, 64, 128, 256) must execute the affine path. Atomic counts distinguish affine and fallback calls by family and kc_bytes. Fallback calls are allowed; this fixture may have no minmax callbacks and cannot establish whole-model minmax performance.</p>
+<p>Exact FP32, PCM and WAV output checks run repeatedly before and after primary timing. Profiler and callback instrumentation run only in separate untimed browsers. Primary resource checks are process and host boundary observations. A major fault, swap growth, process-identity gap, low-memory boundary, output mismatch or sentinel drift outside [0.8, 1.25] invalidates the screen.</p>
+<p><strong>No CPU time series was measured.</strong> Boundary CPU deltas cannot establish CPU activity within a synthesis call. No CPU time-series chart or claim is provided.</p>
+{summary}<h2>All 45 chronological primary slots</h2><p class="note">Warmups, output checks, six sentinels and separate diagnostics are excluded. No primary observation is dropped or replaced.</p>
+<table><thead><tr><th>#</th><th>Set</th><th>Round</th><th>Position</th><th>Condition</th><th>Seconds</th><th>Major faults</th><th>Resource gate</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+<h2>Scope and privacy</h2><p>One fixed synthetic fixture, 962 frames, style 302, seed 1729, XNN threads 2 and ORT global threads 1. Three process-set clusters limit inference; 15 within-set pairs are not 15 independent hosts. Position counts are exactly balanced globally; pair direction counts are 7/8. Hardware concurrency is observed without override. No general-model or whole-system CPU conclusion is established.</p>
+<p>Model SHA-256: <code>{MODEL_SHA}</code><br>Query SHA-256: <code>{QUERY_SHA}</code></p>
+<p>Public output contains only bounded timing, hashes, configuration and sanitized numeric evidence. Raw audio, tensors, models, arbitrary profile events, logs and local paths are excluded.</p></body></html>'''
+
+def render_report(report,target=None):
+    rendered=render_html(report)
+    if target is not None:Path(target).write_text(rendered,encoding='utf-8')
+    return rendered
+
+def validate_flag_acceptance(value):
+    exact_keys(value,('verified','engine','requested_flags','argv_matches','flag_rejected','stderr_sha256','browser_instance_sha256','cleanup_confirmed','inference_calls'),'configuration_gate')
+    need(value['verified'] is True and value['argv_matches'] is True and value['flag_rejected'] is False and value['cleanup_confirmed'] is True and same(value['inference_calls'],0) and value['requested_flags']==FLAGS,'configuration_gate')
+    for field in ('stderr_sha256','browser_instance_sha256'):
+        need(isinstance(value[field],str) and HEX.fullmatch(value[field]),'configuration_gate')
+    exact_keys(value['engine'],('product','js_version'),'configuration_gate')
+    need(isinstance(value['engine']['product'],str) and re.fullmatch(r'(?:Chrome|HeadlessChrome)/153\.[0-9.]{1,40}',value['engine']['product']),'configuration_gate')
+    need(isinstance(value['engine']['js_version'],str) and re.fullmatch(r'[0-9.]{1,40}',value['engine']['js_version']),'configuration_gate')
+    return True
+
+def flag_acceptance_from_capture(stdout,stderr,returncode):
+    """Parse only a bounded launch-only diagnostic; never return its raw logs."""
+    need(isinstance(stdout,bytes) and isinstance(stderr,bytes) and len(stdout)<=4096 and 0<len(stderr)<=2*1024*1024 and returncode==0,'configuration_gate')
+    # DEBUG=pw:browser proves the child's actual launch was captured. Page creation
+    # forces a V8 renderer to parse the flag; this probe performs no model work.
+    need(b'--js-flags=--no-wasm-revectorize' in stderr and b'pw:browser' in stderr,'configuration_gate')
+    rejected=bool(re.search(rb'(?:unrecognized|unknown|unrecognised|contradictory) (?:command[- ]line )?flags?|Error:.*wasm-revectorize',stderr,re.I))
+    need(not rejected,'configuration_gate')
+    try:value=json.loads(stdout)
+    except (ValueError,UnicodeError):raise GateFailure('configuration_gate') from None
+    exact_keys(value,('engine','argv_matches','browser_instance_sha256','cleanup_confirmed'),'configuration_gate')
+    result=dict(verified=True,**value,requested_flags=list(FLAGS),flag_rejected=False,stderr_sha256=sha(stderr),inference_calls=0)
+    validate_flag_acceptance(result)
+    return result
+
+def flag_acceptance_probe():
+    raise RuntimeError("LEGACY_UNOWNED_BROWSER_DISABLED")
+    """Separate process, bounded memory-only streams, no primary log collector."""
+    import selectors
+    import signal
+    import subprocess
+    import sys
+    env=dict(os.environ,DEBUG='pw:browser')
+    process=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--flag-acceptance-probe'],
+                             stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                             env=env,start_new_session=True)
+    out,err=bytearray(),bytearray();selector=selectors.DefaultSelector();deadline=time.monotonic()+120
+    selector.register(process.stdout,selectors.EVENT_READ,(out,4096))
+    selector.register(process.stderr,selectors.EVENT_READ,(err,2*1024*1024))
+    success=False
+    try:
+        while selector.get_map():
+            need(time.monotonic()<deadline,'configuration_gate')
+            for key,_ in selector.select(min(1,max(0,deadline-time.monotonic()))):
+                chunk=os.read(key.fd,65536)
+                if not chunk:selector.unregister(key.fileobj);continue
+                buffer,limit=key.data;need(len(buffer)+len(chunk)<=limit,'configuration_gate');buffer.extend(chunk)
+        code=process.wait(timeout=10)
+        result=flag_acceptance_from_capture(bytes(out),bytes(err),code);success=True;return result
+    finally:
+        selector.close()
+        if not success:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            process.wait(timeout=10)
+        process.stdout.close();process.stderr.close()
+        out.clear();err.clear()
+
+def _flag_acceptance_child():
+    raise RuntimeError("LEGACY_UNOWNED_BROWSER_DISABLED")
+    """Internal launch-only child. Its bounded JSON is consumed by the parent."""
+    import psutil
+    from playwright.sync_api import sync_playwright
+    browser=None;targets=[];result=None;closed=False
+    try:
+        with sync_playwright() as pw:
+            browser=pw.chromium.launch(headless=True,args=list(FLAGS))
+            try:
+                page=browser.new_page();page.goto('about:blank');need(page.evaluate('1+1')==2,'configuration_gate')
+                version,root,identity=_checked_browser_process(browser,psutil)
+                targets=[root,*root.children(recursive=True)]
+                result=dict(engine=dict(product=version['product'],js_version=version['jsVersion']),
+                            argv_matches=True,
+                            browser_instance_sha256=sha(json.dumps(identity,separators=(',',':')).encode()),cleanup_confirmed=False)
+            finally:
+                browser.close();closed=True
+            _,pending=psutil.wait_procs(targets,timeout=10)
+            alive=[]
+            for p in pending:
+                try:
+                    if p.is_running() and p.status()!=psutil.STATUS_ZOMBIE:alive.append(p)
+                except psutil.Error:pass
+            need(targets and not alive and closed,'cleanup_gate')
+            result['cleanup_confirmed']=True
+        print(json.dumps(result,separators=(',',':')),flush=True)
+        return 0
+    except BaseException:return 1
+
+
+CPU_MODEL = re.compile(r'(?:Intel(?:\(R\))?|AMD|QEMU|Common KVM|Virtual CPU)[A-Za-z0-9 ()@+.,_-]{0,160}')
+
+def validate_host_info(value):
+    exact_keys(value,('cpu_model','architecture','affinity_logical_cpus','host_logical_cpus','cgroup_cpu_quota_cores'),'report_gate')
+    need(isinstance(value['cpu_model'],str) and (value['cpu_model']=='unavailable' or CPU_MODEL.fullmatch(value['cpu_model'])))
+    need(value['architecture']=='x86_64')
+    for key in ('affinity_logical_cpus','host_logical_cpus'):
+        need(type(value[key]) is int and 1<=value[key]<=65536)
+    need(value['affinity_logical_cpus']<=value['host_logical_cpus'])
+    quota=value['cgroup_cpu_quota_cores']
+    need(quota is None or type(quota) is float and math.isfinite(quota) and 0<quota<=65536)
+    return True
+
+def host_info():
+    import platform
+    need(platform.machine().lower() in ('x86_64','amd64'),'resource_gate')
+    model='unavailable'
+    try:
+        for line in Path('/proc/cpuinfo').read_text().splitlines():
+            if line.startswith('model name'):
+                candidate=line.split(':',1)[1].strip()
+                if CPU_MODEL.fullmatch(candidate):model=candidate
+                break
+    except OSError:pass
+    logical=os.cpu_count() or 1
+    try:affinity=len(os.sched_getaffinity(0))
+    except (AttributeError,OSError):affinity=logical
+    quota=None
+    try:
+        maximum,period=Path('/sys/fs/cgroup/cpu.max').read_text().split()
+        if maximum!='max':quota=int(maximum)/int(period)
+    except (OSError,ValueError,ZeroDivisionError):
+        try:
+            maximum=int(Path('/sys/fs/cgroup/cpu/cpu.cfs_quota_us').read_text())
+            period=int(Path('/sys/fs/cgroup/cpu/cpu.cfs_period_us').read_text())
+            if maximum>0 and period>0:quota=maximum/period
+        except (OSError,ValueError,ZeroDivisionError):pass
+    if quota is not None and not (math.isfinite(quota) and 0<quota<=65536):quota=None
+    result=dict(cpu_model=model,architecture='x86_64',affinity_logical_cpus=affinity,host_logical_cpus=logical,cgroup_cpu_quota_cores=quota)
+    validate_host_info(result)
+    return result
+
+if __name__=='__main__':
+    import sys
+    raise SystemExit(_flag_acceptance_child() if sys.argv[1:]==['--flag-acceptance-probe'] else 2)
