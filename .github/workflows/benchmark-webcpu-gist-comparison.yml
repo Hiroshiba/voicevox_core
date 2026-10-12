@@ -40,7 +40,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/matrix-final" "$RUNNER_TEMP/matrix-result"
           cp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py"
           cmp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py"
-          echo '8ac3ab1d2a6a5801806f77fc99a7c66da1828072f7b450bb18f2e2d855093217  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
+          echo '8a8fe8becc37911c4b52d413b36fabe1888cbc89d8686ec8bc4a4270ac0b45d4  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
           python "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py" --plan --threads 2 --seed 1729
           python "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py" --self-test
       - name: Execute this exact Python for all nine predeclared conditions

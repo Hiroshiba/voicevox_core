@@ -5605,62 +5605,136 @@ def final_modes(threads: int, baseline_only: bool = False) -> list[Mode]:
     return modes
 
 
+DIAGNOSTIC_STAGES = {'asset-verification', 'browser-launch', 'browser-root-process', 'browser-cdp-flags',
+                     'core-initialization', 'synthesis-1', 'synthesis-2', 'synthesis-3', 'resource-state',
+                     'dispatch-proof', 'provider-profile-flush', 'asset-reverification', 'process-cleanup', 'complete'}
+DIAGNOSTIC_ERROR_TYPES = {'RuntimeError', 'ValueError', 'TypeError', 'KeyError', 'OSError', 'FileNotFoundError',
+                          'TimeoutError', 'Error', 'TargetClosedError', 'KeyboardInterrupt', 'SystemExit', 'OtherError'}
+
+
+def diagnostic_error_type(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if name in DIAGNOSTIC_ERROR_TYPES else 'OtherError'
+
+
+def read_child_diagnostic(path: Path, condition: str) -> dict[str, Any]:
+    """Accept only our bounded scalar receipt, never stderr/trace/exception text."""
+    require(path.stat().st_size <= 65536, 'Child diagnostic receipt exceeds limit')
+    value = json.loads(path.read_text('utf-8'))
+    allowed = {'schema', 'status', 'condition', 'stage', 'error_type', 'cleanup_error_type',
+               'module_js_sha256', 'module_wasm_sha256', 'product', 'js_version', 'actual_js_flags',
+               'revectorize', 'trace_enabled', 'actual_enable_automation', 'all_arguments_recorded',
+               'flag_evidence', 'fixed_length', 'fixed_matches', 'xnn_threads', 'xnn_sessions', 'pthreads',
+               'provider_profile', 'dispatch'}
+    require(isinstance(value, dict) and set(value) <= allowed and
+            value.get('schema') == 'voicevox-v8-child-evidence-v1' and value.get('condition') == condition and
+            value.get('stage') in DIAGNOSTIC_STAGES and value.get('status') in ('running', 'failed', 'complete'),
+            'Invalid child diagnostic receipt schema')
+    for field in ('error_type', 'cleanup_error_type'):
+        require(field not in value or value[field] in DIAGNOSTIC_ERROR_TYPES, 'Invalid child diagnostic error type')
+    return value
+
+
 def matrix_diagnostic_child(config_path: Path) -> None:
-    """Private, untimed actual-WASM V8 transform check in an isolated child."""
+    """Private untimed check; profile flush is terminal for live worker queries."""
     from playwright.sync_api import sync_playwright
     import psutil
     config = json.loads(config_path.read_text('utf-8'))
     mode = Mode(**config['mode'])
     require(mode.key in DIAGNOSTIC_KEYS, 'Unexpected diagnostic mode')
-    asset = config_path.parent / ASSET_KEYS.get(mode.key, mode.key) / 'voicevox_benchmark.js'
-    hashes = {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}
-    require(hashes == config['asset_hashes'], 'Diagnostic assets changed before launch')
-    options = browser_launch_options(headed=config['headed'],
-        browser_path=Path(config['browser_path']) if config['browser_path'] else None,
-        revectorize=mode.revectorize, trace=True)
-    with sync_playwright() as playwright:
-        browser = runner = root_process = None
-        observed = []
-        try:
-            browser = playwright.chromium.launch(**options)
-            root_process = psutil.Process(chromium_process_id(browser))
-            info = verify_browser_flags(browser, options, revectorize=mode.revectorize, trace=True)
-            runner = BrowserRunner(browser, config['url'], f"/{ASSET_KEYS.get(mode.key, mode.key)}/voicevox_benchmark.js",
-                                   mode.threads, True, config['style'], Path(config['wav']),
-                                   fixed_shape=mode.fixed_shape, spin_off=mode.spin_off,
-                                   xnn_threads=mode.threads if mode.execution_provider == 'XNNPACK' else 0,
-                                   profile=mode.execution_provider == 'XNNPACK')
-            for _ in range(3):
-                runner.synthesize(save=True)
-            if mode.execution_provider == 'XNNPACK':
-                require(runner.thread_state() == mode.threads - 1, 'Diagnostic XNNPACK inference pool changed')
-                info['provider_profile'] = runner.finish_profile()
-                info['dispatch'] = runner.page.evaluate('data => request(data)',
-                    {'command': 'dispatch', 'expected': 'loadsplat' if mode.key in OPTIMIZED_PAIRS else 'auto'})
-                require(info['provider_profile']['verified'] and info['dispatch']['verified'], 'Diagnostic XNNPACK activation failed')
-            require(hashes == {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}, 'Diagnostic assets changed during execution')
-            info.update({**hashes, 'fixed_length': runner.fixed_length, 'fixed_matches': runner.fixed_matches,
-                         'xnn_threads': runner.xnn_threads, 'xnn_sessions': runner.xnn_sessions,
-                         'pthreads': runner.thread_state()})
-            atomic_write(Path(config['result']), json.dumps(info, allow_nan=False).encode())
-        finally:
-            if root_process:
-                with contextlib.suppress(psutil.NoSuchProcess):
-                    observed = root_process.children(recursive=True)
-            if runner:
-                with contextlib.suppress(Exception): runner.close()
-            if browser:
-                with contextlib.suppress(Exception): browser.close()
-            finish_owned_tree(root_process, observed)
+    result_path = Path(config['result'])
+    info = {'schema': 'voicevox-v8-child-evidence-v1', 'condition': mode.key,
+            'status': 'running', 'stage': 'asset-verification'}
+    def checkpoint(stage: str, *, status: str = 'running', error: BaseException | None = None) -> None:
+        require(stage in DIAGNOSTIC_STAGES, 'Invalid diagnostic stage')
+        info.update(stage=stage, status=status)
+        if error is not None:
+            info['error_type'] = diagnostic_error_type(error)
+        atomic_write(result_path, json.dumps(info, allow_nan=False).encode())
+    try:
+        checkpoint('asset-verification')
+        asset = config_path.parent / ASSET_KEYS.get(mode.key, mode.key) / 'voicevox_benchmark.js'
+        hashes = {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}
+        require(hashes == config['asset_hashes'], 'Diagnostic assets changed before launch')
+        info.update(hashes)
+        options = browser_launch_options(headed=config['headed'],
+            browser_path=Path(config['browser_path']) if config['browser_path'] else None,
+            revectorize=mode.revectorize, trace=True)
+        with sync_playwright() as playwright:
+            browser = runner = root_process = None
+            observed = []
+            try:
+                checkpoint('browser-launch')
+                browser = playwright.chromium.launch(**options)
+                checkpoint('browser-root-process')
+                root_process = psutil.Process(chromium_process_id(browser))
+                checkpoint('browser-cdp-flags')
+                info.update(verify_browser_flags(browser, options, revectorize=mode.revectorize, trace=True))
+                checkpoint('core-initialization')
+                runner = BrowserRunner(browser, config['url'], f"/{ASSET_KEYS.get(mode.key, mode.key)}/voicevox_benchmark.js",
+                                       mode.threads, True, config['style'], Path(config['wav']),
+                                       fixed_shape=mode.fixed_shape, spin_off=mode.spin_off,
+                                       xnn_threads=mode.threads if mode.execution_provider == 'XNNPACK' else 0,
+                                       profile=mode.execution_provider == 'XNNPACK')
+                for index in range(1, 4):
+                    checkpoint('synthesis-' + str(index))
+                    runner.synthesize(save=True)
+                checkpoint('resource-state')
+                pthreads = runner.thread_state()
+                info.update({'fixed_length': runner.fixed_length, 'fixed_matches': runner.fixed_matches,
+                             'xnn_threads': runner.xnn_threads, 'xnn_sessions': runner.xnn_sessions, 'pthreads': pthreads})
+                if mode.execution_provider == 'XNNPACK':
+                    require(pthreads == mode.threads - 1, 'Diagnostic XNNPACK inference pool changed')
+                    checkpoint('dispatch-proof')
+                    info['dispatch'] = runner.page.evaluate('data => request(data)',
+                        {'command': 'dispatch', 'expected': 'loadsplat' if mode.key in OPTIMIZED_PAIRS else 'auto'})
+                    require(info['dispatch']['verified'], 'Diagnostic XNNPACK dispatch failed')
+                    # _bench_finish_profile destroys the synthesizer and sets ready=false.
+                    # Collect all live-worker evidence first; never query it afterward.
+                    checkpoint('provider-profile-flush')
+                    info['provider_profile'] = runner.finish_profile()
+                    require(info['provider_profile']['verified'], 'Diagnostic XNNPACK provider activation failed')
+                checkpoint('asset-reverification')
+                require(hashes == {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}, 'Diagnostic assets changed during execution')
+            except BaseException as error:
+                checkpoint(info['stage'], status='failed', error=error)
+                raise
+            finally:
+                try:
+                    if info['status'] != 'failed':
+                        checkpoint('process-cleanup')
+                    if root_process:
+                        with contextlib.suppress(psutil.NoSuchProcess):
+                            observed = root_process.children(recursive=True)
+                    if runner:
+                        with contextlib.suppress(Exception): runner.close()
+                    if browser:
+                        with contextlib.suppress(Exception): browser.close()
+                    finish_owned_tree(root_process, observed)
+                except BaseException as error:
+                    if info['status'] == 'failed':
+                        info['cleanup_error_type'] = diagnostic_error_type(error)
+                        atomic_write(result_path, json.dumps(info, allow_nan=False).encode())
+                    else:
+                        checkpoint('process-cleanup', status='failed', error=error)
+                    raise
+        checkpoint('complete', status='complete')
+    except BaseException as error:
+        if info['status'] != 'failed':
+            checkpoint(info['stage'], status='failed', error=error)
+        raise
 
 
 def verify_matrix_revectorization(url: str, modes: list[Mode], args: argparse.Namespace, work: Path, preflight_state: dict[str, Any] | None = None) -> dict[str, Any]:
     """Do not permit partial matrices or inferred SIMD-width claims."""
     diagnostics = {}
+    if preflight_state is not None:
+        preflight_state['diagnostic_progress'] = diagnostics
     for control_key, candidate_key in (('browser_mt', 'browser_revectorize'),
                                        ('browser_xnnpack', 'browser_xnnpack_revectorize'),
                                        ('browser_optimized', 'browser_optimized_revectorize')):
         records = {}
+        diagnostics[DIAGNOSTIC_KEYS[control_key]] = {'verified': False, 'completed_conditions': records}
         for key, label in ((control_key, 'control'), (candidate_key, 'candidate')):
             mode = next(mode for mode in modes if mode.key == key)
             if preflight_state is not None:
@@ -5675,11 +5749,24 @@ def verify_matrix_revectorization(url: str, modes: list[Mode], args: argparse.Na
                 'result': str(result_path)}).encode())
             env = {**os.environ, 'DEBUG': 'pw:browser'}
             # checked_run retains the full trace in a private cache log only.
-            output = checked_run([sys.executable, str(Path(__file__).resolve()), '--diagnostic-config', str(config_path)],
-                                 env=env, timeout=900)
+            try:
+                output = checked_run([sys.executable, str(Path(__file__).resolve()), '--diagnostic-config', str(config_path)],
+                                     env=env, timeout=900)
+            except BaseException as error:
+                failure = {'status': 'child-process-failed', 'error_type': diagnostic_error_type(error)}
+                if result_path.is_file():
+                    try:
+                        failure['child_evidence'] = read_child_diagnostic(result_path, key)
+                    except (OSError, ValueError, RuntimeError, TypeError, KeyError):
+                        failure['receipt_status'] = 'invalid-or-unreadable'
+                else:
+                    failure['receipt_status'] = 'missing'
+                records[label] = failure
+                raise
             nodes = [int(value) for value in re.findall(r'Decide(?:d)? to vectorize, ([1-9][0-9]*) revectorizable nodes', output)]
             rejected = bool(re.search(r'(?:unrecognized|unknown|unrecognised|contradictory) (?:command[- ]line )?flags?|Error:.*(?:wasm-revectorize|trace-wasm-revectorize)', output, re.I))
-            info = json.loads(result_path.read_text('utf-8'))
+            info = read_child_diagnostic(result_path, key)
+            require(info['status'] == 'complete' and info['stage'] == 'complete', 'Diagnostic child did not complete its full lifecycle')
             expected = json.loads(config_path.read_text())['asset_hashes']
             require(all(info[field] == value for field, value in expected.items()), 'Diagnostic source binding changed')
             records[label] = {**info, 'transformed_groups': len(nodes), 'revectorizable_nodes': sum(nodes), 'flag_rejected': rejected}
