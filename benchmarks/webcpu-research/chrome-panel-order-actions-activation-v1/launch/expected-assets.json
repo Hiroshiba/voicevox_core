@@ -1,0 +1,112 @@
+{
+  "admission": "independently_reviewed_complete_assets",
+  "assets": [
+    {
+      "arm": "A",
+      "bytes": 51965,
+      "name": "A/screen.js",
+      "role": "module_js",
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+    },
+    {
+      "arm": "A",
+      "bytes": 264028,
+      "name": "A/screen.wasm",
+      "role": "module_wasm",
+      "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce"
+    },
+    {
+      "arm": "B",
+      "bytes": 51965,
+      "name": "B/screen.js",
+      "role": "module_js",
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+    },
+    {
+      "arm": "B",
+      "bytes": 265535,
+      "name": "B/screen.wasm",
+      "role": "module_wasm",
+      "sha256": "6e0d7af74d1d7ddd1ee88a6baa1dd61eacd84c0d9808e27fb275fd7c7231bd60"
+    },
+    {
+      "arm": "P",
+      "bytes": 51965,
+      "name": "P/screen.js",
+      "role": "module_js",
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+    },
+    {
+      "arm": "P",
+      "bytes": 265339,
+      "name": "P/screen.wasm",
+      "role": "module_wasm",
+      "sha256": "b515a39e82e65fd9089778b6a58cb75094ad793d97a3b7091ad97cd2e289cf87"
+    },
+    {
+      "arm": "Q",
+      "bytes": 51965,
+      "name": "Q/screen.js",
+      "role": "module_js",
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+    },
+    {
+      "arm": "Q",
+      "bytes": 265335,
+      "name": "Q/screen.wasm",
+      "role": "module_wasm",
+      "sha256": "f2f67abb44c8bcfa88ec971345053399639f21bc277a1a52d40dc7745327a254"
+    },
+    {
+      "arm": "R",
+      "bytes": 51965,
+      "name": "R/screen.js",
+      "role": "module_js",
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+    },
+    {
+      "arm": "R",
+      "bytes": 264028,
+      "name": "R/screen.wasm",
+      "role": "module_wasm",
+      "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce"
+    },
+    {
+      "arm": null,
+      "bytes": 25833,
+      "name": "controller.js",
+      "role": "controller",
+      "sha256": "8e315138615692a8c35df2f5f8bc68e377534c3b0c9991c9ebeba1496fc71b12"
+    },
+    {
+      "arm": null,
+      "bytes": 125,
+      "name": "index.html",
+      "role": "html",
+      "sha256": "be4824511c0b88c3b5cff8edd8251bb651acbb0ca84018b78410c2c6679d1451"
+    },
+    {
+      "arm": null,
+      "bytes": 10827,
+      "name": "worker.js",
+      "role": "operator_worker",
+      "sha256": "49ad5c53576a5d6644fb84315c1d31a75055a393760bdd516f12bdf43370988c"
+    }
+  ],
+  "logical_names": [
+    "A/screen.js",
+    "A/screen.wasm",
+    "B/screen.js",
+    "B/screen.wasm",
+    "P/screen.js",
+    "P/screen.wasm",
+    "Q/screen.js",
+    "Q/screen.wasm",
+    "R/screen.js",
+    "R/screen.wasm",
+    "controller.js",
+    "index.html",
+    "worker.js"
+  ],
+  "schema": "panel-assets-v1"
+}

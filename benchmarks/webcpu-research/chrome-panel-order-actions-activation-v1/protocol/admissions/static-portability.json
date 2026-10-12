@@ -1,0 +1,330 @@
+{
+  "denied_invocation_attempts": [],
+  "files": {
+    "A.wat": {
+      "bytes": 3234523,
+      "sha256": "d2c6507bba1dc4a13e7d672de952b18430bed2b39b04364d84fc599fc0631cde",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "A_convolution.ll": {
+      "bytes": 238411,
+      "sha256": "abcbc32c970f29fd199ab1bf23e4526aea4640eb554ed17e35b58f1224e2dd82",
+      "token_counts": {
+        "/workspace/": 2,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/A_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/off-attribution-recovery/private/ca",
+        "r-local-compile-proposal-v1/attempt/compile/A_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/off-attribution-recovery/private/cache/affine-addressing-v1/activation/dependency-cache/googlexnnpack-src/src/operators/convolution-nhwc.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8"
+      ]
+    },
+    "B.wat": {
+      "bytes": 3256694,
+      "sha256": "2e3b109337d2d812a58d8ae78f4e3152accb3ffa4c91def3340655fb42e8b74d",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "B_callback.ll": {
+      "bytes": 40665,
+      "sha256": "b82c900c1d77d18aac38ed56cd00c319db66c43c92a022c8834b2562c6b188d8",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 6,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/B_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-o",
+        "rder-local-compile-proposal-v1/attempt/compile/B_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/vvx_ksb_20261011.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget tripl"
+      ]
+    },
+    "B_convolution.ll": {
+      "bytes": 238800,
+      "sha256": "dc97f26df5914b9b88fa86b53364c6ffad4018767cf1ce586b518199da504f93",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 2,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/B_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-pane",
+        "r-local-compile-proposal-v1/attempt/compile/B_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/convolution.ksb.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple"
+      ]
+    },
+    "B_harness.ll": {
+      "bytes": 635686,
+      "sha256": "19ae15f789e8782436c5366b335590821d554556fda553b33ffdbc3d2a1c05a1",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 3,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/B_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-or",
+        "order-local-compile-proposal-v1/attempt/compile/B_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/harness/operator.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple = "
+      ]
+    },
+    "P.wat": {
+      "bytes": 3256004,
+      "sha256": "f9838108fbbdf5d95e4f065df1e60cc622ac59ed7d4157cdfd24fd30420c1366",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "P_callback.ll": {
+      "bytes": 40657,
+      "sha256": "06ac017e8055e85854d1872017427ba6393a55c6fcfd16d6b8a12649f511ae88",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 6,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/P_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-o",
+        "rder-local-compile-proposal-v1/attempt/compile/P_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/vvx_ksb_20261011.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget tripl"
+      ]
+    },
+    "P_convolution.ll": {
+      "bytes": 238800,
+      "sha256": "eb1413a8cf567ae455f2781697b84c5b396f49d3e230b5a77d3ae14591e4ba2f",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 2,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/P_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-pane",
+        "r-local-compile-proposal-v1/attempt/compile/P_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/convolution.ksb.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple"
+      ]
+    },
+    "P_harness.ll": {
+      "bytes": 635686,
+      "sha256": "2128b027747b67ff6dd39a62936d2cec9cb76dca71acae370a1d5cfc1138aa7a",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 3,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/P_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-or",
+        "order-local-compile-proposal-v1/attempt/compile/P_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/harness/operator.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple = "
+      ]
+    },
+    "Q.wat": {
+      "bytes": 3255934,
+      "sha256": "9015b1e12e84095182074a743cb1ce1d13919cf74546043cc90b7c692fac292b",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "Q_callback.ll": {
+      "bytes": 40657,
+      "sha256": "dd3766b21950f269cbd6c5d28285f5f980fbe37cc70c838b9834cd52640ae869",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 6,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/Q_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-o",
+        "rder-local-compile-proposal-v1/attempt/compile/Q_callback.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/vvx_ksb_20261011.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget tripl"
+      ]
+    },
+    "Q_convolution.ll": {
+      "bytes": 238800,
+      "sha256": "fea7134ac8592d251c5830568cf0f54d41cb052aa6c955ded201d36217f10bd1",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 2,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/Q_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-pane",
+        "r-local-compile-proposal-v1/attempt/compile/Q_convolution.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/src/convolution.ksb.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple"
+      ]
+    },
+    "Q_harness.ll": {
+      "bytes": 635686,
+      "sha256": "42dd18180f64c34097f1035715f9b26bc83aea85542546a766bec99e527faa71",
+      "token_counts": {
+        "/workspace/": 2,
+        "202610": 3,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/Q_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-or",
+        "order-local-compile-proposal-v1/attempt/compile/Q_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/harness/operator.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple = "
+      ]
+    },
+    "R.wat": {
+      "bytes": 3234523,
+      "sha256": "d2c6507bba1dc4a13e7d672de952b18430bed2b39b04364d84fc599fc0631cde",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "RA_harness.ll": {
+      "bytes": 635683,
+      "sha256": "b7f2be8900c9e7c14dfbc2fe4eccbdbb65f047d7d558d4c8b72b7fc4d3914076",
+      "token_counts": {
+        "/workspace/": 2,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/RA_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-o",
+        "rder-local-compile-proposal-v1/attempt/compile/RA_harness.o'\nsource_filename = \"/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-screen-v1/harness/operator.c\"\ntarget datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20\"\ntarget triple = "
+      ]
+    },
+    "archived_1240.ll": {
+      "bytes": 14143,
+      "sha256": "4157b9f9574e3ad0146a796219f3935be291c56453911859b29815c3d3ad51a8",
+      "token_counts": {
+        "/workspace/": 1,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/archived_1240.o'\nsource_filename = \"/home/runner/work/onnxruntime-builder/onnxruntime-builder/dependenc"
+      ]
+    },
+    "archived_794.ll": {
+      "bytes": 238365,
+      "sha256": "7826984c794e74c7f2244d0123a06c5593376d62ed8d7909204dcd7cccd85b90",
+      "token_counts": {
+        "/workspace/": 1,
+        "source_filename": 1
+      },
+      "workspace_contexts": [
+        "; ModuleID = '/workspace/scratch/71b268329986/remaining-simd-research/chrome-panel-order-local-compile-proposal-v1/attempt/compile/archived_794.o'\nsource_filename = \"/home/runner/work/onnxruntime-builder/onnxruntime-builder/dependency"
+      ]
+    },
+    "assets/A/screen.js": {
+      "bytes": 51965,
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630",
+      "token_counts": {},
+      "worker_contexts": [
+        " web?)\")}else if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(\".\",_scriptName).href}catch{}if(!(typeof window==\"object\"||typeof WorkerGlobalScope!=\"undefined\"))throw new Error(\"not compiled for this environment (did you buil",
+        "` called with ${args.length} args but expects ${nargs}`);return f(...args)}}var wasmBinaryFile;function findWasmBinary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBina",
+        "Binary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw\"both async and sync fetching of the wasm failed\"}async function",
+        "ch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how",
+        "eason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-progra",
+        ".Instance(module,getWasmImports());resolve(receiveInstance(instance,module))}})}wasmBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catc",
+        "mBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catch(e){readyPromiseReject(e);return Promise.reject(e)}}class ExitStatus{name=\"ExitSta",
+        "hreadMainJs!=\"string\"){pthreadMainJs=URL.createObjectURL(pthreadMainJs)}}worker=new Worker(pthreadMainJs,{name:\"em-pthread-\"+PThread.nextWorkerID});worker.workerID=PThread.nextWorkerID++;PThread.unusedWorkers.push(worker)},getNewWorker(){if(PThread.u"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/A/screen.wasm": {
+      "bytes": 264028,
+      "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "assets/B/screen.js": {
+      "bytes": 51965,
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630",
+      "token_counts": {},
+      "worker_contexts": [
+        " web?)\")}else if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(\".\",_scriptName).href}catch{}if(!(typeof window==\"object\"||typeof WorkerGlobalScope!=\"undefined\"))throw new Error(\"not compiled for this environment (did you buil",
+        "` called with ${args.length} args but expects ${nargs}`);return f(...args)}}var wasmBinaryFile;function findWasmBinary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBina",
+        "Binary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw\"both async and sync fetching of the wasm failed\"}async function",
+        "ch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how",
+        "eason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-progra",
+        ".Instance(module,getWasmImports());resolve(receiveInstance(instance,module))}})}wasmBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catc",
+        "mBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catch(e){readyPromiseReject(e);return Promise.reject(e)}}class ExitStatus{name=\"ExitSta",
+        "hreadMainJs!=\"string\"){pthreadMainJs=URL.createObjectURL(pthreadMainJs)}}worker=new Worker(pthreadMainJs,{name:\"em-pthread-\"+PThread.nextWorkerID});worker.workerID=PThread.nextWorkerID++;PThread.unusedWorkers.push(worker)},getNewWorker(){if(PThread.u"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/B/screen.wasm": {
+      "bytes": 265535,
+      "sha256": "6e0d7af74d1d7ddd1ee88a6baa1dd61eacd84c0d9808e27fb275fd7c7231bd60",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "assets/P/screen.js": {
+      "bytes": 51965,
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630",
+      "token_counts": {},
+      "worker_contexts": [
+        " web?)\")}else if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(\".\",_scriptName).href}catch{}if(!(typeof window==\"object\"||typeof WorkerGlobalScope!=\"undefined\"))throw new Error(\"not compiled for this environment (did you buil",
+        "` called with ${args.length} args but expects ${nargs}`);return f(...args)}}var wasmBinaryFile;function findWasmBinary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBina",
+        "Binary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw\"both async and sync fetching of the wasm failed\"}async function",
+        "ch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how",
+        "eason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-progra",
+        ".Instance(module,getWasmImports());resolve(receiveInstance(instance,module))}})}wasmBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catc",
+        "mBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catch(e){readyPromiseReject(e);return Promise.reject(e)}}class ExitStatus{name=\"ExitSta",
+        "hreadMainJs!=\"string\"){pthreadMainJs=URL.createObjectURL(pthreadMainJs)}}worker=new Worker(pthreadMainJs,{name:\"em-pthread-\"+PThread.nextWorkerID});worker.workerID=PThread.nextWorkerID++;PThread.unusedWorkers.push(worker)},getNewWorker(){if(PThread.u"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/P/screen.wasm": {
+      "bytes": 265339,
+      "sha256": "b515a39e82e65fd9089778b6a58cb75094ad793d97a3b7091ad97cd2e289cf87",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "assets/Q/screen.js": {
+      "bytes": 51965,
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630",
+      "token_counts": {},
+      "worker_contexts": [
+        " web?)\")}else if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(\".\",_scriptName).href}catch{}if(!(typeof window==\"object\"||typeof WorkerGlobalScope!=\"undefined\"))throw new Error(\"not compiled for this environment (did you buil",
+        "` called with ${args.length} args but expects ${nargs}`);return f(...args)}}var wasmBinaryFile;function findWasmBinary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBina",
+        "Binary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw\"both async and sync fetching of the wasm failed\"}async function",
+        "ch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how",
+        "eason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-progra",
+        ".Instance(module,getWasmImports());resolve(receiveInstance(instance,module))}})}wasmBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catc",
+        "mBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catch(e){readyPromiseReject(e);return Promise.reject(e)}}class ExitStatus{name=\"ExitSta",
+        "hreadMainJs!=\"string\"){pthreadMainJs=URL.createObjectURL(pthreadMainJs)}}worker=new Worker(pthreadMainJs,{name:\"em-pthread-\"+PThread.nextWorkerID});worker.workerID=PThread.nextWorkerID++;PThread.unusedWorkers.push(worker)},getNewWorker(){if(PThread.u"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/Q/screen.wasm": {
+      "bytes": 265335,
+      "sha256": "f2f67abb44c8bcfa88ec971345053399639f21bc277a1a52d40dc7745327a254",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "assets/R/screen.js": {
+      "bytes": 51965,
+      "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630",
+      "token_counts": {},
+      "worker_contexts": [
+        " web?)\")}else if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(\".\",_scriptName).href}catch{}if(!(typeof window==\"object\"||typeof WorkerGlobalScope!=\"undefined\"))throw new Error(\"not compiled for this environment (did you buil",
+        "` called with ${args.length} args but expects ${nargs}`);return f(...args)}}var wasmBinaryFile;function findWasmBinary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBina",
+        "Binary(){return locateFile(\"screen.wasm\")}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw\"both async and sync fetching of the wasm failed\"}async function",
+        "ch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how",
+        "eason}`);if(isFileURI(wasmBinaryFile)){err(`warning: Loading from a file URI (${wasmBinaryFile}) is not supported in most browsers. See https://emscripten.org/docs/getting_started/FAQ.html#how-do-i-run-a-local-webserver-for-testing-why-does-my-progra",
+        ".Instance(module,getWasmImports());resolve(receiveInstance(instance,module))}})}wasmBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catc",
+        "mBinaryFile??=findWasmBinary();try{var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}catch(e){readyPromiseReject(e);return Promise.reject(e)}}class ExitStatus{name=\"ExitSta",
+        "hreadMainJs!=\"string\"){pthreadMainJs=URL.createObjectURL(pthreadMainJs)}}worker=new Worker(pthreadMainJs,{name:\"em-pthread-\"+PThread.nextWorkerID});worker.workerID=PThread.nextWorkerID++;PThread.unusedWorkers.push(worker)},getNewWorker(){if(PThread.u"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/R/screen.wasm": {
+      "bytes": 264028,
+      "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce",
+      "token_counts": {},
+      "workspace_contexts": []
+    },
+    "assets/controller.js": {
+      "bytes": 25549,
+      "sha256": "3f39f688234789ec0f506b824015b9538b2a4e8b1808045a0c8fd55137e42be4",
+      "token_counts": {},
+      "worker_contexts": [
+        "rker(a) {\n  gate(!workers.has(a), 'duplicate_worker');\n  const entry = {worker: new Worker('/worker.js'), control: new Int32Array(new SharedArrayBuffer(16)), sequence: 0, pending: null, heap: null};\n  workers.set(a, entry); // Track before initializa"
+      ],
+      "workspace_contexts": []
+    },
+    "assets/worker.js": {
+      "bytes": 10551,
+      "sha256": "0a77a49658c933e363683b802c3e85a12677667adab398c498a0aae334556512",
+      "token_counts": {
+        ".worker.js": 1,
+        "screen.js": 2
+      },
+      "worker_contexts": [
+        "dule_factory');\n    mod = await createScreenModule({\n      mainScriptUrlOrBlob: new URL(prefix + 'screen.js', self.location.href).href,\n      locateFile: name => { gate(['screen.wasm', 'screen.worker.js'].includes(name), 'asset_name'); return prefix "
+      ],
+      "workspace_contexts": []
+    }
+  },
+  "scope": "read-only static bytes; no code evaluation"
+}

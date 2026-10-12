@@ -1,0 +1,55 @@
+{
+  "schema": "chrome-panel-native-source-generation-v1",
+  "status": "SOURCE_ONLY_NOT_COMPILED_OR_EXECUTED",
+  "plan_sha256": "07456a44febb29f820920fb68fe4f62071676b05c0f933495db076ce06ace702",
+  "donor": {
+    "name": "ks-full-operator-screen-v3",
+    "callback_sha256": "9a1bd19af2e09b9b8ccc6937074a3abb0be76c34b1529dd714db10e4d960c1e6",
+    "operator_sha256": "925e53fa26da358708dd28a4e13709ca4b489f96e739e9b29a346548811834f8",
+    "convolution_sha256": "421a162ba5b004938832f72bf86f72f9f506cb2e81566a9851ccc0be02a15ff6"
+  },
+  "common_body_sha256": "6e4ec8d4d0a141f9d39409c51c2bbee18b21a747c930fddd84233ceeb2105514",
+  "q_p_change": "Only MR4-subtile/NR8-panel loop nesting and panel-address placement differ. Identical arithmetic/bias/indirection/zero/offset/store body emitted twice.",
+  "arm_definitions": {
+    "R": null,
+    "A": null,
+    "B": "VVX_KSB_ARM=1",
+    "Q": "VVX_KSB_ARM=3",
+    "P": "VVX_KSB_ARM=2"
+  },
+  "generated": {
+    "src/vvx_ksb_20261011.c": {
+      "bytes": 14949,
+      "sha256": "cdc4ec0f5598246901807f1faf02dd22dae65bdeef9b24a1a47ed21879c03d9e"
+    },
+    "harness/operator.c": {
+      "bytes": 22520,
+      "sha256": "3896ab877eaed9f246b06df2e767569ad6830b4c202fc4902b3f9975c695ac99"
+    },
+    "harness/fixtures.inc": {
+      "bytes": 266474,
+      "sha256": "8aaf543bcd83c9d4207dd2ebf25d13b44db3440674bf9e6170b76757f0ec2d1d"
+    },
+    "protocol/qualification-fixtures.json": {
+      "bytes": 658712,
+      "sha256": "c935d701e938087860d50828408e28bbc86a8563ee0f58ebb0978664340bf525"
+    },
+    "harness/abi.json": {
+      "bytes": 7565,
+      "sha256": "a07c69712fec6f617f4dec53f872d614f1eab1549486e4fceffa6b8c433b2cbc"
+    },
+    "evidence/native-selector-proof.json": {
+      "bytes": 2087,
+      "sha256": "da57f2b4b01fe72c094e30032629b7ed0f6cb42b3370e925535c811f9ad71ed4"
+    },
+    "evidence/native-fixture-proof.json": {
+      "bytes": 3425,
+      "sha256": "d24b181d0b6b5e93f552f64c08d5627454487e58b35d0e037583301290ad7529"
+    }
+  },
+  "compiler_invocations": 0,
+  "node_invocations": 0,
+  "browser_invocations": 0,
+  "subprocess_invocations": 0,
+  "network_invocations": 0
+}

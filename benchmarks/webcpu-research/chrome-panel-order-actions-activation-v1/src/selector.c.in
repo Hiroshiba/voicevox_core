@@ -1,0 +1,107 @@
+void vvx_ksb_20261011_select(struct xnn_operator* op,
+    size_t num_threads, size_t compute_index, size_t mr, size_t nr, size_t nc,
+    bool dynamic_quantization, uint32_t log2_input_element_size,
+    uint32_t log2_filter_element_size, uint32_t extra_weights_elements_size,
+    uint32_t log2_output_element_size)
+{
+  // Called after ordinary persistent-indirection reshape, before setup.
+  // The aggregate initializer has reset c/a_offset. Setup later supplies them.
+  if (op == NULL) return;
+  const struct igemm_context* ctx = &op->context.igemm.igemm;
+  struct compute_parameters* task = &op->compute[0];
+  if (!(sizeof(void*) == 4)) return;
+  if (!(num_threads == 2)) return;
+  if (!(compute_index == 0)) return;
+  if (!(mr == 4)) return;
+  if (!(nr == 8)) return;
+  if (!(nc == 128)) return;
+  if (!(dynamic_quantization == false)) return;
+  if (!(log2_input_element_size == 2)) return;
+  if (!(log2_filter_element_size == 2)) return;
+  if (!(extra_weights_elements_size == 4)) return;
+  if (!(log2_output_element_size == 2)) return;
+  if (!(op->type == xnn_operator_type_convolution_nhwc_f32)) return;
+  if (!(op->ukernel.type == xnn_microkernel_type_igemm)) return;
+  if (!(op->flags == 0)) return;
+  if (!(op->weights_cache == NULL)) return;
+  if (!(op->batch_size == 1)) return;
+  if (!(op->groups == 1)) return;
+  if (!(op->input_height == 1)) return;
+  if (!(op->output_height == 1)) return;
+  if (!(op->input_width == 61568)) return;
+  if (!(op->output_width == 61568)) return;
+  if (!(op->group_input_channels == 128)) return;
+  if (!(op->group_output_channels == 128)) return;
+  if (!(op->input_pixel_stride == 128)) return;
+  if (!(op->output_pixel_stride == 128)) return;
+  if (!(op->kernel_height == 1)) return;
+  if (!(op->kernel_width == 11)) return;
+  if (!(op->stride_height == 1)) return;
+  if (!(op->stride_width == 1)) return;
+  if (!(op->dilation_height == 1)) return;
+  if (!(op->padding_top == 0)) return;
+  if (!(op->padding_bottom == 0)) return;
+  if (!(op->ukernel.igemm.mr == 4)) return;
+  if (!(op->ukernel.igemm.nr == 8)) return;
+  if (!(op->ukernel.igemm.kr == 1)) return;
+  if (!(op->ukernel.igemm.sr == 1)) return;
+  if (!(op->ukernel.igemm.igemm_cases[3].function[XNN_UARCH_DEFAULT] == (xnn_igemm_ukernel_fn) xnn_f32_igemm_ukernel_4x8__wasmsimd_loadsplat)) return;
+  if (!(ctx->ukernel.function[XNN_UARCH_DEFAULT] == (xnn_igemm_ukernel_fn) xnn_f32_igemm_ukernel_4x8__wasmsimd_loadsplat)) return;
+  if (!(task->type == xnn_parallelization_type_2d_tile_2d)) return;
+  if (!(task->task_2d_tile_2d == (pthreadpool_task_2d_tile_2d_t) xnn_compute_igemm)) return;
+  if (!(task->context_offset == 0)) return;
+  if (!(task->range[0] == 61568)) return;
+  if (!(task->range[1] == 128)) return;
+  if (!(task->range[2] == 0)) return;
+  if (!(task->range[3] == 0)) return;
+  if (!(task->range[4] == 0)) return;
+  if (!(task->range[5] == 0)) return;
+  if (!(task->tile[0] == 4)) return;
+  if (!(task->tile[1] == 128)) return;
+  if (!(op->compute[1].type == xnn_parallelization_type_invalid)) return;
+  if (!(op->compute[2].type == xnn_parallelization_type_invalid)) return;
+  if (!(ctx->ks == 11)) return;
+  if (!(ctx->ks_scaled == 176)) return;
+  if (!(ctx->kc == 512)) return;
+  if (!(ctx->w_stride == 5636)) return;
+  if (!(ctx->cm_stride == 512)) return;
+  if (!(ctx->cn_stride == 32)) return;
+  if (!(ctx->ga_stride == 512)) return;
+  if (!(ctx->gw_stride == 721408)) return;
+  if (!(ctx->gc_stride == 512)) return;
+  if (!(ctx->ba_stride == 31522816)) return;
+  if (!(ctx->bc_stride == 31522816)) return;
+  if (!(ctx->log2_csize == 2)) return;
+  if (!(ctx->c == NULL)) return;
+  if (!(ctx->a_offset == 0)) return;
+  if (!(ctx->zero_buffers == NULL)) return;
+  if (!(ctx->zero_size == 0)) return;
+  if (!(ctx->quantization_params == NULL)) return;
+  if (!(op->quantization_params == NULL)) return;
+  if (!(ctx->indirect_a == op->indirection_buffer)) return;
+  if (!(ctx->zero == op->zero_buffer)) return;
+  if (!(ctx->packed_w == op->packed_weights.pointer)) return;
+  if (!(op->dilation_width == 1 || op->dilation_width == 3 || op->dilation_width == 5)) return;  // dilation_cohort
+  if (!(op->padding_left == 5 * op->dilation_width)) return;  // padding_left
+  if (!(op->padding_right == 5 * op->dilation_width)) return;  // padding_right
+  if (!(op->output_width % 32 == 0)) return;  // divisible_M
+  if (!(ctx->indirect_a != NULL)) return;  // indirection_nonnull
+  if (!(ctx->zero != NULL)) return;  // zero_nonnull
+  if (!(ctx->packed_w != NULL)) return;  // packed_nonnull
+  if (!(61568 <= SIZE_MAX / 11 / sizeof(void*))) return;  // size_indirection
+  if (!(61568 <= SIZE_MAX / 128 / sizeof(float))) return;  // size_output
+  if (!(128 <= SIZE_MAX / 5636)) return;  // size_weights
+  if (!((uintptr_t) ctx->indirect_a <= UINTPTR_MAX - 2708992)) return;  // indirection_no_wrap
+  if (!((uintptr_t) ctx->packed_w <= UINTPTR_MAX - 721408)) return;  // weights_no_wrap
+  if (!((uintptr_t) ctx->zero <= UINTPTR_MAX - 512)) return;  // zero_no_wrap
+  // Mutation is atomic with respect to the source selection decision: every
+  // failure returned before either descriptor field was written. No other edit.
+#if VVX_KSB_ARM == 1
+  task->task_2d_tile_2d = (pthreadpool_task_2d_tile_2d_t) vvx_ksb_20261011_B;
+#elif VVX_KSB_ARM == 2
+  task->task_2d_tile_2d = (pthreadpool_task_2d_tile_2d_t) vvx_ksb_20261011_P;
+#else
+  task->task_2d_tile_2d = (pthreadpool_task_2d_tile_2d_t) vvx_ksb_20261011_Q;
+#endif
+  task->tile[0] = 32;
+}

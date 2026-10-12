@@ -1,0 +1,1341 @@
+"""LOCAL ONLY standalone actual-operator Chrome 153 OFF experiment.
+
+Import, --plan, and --verify-inputs never launch Chrome or run an operator.
+An explicit --execute is necessary to run. No builder, Node timing, model,
+CPU profiler, GitHub write, or tensor persistence is implemented here.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import copy
+import hashlib
+import http.server
+import importlib.metadata
+import importlib.util
+import json
+import math
+import os
+from pathlib import Path
+import random
+import re
+import shutil
+import statistics
+import sys
+import tempfile
+import threading
+import select
+import subprocess
+import time
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_HELPERS = ROOT.parent / 'vendor' / 'browser'
+if not DEFAULT_HELPERS.is_dir():
+    DEFAULT_HELPERS = ROOT.parents[1] / 'off-attribution-recovery' / 'helpers'
+PINS = {
+    'affine_browser.py': '7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc',
+    'attribution_browser.py': '6db16d7a19ff6ba56e6ed259b7d29c5665fc7ea56e832b57ca8b05036df773df',
+}
+CONDITIONS = ('R', 'A', 'B', 'C')
+COHORTS = ('c128', 'c256')
+KINDS = ('timed', 'diagnostic')
+WILLIAMS = (('R', 'A', 'C', 'B'), ('A', 'B', 'R', 'C'), ('B', 'C', 'A', 'R'), ('C', 'R', 'B', 'A'))
+SEED = 1729
+WARMUPS = 2
+HEX = re.compile(r'[a-f0-9]{64}')
+ERRORS = {'input_gate', 'dependency_gate', 'engine_gate', 'configuration_gate', 'worker_gate',
+          'output_gate', 'callback_gate', 'resource_gate', 'cleanup_gate', 'report_gate',
+          'browser_unavailable', 'interrupted', 'internal_error', 'deadline_gate', 'gap_gate'}
+META_NAMES = ('channels', 'kernel', 'dilation', 'm', 'mr', 'nr', 'nc', 'pthreadpool_threads',
+              'batch', 'groups', 'task_type', 'callback_kind', 'kernel_callback',
+              'range0', 'range1', 'tile0', 'tile1', 'task_count', 'packed_weight_bytes',
+              'w_stride', 'kc_bytes', 'ks_scaled_bytes', 'heap_bytes', 'guard_errors',
+              'input_bytes', 'output_bytes', 'state', 'build_kind')
+DIAG_NAMES = ('task_calls', 'exact_seen_count', 'errors', 'participant_count', 'missing_count', 'expected_taskcount')
+CONTRACT = {'meta': dict(zip(META_NAMES, range(len(META_NAMES)))), 'diag': dict(zip(DIAG_NAMES, range(len(DIAG_NAMES))))}
+
+
+def _load_strict_resources():
+    spec = importlib.util.spec_from_file_location('_actual_operator_strict_resources', ROOT / 'strict_resources.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+strict_resources = _load_strict_resources()
+
+
+def _load_owned_processes():
+    spec = importlib.util.spec_from_file_location('_sequential_owned_processes', ROOT.parents[1] / 'tools/process_guard.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+process_guard = _load_owned_processes()
+
+
+def assert_no_unresolved_owners():
+    try:
+        process_guard.assert_no_unresolved_owners()
+    except ValueError:
+        error = GateFailure('cleanup_gate')
+        error.cleanup_receipt = dict(confirmed=False, remaining_processes=None)
+        error.cleanup_failure = 'cleanup_gate'
+        raise error from None
+
+
+class GateFailure(RuntimeError):
+    def __init__(self, code):
+        super().__init__(code if code in ERRORS else 'internal_error')
+        self.code = str(self)
+
+
+def need(value, code='report_gate'):
+    if not value:
+        raise GateFailure(code)
+
+
+def exact(value, keys, code='report_gate'):
+    need(type(value) is dict and set(value) == set(keys), code)
+
+
+def integer(value, lo=0, hi=2**53-1):
+    return type(value) is int and lo <= value <= hi
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def file_sha(path):
+    h = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024*1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def stable_sha(value):
+    return digest(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+
+
+def cases():
+    return [dict(id=f'{cohort}_d{d}', cohort=cohort, channels=c, kernel=11, dilation=d,
+                 m=m, recurrence_weight=4 if d == 1 else 1)
+            for cohort, c, m in (('c128', 128, 61568), ('c256', 256, 7696)) for d in (1, 3, 5)]
+
+
+def schedule():
+    rng = random.Random(SEED)
+    rows = []
+    for set_index in range(4):
+        order = cases()
+        rng.shuffle(order)
+        for case_position, case in enumerate(order):
+            for round_index in range(3):
+                row_index = (set_index + round_index) % 4
+                for position, condition in enumerate(WILLIAMS[row_index]):
+                    rows.append(dict(index=len(rows), process_set=set_index, case_position=case_position,
+                                     case_id=case['id'], round=round_index, williams_row=row_index,
+                                     position=position, condition=condition))
+    return rows
+
+
+def configuration():
+    rows = schedule()
+    return dict(schema='actual-operator-browser-configuration-v1', conditions=list(CONDITIONS), cases=cases(),
+                seed=SEED, schedule=rows, schedule_sha256=stable_sha(rows),
+                case_order='python_Random_1729_shuffle_six_cases_once_per_set',
+                williams_rows=[list(row) for row in WILLIAMS], row_selection='(process_set + round) modulo 4',
+                process_sets=4, condition_browsers_per_set=4, simultaneous_active_operators=1,
+                dedicated_operator_workers_per_browser=1, real_pool_threads=2,
+                rounds_per_case_set=3, paired_samples_per_case=12, calls_per_case=48, timed_calls=288,
+                warmups_per_condition_case_set=WARMUPS, total_warmup_calls=192,
+                timing_pattern=0, timing_clamp=0, correctness_patterns=[0], correctness_clamps=[0],
+                special_FP_scope='prior_reviewed_M41_evidence_only_not_repeated_at_actual_shape',
+                diagnostic_lifecycle='sequential_one_condition_worker_at_a_time_in_separate_browser_controller_retains_reference_bytes_only',
+                playwright_version='1.63.0', psutil_version='7.2.2', chromium_major=153,
+                browser_flags=['--js-flags=--no-wasm-revectorize'], normal_tiering=True,
+                hardware_concurrency_override=False, cpu_profiler=False, timed_atomic_observers=False,
+                primary_heap_growth_allowed=False, clock_granularity_calibrated=True, empty_export_overhead_calibrated=True,
+                calibration_quantum_positive_samples=1000, calibration_clock_read_limit=1000000, calibration_empty_export_samples=1000,
+                calibration_empty_export='_op_build_kind', primary_minimum_quantum_multiple=200, primary_minimum_empty_p99_multiple=100,
+                calibration_p99='nearest_rank', overhead_subtracted=False,
+                fixture_hashing='input_including_64B_overread_weights_bias_SHA256_before_after_whole_case_outside_clock',
+                cache_tier_claim='fixed_schedule_warmed_operator_not_assured_steady_cache_or_tier_state',
+                worker_lifecycle='fresh_module_worker_per_condition_case_dispose_at_case_end_browser_roots_retained_within_set',
+                correctness_modules_separate=True, exact_outputs_compared_in='page_controller_memory',
+                raw_tensors_persisted=False, raw_tensors_returned_to_python=False,
+                minimum_available_memory_bytes=1024**3, timed_major_faults_allowed=0,
+                resource_boundaries='all_four_root_PID_birthtime_trees_before_and_after_each_call_outside_worker_clock',
+                resource_snapshot_limits='non_atomic_boundaries_not_continuous_short_lived_processes_and_intercall_gaps_may_be_unobserved',
+                major_fault_policy_untimed='disclosed_other_identity_swap_memory_gates_still_strict',
+                failed_call_policy='preserve_attempts_acknowledgements_and_after_snapshot_attempts_never_top_up_or_replace',
+                completed_call_semantics='worker_acknowledged_success_may_be_less_than_actually_executed_on_lost_response',
+                C_over_B_interpretation='implementation_including_necessary_adapter_not_pure_cache_or_order_causality',
+                recurrence_weight_interpretation='synthetic_arithmetic_workload_mix_not_actual_model_order_shared_weights_cache_or_perK_hotness',
+                A_over_R_interpretation='source_rebuild_drift_descriptive_no_arbitrary_threshold',
+                independent_units='four_process_sets_samples_nested_not_twelve_independent_replicates',
+                helper_sources=dict(PINS),
+                strict_probe_cleanup=True,
+                strict_process_enumeration='audited_ON_all_proc_task_children_exact_before_after_no_best_effort_fallback',
+                strict_enumeration_source_sha256=strict_resources.AUDITED_SOURCE_SHA256, promotion_permitted=False)
+
+
+def load_helpers(directory=DEFAULT_HELPERS):
+    root = Path(directory).resolve()
+    for name, expected in PINS.items():
+        need((root / name).is_file() and file_sha(root / name) == expected, 'input_gate')
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location('_actual_operator_pinned_attribution', root / 'attribution_browser.py')
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+    finally:
+        sys.dont_write_bytecode = previous
+    need(helper.base.FLAGS == ['--js-flags=--no-wasm-revectorize'], 'configuration_gate')
+    return helper.base, helper
+
+
+def read_manifest(value):
+    if isinstance(value, (str, Path)):
+        value = json.loads(Path(value).read_text())
+    need(type(value) is dict and type(value.get('artifacts')) is dict, 'input_gate')
+    entries = value['artifacts']
+    exact(entries, COHORTS, 'input_gate')
+    public = {}
+    checked = {}
+    for cohort in COHORTS:
+        exact(entries[cohort], KINDS, 'input_gate')
+        public[cohort], checked[cohort] = {}, {}
+        for kind in KINDS:
+            exact(entries[cohort][kind], CONDITIONS, 'input_gate')
+            public[cohort][kind], checked[cohort][kind] = {}, {}
+            for condition in CONDITIONS:
+                record = entries[cohort][kind][condition]
+                need(type(record) is dict and {'binary_js', 'binary_wasm', 'js_sha256', 'wasm_sha256'} <= set(record), 'input_gate')
+                # Compiler/source proof remains separate; never copy its strings into the public runtime report.
+                record = {key: record[key] for key in ('binary_js', 'binary_wasm', 'js_sha256', 'wasm_sha256', 'auxiliary') if key in record}
+                paths = {}
+                for key, hash_key in (('binary_js', 'js_sha256'), ('binary_wasm', 'wasm_sha256')):
+                    need(type(record[key]) is str and Path(record[key]).is_absolute(), 'input_gate')
+                    need(type(record[hash_key]) is str and HEX.fullmatch(record[hash_key]), 'input_gate')
+                    path = Path(record[key]).resolve()
+                    need(path.is_file() and file_sha(path) == record[hash_key], 'input_gate')
+                    paths[key] = path
+                extras = record.get('auxiliary', [])
+                need(type(extras) is list and len(extras) <= 8, 'input_gate')
+                names = {'operator.js', 'operator.wasm'}
+                checked_extras, public_extras = [], []
+                for extra in extras:
+                    exact(extra, ('path', 'sha256'), 'input_gate')
+                    need(type(extra['path']) is str and Path(extra['path']).is_absolute(), 'input_gate')
+                    need(type(extra['sha256']) is str and HEX.fullmatch(extra['sha256']), 'input_gate')
+                    path = Path(extra['path']).resolve()
+                    need(re.fullmatch(r'[A-Za-z0-9_.-]+\.worker\.js', path.name) and path.name not in names, 'input_gate')
+                    need(path.is_file() and file_sha(path) == extra['sha256'], 'input_gate')
+                    names.add(path.name)
+                    checked_extras.append((path, extra['sha256']))
+                    public_extras.append(dict(sha256=extra['sha256']))
+                checked[cohort][kind][condition] = dict(**paths, auxiliary=checked_extras)
+                public[cohort][kind][condition] = dict(js_sha256=record['js_sha256'], wasm_sha256=record['wasm_sha256'], auxiliary=public_extras)
+        for condition in CONDITIONS:
+            need(public[cohort]['timed'][condition]['wasm_sha256'] != public[cohort]['diagnostic'][condition]['wasm_sha256'], 'input_gate')
+    return checked, public
+
+
+def prepare_assets(manifest, destination):
+    checked, public = read_manifest(manifest)
+    root = Path(destination) / 'operator-assets'
+    need(not root.exists(), 'input_gate')
+    root.mkdir(parents=True, mode=0o700)
+    for source in (ROOT / 'host').iterdir():
+        if source.name in ('index.html', 'controller.js', 'worker.js'):
+            shutil.copyfile(source, root / source.name)
+    for cohort in COHORTS:
+        for kind in KINDS:
+            for condition in CONDITIONS:
+                target = root / cohort / kind / condition
+                target.mkdir(parents=True, mode=0o700)
+                record = checked[cohort][kind][condition]
+                for key, name in (('binary_js', 'operator.js'), ('binary_wasm', 'operator.wasm')):
+                    shutil.copyfile(record[key], target / name)
+                    need(file_sha(target / name) == public[cohort][kind][condition]['js_sha256' if key == 'binary_js' else 'wasm_sha256'], 'input_gate')
+                for source, expected in record['auxiliary']:
+                    shutil.copyfile(source, target / source.name)
+                    need(file_sha(target / source.name) == expected, 'input_gate')
+    return root, public
+
+
+@contextlib.contextmanager
+def serve_assets(root):
+    """The pinned launch helper's shallow server cannot serve this nested ABI."""
+    root = Path(root).resolve()
+    allowed = {'/' + path.relative_to(root).as_posix(): path for path in root.rglob('*') if path.is_file()}
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = allowed.get('/index.html' if self.path == '/' else self.path)
+            if path is None:
+                self.send_error(404); return
+            self.send_response(200)
+            for key, value in (('Cross-Origin-Opener-Policy', 'same-origin'), ('Cross-Origin-Embedder-Policy', 'require-corp'),
+                               ('Cross-Origin-Resource-Policy', 'same-origin'), ('Cache-Control', 'no-store')):
+                self.send_header(key, value)
+            self.send_header('Content-Type', {'.js': 'application/javascript', '.wasm': 'application/wasm', '.html': 'text/html'}.get(path.suffix, 'application/octet-stream'))
+            self.send_header('Content-Length', str(path.stat().st_size)); self.end_headers()
+            try:
+                with path.open('rb') as stream:
+                    shutil.copyfileobj(stream, self.wfile)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}'
+    finally:
+        server.shutdown(); server.server_close(); thread.join()
+
+
+def validate_calibration(value):
+    exact(value, ('quantum_ms', 'quantum_positive_samples', 'clock_reads', 'empty_export_samples', 'empty_export_p99_ms', 'minimum_primary_ms', 'subtracted'), 'configuration_gate')
+    need(value['quantum_positive_samples'] == 1000 and value['empty_export_samples'] == 1000 and integer(value['clock_reads'], 1001, 1000000), 'configuration_gate')
+    need(value['subtracted'] is False, 'configuration_gate')
+    for key in ('quantum_ms', 'empty_export_p99_ms', 'minimum_primary_ms'):
+        need(type(value[key]) in (int, float) and math.isfinite(value[key]) and value[key] >= 0, 'configuration_gate')
+    need(value['quantum_ms'] > 0 and value['minimum_primary_ms'] == max(200*value['quantum_ms'], 100*value['empty_export_p99_ms']), 'configuration_gate')
+
+
+def validate_fixture_hashes(value):
+    need(type(value) is list and len(value) == 3 and all(type(item) is str and HEX.fullmatch(item) for item in value), 'output_gate')
+
+
+def validate_initialization(value, cohort, kind, condition):
+    exact(value, ('ready', 'workers'), 'worker_gate')
+    expected_conditions = ('R',) if kind == 'diagnostic' else (condition,)
+    need(value['ready'] is True and type(value['workers']) is list and len(value['workers']) == len(expected_conditions), 'worker_gate')
+    hc = None
+    for item, expected in zip(value['workers'], expected_conditions):
+        exact(item, ('ready', 'kind', 'cohort', 'condition', 'dedicated_worker', 'cross_origin_isolated', 'shared_memory', 'hardware_concurrency', 'calibration'), 'worker_gate')
+        for key, target in dict(ready=True, kind=kind, cohort=cohort, condition=expected, dedicated_worker=True, cross_origin_isolated=True, shared_memory=True).items():
+            need(type(item[key]) is type(target) and item[key] == target, 'worker_gate')
+        need(integer(item['hardware_concurrency'], 1, 65536), 'worker_gate')
+        if kind == 'timed':
+            validate_calibration(item['calibration'])
+        else:
+            need(item['calibration'] is None, 'configuration_gate')
+        if hc is None:
+            hc = item['hardware_concurrency']
+        need(item['hardware_concurrency'] == hc, 'engine_gate')
+    return hc
+
+
+def validate_meta(meta, case, condition, kind, clamp=0):
+    exact(meta, META_NAMES, 'callback_gate')
+    need(all(integer(value) for value in meta.values()), 'callback_gate')
+    c, m = case['channels'], case['m']
+    nc = c if condition in ('R', 'A') else 32
+    swapped = condition == 'C'
+    expected = dict(channels=c, kernel=11, dilation=case['dilation'], m=m, mr=4, nr=8, nc=nc,
+                    pthreadpool_threads=2, batch=1, groups=1, callback_kind=2 if swapped else 1,
+                    kernel_callback=1 if clamp == 0 else 2, range0=c if swapped else m,
+                    range1=m if swapped else c, tile0=nc if swapped else 4, tile1=4 if swapped else nc,
+                    task_count=(m // 4) * (c // nc), packed_weight_bytes=721408 if c == 128 else 2884608,
+                    w_stride=5636 if c == 128 else 11268, kc_bytes=c * 4, ks_scaled_bytes=176,
+                    guard_errors=0, input_bytes=m * c * 4, output_bytes=m * c * 4, task_type=7, state=1, build_kind=0 if kind == 'timed' else 1)
+    for key, target in expected.items():
+        need(meta[key] == target, 'callback_gate')
+    need(meta['heap_bytes'] >= meta['input_bytes'] + meta['output_bytes'] and meta['input_bytes'] > 0, 'callback_gate')
+    return True
+
+
+def validate_diag(value, case, condition, clamp):
+    exact(value, ('condition', 'initialization', 'metadata', 'before', 'after', 'fixture_sha256', 'fixture_unchanged', 'output_sha256'), 'callback_gate')
+    need(type(value['output_sha256']) is str and HEX.fullmatch(value['output_sha256']), 'output_gate')
+    validate_fixture_hashes(value['fixture_sha256'])
+    need(value['fixture_unchanged'] is True, 'output_gate')
+    need(value['condition'] == condition, 'callback_gate')
+    init_value = value['initialization']
+    exact(init_value, ('ready', 'kind', 'cohort', 'condition', 'dedicated_worker', 'cross_origin_isolated', 'shared_memory', 'hardware_concurrency', 'calibration'), 'worker_gate')
+    need(init_value['calibration'] is None, 'configuration_gate')
+    need(init_value['kind'] == 'diagnostic' and init_value['cohort'] == case['cohort'] and init_value['condition'] == condition, 'worker_gate')
+    need(all(init_value[key] is True for key in ('ready', 'dedicated_worker', 'cross_origin_isolated', 'shared_memory')) and integer(init_value['hardware_concurrency'], 1, 65536), 'worker_gate')
+    validate_meta(value['metadata'], case, condition, 'diagnostic', clamp)
+    expected = value['metadata']['task_count']
+    for phase in ('before', 'after'):
+        exact(value[phase], DIAG_NAMES, 'callback_gate')
+        need(all(integer(x) for x in value[phase].values()), 'callback_gate')
+    before, after = value['before'], value['after']
+    need(all(before[key] == 0 for key in ('task_calls', 'exact_seen_count', 'errors', 'participant_count')), 'callback_gate')
+    need(before['expected_taskcount'] == expected and before['missing_count'] == expected, 'callback_gate')
+    need(after == dict(task_calls=expected, exact_seen_count=expected, errors=0, participant_count=2, missing_count=0, expected_taskcount=expected), 'callback_gate')
+
+
+def validate_correctness(value, case, pattern, clamp):
+    exact(value, ('verified', 'exact_bitwise', 'compared_conditions', 'output_bytes', 'finite_required', 'buffers_persisted', 'reference_output_sha256', 'diagnostic'), 'output_gate')
+    need(value['verified'] is True and value['exact_bitwise'] is True and value['compared_conditions'] == list(CONDITIONS), 'output_gate')
+    need(value['output_bytes'] == case['m'] * case['channels'] * 4 and value['finite_required'] is (pattern == 0) and value['buffers_persisted'] is False, 'output_gate')
+    need(type(value['diagnostic']) is list and len(value['diagnostic']) == 4, 'callback_gate')
+    for record, condition in zip(value['diagnostic'], CONDITIONS):
+        validate_diag(record, case, condition, clamp)
+    need(all(record['fixture_sha256'] == value['diagnostic'][0]['fixture_sha256'] for record in value['diagnostic']), 'output_gate')
+    need(all(record['output_sha256'] == value['reference_output_sha256'] for record in value['diagnostic']), 'output_gate')
+    need(len({record['initialization']['hardware_concurrency'] for record in value['diagnostic']}) == 1, 'engine_gate')
+
+
+def validate_case_verification(value, case, condition, fixture_hashes, output_hash):
+    exact(value, ('verified', 'fixture_sha256', 'output_finite', 'output_sha256', 'metadata'), 'output_gate')
+    need(value['verified'] is True and value['fixture_sha256'] == fixture_hashes and value['output_sha256'] == output_hash, 'output_gate')
+    validate_fixture_hashes(value['fixture_sha256'])
+    need(type(value['output_sha256']) is str and HEX.fullmatch(value['output_sha256']), 'output_gate')
+    validate_meta(value['metadata'], case, condition, 'timed')
+    count = case['channels'] * case['m']
+    need(value['output_finite'] == {'elements': count, 'finite': count}, 'output_gate')
+
+
+def validate_primary_quality(value, calibration):
+    need(value['native_result'] == 0 and value['post_run_error'] is False, 'worker_gate')
+    need(value['guard_errors'] == 0, 'output_gate')
+    need(value['elapsed_ms'] >= calibration['minimum_primary_ms'], 'configuration_gate')
+    need(value['heap_before_bytes'] == value['heap_after_bytes'], 'resource_gate')
+
+
+class _LocalOperatorBrowser:
+    """Child-only Playwright operations; the independent owner enforces bounds."""
+    def __init__(self, pw, url, base, psutil):
+        self.browser = None
+        try:
+            self.browser = pw.chromium.launch(headless=True, args=list(base.FLAGS))
+        except Exception:
+            raise GateFailure('browser_unavailable') from None
+        version, root, self.identity = base._checked_browser_process(self.browser, psutil)
+        self.pid = root.pid
+        self.info = dict(engine=dict(product=version['product'], js_version=version['jsVersion']),
+                         browser_instance_sha256=digest(json.dumps(self.identity, separators=(',', ':')).encode()))
+        self.page = self.browser.new_page()
+        self.page.set_default_timeout(600000)
+        self.page.goto(url, wait_until='load')
+
+    def call(self, command, **kwargs):
+        try:
+            return self.page.evaluate('async data => { let timer; try { return await Promise.race([request(data), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("worker_gate")), 600000); })]); } finally { clearTimeout(timer); } }', dict(command=command, **kwargs))
+        except Exception:
+            raise GateFailure('worker_gate') from None
+
+    def close(self):
+        if self.browser is not None:
+            self.browser.close()
+            self.browser = None
+
+
+def _cleanup_projection(receipt):
+    return dict(confirmed=receipt.get('confirmed') is True,
+                remaining_processes=receipt.get('remaining_processes'))
+
+
+class OperatorBrowser:
+    """One fresh RPC driver under one disposable Linux ownership supervisor.
+
+    The parent sees the true Chromium root identity for strict resource snapshots.
+    The supervisor additionally owns the Playwright driver and detached children,
+    and survives constructor errors, leader exits and a blocked graceful close.
+    """
+    def __init__(self, pw, url, base, psutil, *, deadline=None, cleanup_deadline=None):
+        self.base, self.psutil = base, psutil
+        self.pid = self.identity = None
+        self.info = {}
+        self.browser = None
+        self.worker_kind = self.worker_cohort = self.worker_condition = None
+        self._owner = None
+        self._cleanup_record = None
+        self._launch_started = False
+        self._buffer = bytearray()
+        self.deadline = deadline if deadline is not None else time.monotonic()+600
+        self.cleanup_deadline = cleanup_deadline if cleanup_deadline is not None else self.deadline+6
+        assert_no_unresolved_owners()
+        try:
+            self._launch_started = True
+            helpers = Path(base.__file__).resolve().parent
+            self._owner = process_guard.OwnedProcess(
+                [sys.executable, str(Path(__file__).resolve()), '--owned-browser-child',
+                 '--helpers-root', str(helpers), '--url', url],
+                deadline=self.deadline, cleanup_deadline=self.cleanup_deadline,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            launch_end = min(self.deadline, time.monotonic()+600)
+            self._owner.set_deadline(launch_end)
+            value = self._receive(launch_end)
+            need(type(value) is dict and set(value) == {'pid', 'identity', 'info'}, 'engine_gate')
+            self.pid, self.identity, self.info = value['pid'], tuple(value['identity']), value['info']
+            need(self.identity[0] == self.pid, 'engine_gate')
+            need(self._owner.identity is not None and self._owner.owned_enumeration_verified, 'resource_gate')
+            self.observer_identity = self._owner.identity
+            self.observer_pid = self.observer_identity[0]
+            self.info['observer_root_instance_sha256'] = digest(json.dumps(self.observer_identity, separators=(',', ':')).encode())
+        except BaseException as first:
+            cleanup = _cleanup_projection(self._owner.close(deadline=self.cleanup_deadline)) if self._owner is not None else _cleanup_projection(first.receipt) if isinstance(first, process_guard.OwnedProcessError) else dict(confirmed=True, remaining_processes=0)
+            self._cleanup_record = cleanup
+            if self._owner is not None:
+                self._owner.release_streams()
+            error = first if isinstance(first, GateFailure) else GateFailure('interrupted' if isinstance(first, (KeyboardInterrupt, SystemExit)) else 'browser_unavailable')
+            error.cleanup_receipt = cleanup
+            error.cleanup_failure = None if cleanup['confirmed'] else 'cleanup_gate'
+            raise error from None
+
+    def _receive(self, end):
+        while time.monotonic() < end:
+            if b'\n' in self._buffer:
+                line, _, rest = self._buffer.partition(b'\n')
+                self._buffer = bytearray(rest)
+                value = json.loads(line)
+                need(type(value) is dict and set(value) in ({'ok', 'value'}, {'ok', 'error'}), 'worker_gate')
+                if value['ok'] is not True:
+                    raise GateFailure(value.get('error'))
+                return value['value']
+            if not select.select([self._owner.process.stdout], [], [], min(.05, max(0,end-time.monotonic())))[0]:
+                continue
+            data = os.read(self._owner.process.stdout.fileno(), 65536)
+            need(bool(data), 'worker_gate')
+            self._buffer.extend(data)
+            need(len(self._buffer) <= 8*1024*1024, 'worker_gate')
+        raise GateFailure('deadline_gate')
+
+    def call(self, command, *, before_dispatch=None, **kwargs):
+        need(self._owner is not None and self._cleanup_record is None, 'worker_gate')
+        end = min(self.deadline, time.monotonic()+600)
+        try:
+            self._owner.set_deadline(end)
+            payload = json.dumps(dict(command=command, kwargs=kwargs), separators=(',', ':'), allow_nan=False).encode()+b'\n'
+            need(len(payload) <= 1024*1024, 'worker_gate')
+            if before_dispatch is not None:
+                before_dispatch()
+            self._owner.process.stdin.write(payload)
+            self._owner.process.stdin.flush()
+            return self._receive(end)
+        except GateFailure:
+            raise
+        except process_guard.OwnedProcessError as error:
+            raise GateFailure('deadline_gate' if error.receipt.get('timed_out') else 'worker_gate') from None
+        except Exception as error:
+            raise GateFailure(error.code if getattr(error, 'code', None) in ERRORS else 'worker_gate') from None
+
+    def initialize(self, cohort, kind, condition=None):
+        if self.worker_kind is not None:
+            need(self.call('destroy_all') == {'destroyed': True}, 'worker_gate')
+        value = self.call('init', cohort=cohort, kind=kind, condition=condition, contract=CONTRACT)
+        hc = validate_initialization(value, cohort, kind, condition)
+        self.worker_kind, self.worker_cohort, self.worker_condition = kind, cohort, condition
+        self.calibration = value['workers'][0]['calibration']
+        return dict(cohort=cohort, kind=kind, condition=condition, hardware_concurrency=hc, calibration=self.calibration)
+
+    def close(self, *, deadline=None):
+        # Successful ownership proof is reusable; a failed graceful lifecycle
+        # retains its error independently even after emergency cleanup succeeds.
+        if self._cleanup_record is not None and self._cleanup_record['confirmed']:
+            if getattr(self, '_close_error', None) is not None:
+                raise self._close_error
+            return copy.deepcopy(self._cleanup_record)
+        first = None
+        if self._owner is None:
+            result = dict(confirmed=not self._launch_started, remaining_processes=0 if not self._launch_started else None)
+        else:
+            end = min(self.cleanup_deadline, deadline) if deadline is not None else self.cleanup_deadline
+            if self._cleanup_record is None:
+                try:
+                    operation_end = min(self.deadline, time.monotonic()+600)
+                    self._owner.set_deadline(operation_end)
+                    self._owner.process.stdin.write(b'{"command":"__close__","kwargs":{}}\n')
+                    self._owner.process.stdin.flush()
+                    value = self._receive(operation_end)
+                    need(value == {'closed': True}, 'cleanup_gate')
+                    receipt = self._owner.wait(deadline=end)
+                    if receipt.get('failure') is not None:
+                        first = GateFailure('deadline_gate' if receipt.get('timed_out') else 'cleanup_gate')
+                except BaseException as error:
+                    first = error
+                    receipt = self._owner.close(deadline=end)
+            else:
+                receipt = self._owner.close(deadline=end)
+            result = _cleanup_projection(receipt)
+            self._owner.release_streams()
+        self._cleanup_record = result
+        if first is not None:
+            error = first if isinstance(first, GateFailure) else GateFailure('interrupted' if isinstance(first, (KeyboardInterrupt, SystemExit)) else 'cleanup_gate')
+            error.cleanup_receipt = copy.deepcopy(result)
+            error.cleanup_failure = None if result['confirmed'] else 'cleanup_gate'
+            self._close_error = error
+            raise error from None
+        return copy.deepcopy(result)
+
+
+def owned_browser_child(helpers_root, url):
+    """Private JSON-only RPC. No native work until an explicit parent command."""
+    def respond(value=None, error=None):
+        print(json.dumps({'ok': True, 'value': value} if error is None else {'ok': False, 'error': error},
+                         separators=(',', ':'), allow_nan=False), flush=True)
+    active = None
+    try:
+        base, _ = load_helpers(helpers_root)
+        import psutil
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            active = _LocalOperatorBrowser(pw, url, base, psutil)
+            respond(dict(pid=active.pid, identity=list(active.identity), info=active.info))
+            for line in sys.stdin.buffer:
+                need(len(line) <= 1024*1024, 'worker_gate')
+                message = json.loads(line)
+                exact(message, ('command', 'kwargs'), 'worker_gate')
+                if message['command'] == '__close__':
+                    active.close()
+                    respond({'closed': True})
+                    return 0
+                respond(active.call(message['command'], **message['kwargs']))
+        return 1
+    except BaseException as error:
+        respond(error=getattr(error, 'code', 'worker_gate'))
+        return 1
+
+
+def observer_root_view(browser):
+    """One owned supervisor tree includes RPC, Playwright, Chrome and children.
+
+    The main Python controller is outside this target tree. The pinned observer
+    keeps its internal `browser_instance_sha256` key; here that key explicitly
+    binds the supervisor generation, while browser.info retains both identities.
+    """
+    from types import SimpleNamespace
+    identity = browser.observer_identity
+    need(type(identity) is tuple and len(identity) == 2 and identity[0] == browser.observer_pid, 'resource_gate')
+    need(browser._owner.identity == identity and browser._owner.process.pid == identity[0]
+         and browser._owner.owned_enumeration_verified is True and not browser._owner.closed, 'resource_gate')
+    need(browser.pid != browser.observer_pid and browser.identity[0] == browser.pid, 'resource_gate')
+    bound = digest(json.dumps(identity, separators=(',', ':')).encode())
+    need(bound == browser.info['observer_root_instance_sha256'], 'resource_gate')
+    need(digest(json.dumps(browser.identity, separators=(',', ':')).encode()) == browser.info['browser_instance_sha256'], 'resource_gate')
+    return SimpleNamespace(pid=identity[0], identity=identity, info=dict(browser_instance_sha256=bound))
+
+
+def strict_snapshot(browser, observer, psutil):
+    try:
+        view = observer_root_view(browser)
+        before = strict_resources.enumerate_tree(view.pid, view.identity[1], psutil.Process, Path('/proc'))
+        need(before.get(browser.pid) == browser.identity[1], 'resource_gate')
+        value = observer.resource_snapshot(view, psutil)
+        after = strict_resources.enumerate_tree(view.pid, view.identity[1], psutil.Process, Path('/proc'))
+        need(after.get(browser.pid) == browser.identity[1], 'resource_gate')
+        need(before == after and set(value['processes']) == {(pid, born) for pid, born in before.items()}, 'resource_gate')
+        return value
+    except Exception:
+        raise GateFailure('resource_gate') from None
+
+
+def strict_flag_acceptance_probe(base, helpers_root, *, deadline=None, cleanup_deadline=None):
+    """Launch-only probe, including exited leaders, has a separate owned lease."""
+    import selectors
+    assert_no_unresolved_owners()
+    end = min(deadline, time.monotonic()+120) if deadline is not None else time.monotonic()+120
+    cleanup_end = cleanup_deadline if cleanup_deadline is not None else end+6
+    try:
+        owner = process_guard.OwnedProcess(
+            [sys.executable, str(Path(__file__).resolve()), '--strict-flag-acceptance-probe',
+             '--helpers-root', str(Path(helpers_root).resolve())], deadline=end, cleanup_deadline=cleanup_end,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=dict(os.environ, DEBUG='pw:browser'))
+    except BaseException as first:
+        error = first if isinstance(first, GateFailure) else GateFailure('configuration_gate')
+        error.cleanup_receipt = _cleanup_projection(first.receipt) if isinstance(first, process_guard.OwnedProcessError) else dict(confirmed=True, remaining_processes=0)
+        error.cleanup_failure = None if error.cleanup_receipt['confirmed'] else 'cleanup_gate'
+        raise error from None
+    process = owner.process
+    out, err = bytearray(), bytearray()
+    selector = selectors.DefaultSelector()
+    first = None
+    result = None
+    try:
+        selector.register(process.stdout, selectors.EVENT_READ, (out, 4096))
+        selector.register(process.stderr, selectors.EVENT_READ, (err, 2*1024*1024))
+        while selector.get_map():
+            need(time.monotonic() < end, 'deadline_gate')
+            for key, _ in selector.select(min(.1, max(0,end-time.monotonic()))):
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                buffer, limit = key.data
+                need(len(buffer)+len(chunk) <= limit, 'configuration_gate')
+                buffer.extend(chunk)
+        receipt = owner.wait(deadline=cleanup_end)
+        need(receipt['confirmed'] and receipt['failure'] is None and receipt['returncode'] == 0, 'cleanup_gate')
+        need(owner.owned_enumeration_verified is True and owner.identity is not None, 'resource_gate')
+        result = base.flag_acceptance_from_capture(bytes(out), bytes(err), receipt['returncode'])
+    except BaseException as error:
+        first = error
+    finally:
+        selector.close()
+        receipt = owner.close(deadline=cleanup_end)
+        cleanup = _cleanup_projection(receipt)
+        owner.release_streams()
+        out.clear(); err.clear()
+    if first is not None or not cleanup['confirmed']:
+        error = first if isinstance(first, GateFailure) else GateFailure('cleanup_gate' if first is None else 'configuration_gate')
+        error.cleanup_receipt = cleanup
+        error.cleanup_failure = None if cleanup['confirmed'] else 'cleanup_gate'
+        raise error from None
+    return result
+
+
+def strict_flag_acceptance_child(helpers_root):
+    """No operator/module work. Uses the same strict wrapper as measured roots."""
+    active = None
+    result = None
+    try:
+        base, _ = load_helpers(helpers_root)
+        import psutil
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            try:
+                active = _LocalOperatorBrowser(pw, 'about:blank', base, psutil)
+                need(active.page.evaluate('1+1') == 2, 'configuration_gate')
+                result = dict(engine=copy.deepcopy(active.info['engine']), argv_matches=True,
+                              browser_instance_sha256=active.info['browser_instance_sha256'], cleanup_confirmed=False)
+            finally:
+                if active is not None:
+                    active.close()
+                    # The outer disposable owner establishes descendant cleanup
+                    # before accepting this tentative capture.
+                    if result is not None:
+                        result['cleanup_confirmed'] = True
+        need(result is not None and result['cleanup_confirmed'], 'cleanup_gate')
+        print(json.dumps(result, separators=(',', ':')), flush=True)
+        return 0
+    except BaseException:
+        return 1
+
+
+def snapshot_all(browsers, observer, psutil):
+    return {condition: strict_snapshot(browser, observer, psutil) for condition, browser in browsers.items()}
+
+
+def delta_all(before, after, browsers, observer, timed):
+    values = {}
+    for condition, browser in browsers.items():
+        value = observer.resource_delta(before[condition], after[condition], observer_root_view(browser))
+        observer.validate_resources(value)
+        values[condition] = value
+    passed = all(value['passed'] if timed else observer.nonperformance_resource_passed(value) for value in values.values())
+    return dict(roots=values, passed=passed, strict_timed_policy=timed)
+
+
+def validate_cleanup(value):
+    exact(value, ('confirmed', 'remaining_processes'), 'cleanup_gate')
+    need(type(value['confirmed']) is bool and (value['remaining_processes'] is None or integer(value['remaining_processes'], 0, 65536)), 'cleanup_gate')
+    need(not value['confirmed'] or value['remaining_processes'] == 0, 'cleanup_gate')
+
+
+def observed_call(browsers, active_condition, command, observer, psutil, timed=False,
+                  observation=None, on_stage=None, on_response=None, on_snapshot=None, on_dispatch=None, **kwargs):
+    """Always attempt an after-snapshot, including lost/invalid acknowledgements.
+
+    A sent command may have executed even when its response is missing. Preserve
+    that attempt; never replace it, top up the schedule, or fabricate a duration.
+    """
+    note = observation if observation is not None else {}
+    note.update(attempted=False, acknowledged=False, observation_stage='before_snapshot',
+                resources=None, call_error=None, snapshot_error=None)
+    before = after = value = None
+    primary_error = None
+    try:
+        before = snapshot_all(browsers, observer, psutil)
+        if on_snapshot is not None:
+            on_snapshot('before', before)
+        need(all(item['host']['available_bytes'] >= 1024**3 for item in before.values()), 'resource_gate')
+        if on_stage is not None:
+            on_stage()
+        def before_dispatch():
+            if on_dispatch is not None:
+                on_dispatch()
+            note.update(attempted=True, observation_stage='command_sent')
+        try:
+            value = browsers[active_condition].call(command, before_dispatch=before_dispatch, **kwargs)
+            note.update(acknowledged=True, observation_stage='acknowledged')
+            if on_response is not None:
+                on_response(value)
+        except BaseException as error:
+            primary_error = error
+            note['call_error'] = getattr(error, 'code', None) if getattr(error, 'code', None) in ERRORS else 'interrupted' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'worker_gate'
+    except BaseException as error:
+        primary_error = error
+        note['snapshot_error'] = 'resource_gate'
+    finally:
+        # Even a partially observed or failed-before-send command gets an after
+        # observation attempt. Missing/invalid windows are never quality-valid.
+        try:
+            after = snapshot_all(browsers, observer, psutil)
+            if on_snapshot is not None:
+                on_snapshot('after', after)
+            if before is not None:
+                note['resources'] = delta_all(before, after, browsers, observer, timed)
+        except BaseException as error:
+            note['snapshot_error'] = 'resource_gate'
+            if primary_error is None:
+                primary_error = error
+        note['observation_stage'] = 'after_snapshot_attempted'
+        if on_stage is not None:
+            try:
+                on_stage()
+            except BaseException as error:
+                if primary_error is None:
+                    primary_error = error
+    if primary_error is not None:
+        raise primary_error
+    need(note['resources'] is not None, 'resource_gate')
+    return value, note['resources']
+
+
+def blank_report():
+    return dict(schema='actual-operator-browser-v1', status='incomplete', measurement_valid=False,
+                stage='initializing', error_code=None, configuration=configuration(), artifacts={}, host={},
+                flag_acceptance=None, correctness=[], process_sets=[], last_untimed_attempt=None, completed_timed_calls=0,
+                summary=None, privacy=dict(raw_tensors_persisted=False, raw_tensors_returned_to_python=False,
+                                           browser_logs_persisted=False, paths_in_report=False))
+
+
+RATIOS = {'A_over_R': ('A', 'R'), 'B_over_A': ('B', 'A'), 'C_over_B': ('C', 'B'),
+          'C_over_A': ('C', 'A'), 'C_over_R': ('C', 'R')}
+
+
+def geometric_mean(values):
+    values = list(values)
+    need(values and all(type(value) in (int, float) and math.isfinite(value) and value > 0 for value in values))
+    return math.exp(statistics.mean(math.log(value) for value in values))
+
+
+def sample_summary(values):
+    values = list(values)
+    return dict(minimum=min(values), median=statistics.median(values), maximum=max(values))
+
+
+def describe_pairs(pairs):
+    need(len(pairs) == 12)
+    result = {}
+    for key in RATIOS:
+        per_set = [geometric_mean(row[key] for row in pairs if row['process_set'] == set_index) for set_index in range(4)]
+        need(all(sum(row['process_set'] == set_index for row in pairs) == 3 for set_index in range(4)))
+        leave_one_out = [geometric_mean(value for index, value in enumerate(per_set) if index != omitted) for omitted in range(4)]
+        result[key] = dict(geometric_mean=geometric_mean(row[key] for row in pairs),
+                           process_set_geometric_means=per_set, minimum_set_ratio=min(per_set), maximum_set_ratio=max(per_set),
+                           set_directions=['lower' if value < 1 else 'higher' if value > 1 else 'equal' for value in per_set],
+                           leave_one_set_out_geometric_means=leave_one_out,
+                           raw_paired_ratio_summary=sample_summary(row[key] for row in pairs),
+                           within_set_round_spread=[dict(process_set=set_index, **sample_summary(row[key] for row in pairs if row['process_set'] == set_index)) for set_index in range(4)])
+    return result
+
+
+def summarize(report):
+    need(report['completed_timed_calls'] == 288 and len(report['process_sets']) == 4)
+    need(all(item['stable'] and len(item['calls']) == 72 and len(item['cleanup']) == 4 and
+             all(value['confirmed'] for value in item['cleanup'].values()) and
+             all(row['resources']['passed'] for row in item['calls']) for item in report['process_sets']))
+    by_case = {}
+    for case in cases():
+        pairs = []
+        for process_set in report['process_sets']:
+            for round_index in range(3):
+                rows = [row for row in process_set['calls'] if row['case_id'] == case['id'] and row['round'] == round_index]
+                need(len(rows) == 4 and {row['condition'] for row in rows} == set(CONDITIONS))
+                values = {row['condition']: row['elapsed_ms'] for row in rows}
+                pairs.append(dict(process_set=process_set['index'], round=round_index, elapsed_ms=values,
+                                  positions={row['condition']: row['position'] for row in rows},
+                                  chronological_indices={row['condition']: row['index'] for row in rows},
+                                  **{key: values[numerator]/values[denominator] for key, (numerator, denominator) in RATIOS.items()}))
+        drift = []
+        for set_index in range(4):
+            values = [row['elapsed_ms']['R'] for row in pairs if row['process_set'] == set_index]
+            drift.append(dict(process_set=set_index, R_trajectory_ms=values, first_R_ms=values[0], last_R_ms=values[-1],
+                              last_over_first=values[-1]/values[0], nondecreasing=all(a <= b for a, b in zip(values, values[1:])),
+                              nonincreasing=all(a >= b for a, b in zip(values, values[1:]))))
+        durations = {condition: sample_summary(row['elapsed_ms'][condition] for row in pairs) for condition in CONDITIONS}
+        positions = {condition: [dict(position=position, **sample_summary(row['elapsed_ms'][condition] for row in pairs if row['positions'][condition] == position)) for position in range(4)] for condition in CONDITIONS}
+        by_case[case['id']] = dict(paired_samples=pairs, ratios=describe_pairs(pairs),
+                                 duration_ms_summaries=durations, position_duration_ms_summaries=positions,
+                                 R_first_last_descriptive=drift)
+    weighted = {}
+    for cohort in COHORTS:
+        selected = [case for case in cases() if case['cohort'] == cohort]
+        pairs = []
+        for set_index in range(4):
+            for round_index in range(3):
+                totals = {condition: sum(case['recurrence_weight'] * next(row['elapsed_ms'][condition] for row in by_case[case['id']]['paired_samples'] if row['process_set'] == set_index and row['round'] == round_index) for case in selected) for condition in CONDITIONS}
+                pairs.append(dict(process_set=set_index, round=round_index, synthetic_weighted_ms=totals,
+                                  **{key: totals[numerator]/totals[denominator] for key, (numerator, denominator) in RATIOS.items()}))
+        weighted[cohort] = dict(paired_samples=pairs, ratios=describe_pairs(pairs))
+    return dict(cases=by_case, synthetic_arithmetic_mix=weighted, independent_process_sets=4,
+                uncertainty='four_set_spread_and_leave_one_set_out_descriptive_no_IID_twelve_sample_claim_p_value_or_population_CI',
+                C_over_B_includes_adapter=True, promotion_permitted=False)
+
+
+def validate_report(report, helpers_root=DEFAULT_HELPERS):
+    """Strict public scalar/hash schema; safe partial reports are valid evidence."""
+    base, observer = load_helpers(helpers_root)
+    exact(report, blank_report())
+    need(stable_sha(report['configuration']) == stable_sha(configuration()))
+    need(report['schema'] == 'actual-operator-browser-v1' and report['privacy'] == blank_report()['privacy'])
+    need(report['status'] in ('incomplete', 'complete') and type(report['measurement_valid']) is bool)
+    need(report['stage'] in ('initializing', 'input_gates', 'browser_gates', 'correctness', 'timing', 'complete'))
+    need(report['error_code'] is None or report['error_code'] in ERRORS)
+    complete = report['status'] == 'complete'
+    need(report['measurement_valid'] == complete and integer(report['completed_timed_calls'], 0, 288))
+    if complete:
+        need(report['stage'] == 'complete' and report['error_code'] is None and report['completed_timed_calls'] == 288)
+    else:
+        need(report['summary'] is None)
+    def hashes(value):
+        need(type(value) is str and HEX.fullmatch(value))
+    def browser_info(value):
+        exact(value, ('engine', 'browser_instance_sha256'))
+        observer._engine(value['engine']); hashes(value['browser_instance_sha256'])
+    observed_hardware_concurrency = None
+    def hardware_concurrency(value):
+        nonlocal observed_hardware_concurrency
+        need(integer(value, 1, 65536), 'engine_gate')
+        if observed_hardware_concurrency is None:
+            observed_hardware_concurrency = value
+        need(value == observed_hardware_concurrency, 'engine_gate')
+    def initialization(value, diagnostic=False, with_case=False):
+        exact(value, ('cohort', 'kind', 'condition', 'hardware_concurrency', 'calibration', *(['case_id'] if with_case else [])))
+        need(value['cohort'] in COHORTS and value['kind'] == ('diagnostic' if diagnostic else 'timed'))
+        need(value['condition'] is None if diagnostic else value['condition'] in CONDITIONS)
+        hardware_concurrency(value['hardware_concurrency'])
+        if diagnostic:
+            need(value['calibration'] is None)
+        else:
+            validate_calibration(value['calibration'])
+        if with_case:
+            need(value['case_id'] in case_map and case_map[value['case_id']]['cohort'] == value['cohort'])
+    def resources(value, expected_browsers, diagnostic=False, timed=False):
+        exact(value, ('roots', 'passed', 'strict_timed_policy'))
+        exact(value['roots'], ('diagnostic',) if diagnostic else CONDITIONS)
+        need(type(value['passed']) is bool and value['strict_timed_policy'] is timed)
+        exact(expected_browsers, ('diagnostic',) if diagnostic else CONDITIONS, 'resource_gate')
+        for condition, record in value['roots'].items():
+            observer.validate_resources(record)
+            expected = expected_browsers[condition]
+            need(type(expected) is dict and record['browser_instance_sha256'] == expected.get('browser_instance_sha256'), 'resource_gate')
+        need(value['passed'] == all(record['passed'] if timed else observer.nonperformance_resource_passed(record) for record in value['roots'].values()))
+    def cleanup(value, keys):
+        need(type(value) is dict and set(value) <= set(keys))
+        for record in value.values():
+            validate_cleanup(record)
+        if complete:
+            need(set(value) == set(keys) and all(record['confirmed'] for record in value.values()))
+    case_map = {case['id']: case for case in cases()}
+    need(type(report['artifacts']) is dict)
+    if report['artifacts']:
+        exact(report['artifacts'], COHORTS)
+        for cohort in COHORTS:
+            exact(report['artifacts'][cohort], KINDS)
+            for kind in KINDS:
+                exact(report['artifacts'][cohort][kind], CONDITIONS)
+                for record in report['artifacts'][cohort][kind].values():
+                    exact(record, ('js_sha256', 'wasm_sha256', 'auxiliary'))
+                    hashes(record['js_sha256']); hashes(record['wasm_sha256'])
+                    need(type(record['auxiliary']) is list and len(record['auxiliary']) <= 8)
+                    for extra in record['auxiliary']:
+                        exact(extra, ('sha256',)); hashes(extra['sha256'])
+    else:
+        need(not complete)
+    if report['host']:
+        base.validate_host_info(report['host'])
+    else:
+        need(not complete and report['host'] == {})
+    if report['flag_acceptance'] is not None:
+        base.validate_flag_acceptance(report['flag_acceptance'])
+    else:
+        need(not complete)
+    need(type(report['correctness']) is list and len(report['correctness']) <= 2)
+    for index, section in enumerate(report['correctness']):
+        exact(section, ('cohort', 'browser', 'initialization', 'checks', 'cleanup'))
+        need(section['cohort'] == COHORTS[index])
+        if section['browser'] is not None:
+            browser_info(section['browser'])
+            if report['flag_acceptance'] is not None:
+                need(section['browser']['engine'] == report['flag_acceptance']['engine'], 'engine_gate')
+        else:
+            need(not complete)
+        if section['initialization'] is not None:
+            initialization(section['initialization'], diagnostic=True)
+            need(section['initialization']['cohort'] == section['cohort'], 'configuration_gate')
+        else:
+            need(not complete)
+        need(type(section['checks']) is list and len(section['checks']) <= 3)
+        for check in section['checks']:
+            exact(check, ('case_id', 'pattern', 'clamp', 'result', 'resources'))
+            need(check['case_id'] in case_map and case_map[check['case_id']]['cohort'] == section['cohort'] and check['pattern'] == 0 and check['clamp'] == 0)
+            validate_correctness(check['result'], case_map[check['case_id']], 0, 0)
+            for worker in check['result']['diagnostic']:
+                hardware_concurrency(worker['initialization']['hardware_concurrency'])
+            resources(check['resources'], {'diagnostic': section['browser']}, diagnostic=True)
+        cleanup(section['cleanup'], ('diagnostic',))
+        if complete:
+            need(len(section['checks']) == 3 and len({check['case_id'] for check in section['checks']}) == 3)
+            need(all(check['resources']['passed'] for check in section['checks']))
+    need(type(report['process_sets']) is list and len(report['process_sets']) <= 4)
+    note = report['last_untimed_attempt']
+    if note is not None:
+        exact(note, ('stage', 'process_set', 'case_id', 'condition', 'command', 'completed', 'attempted', 'acknowledged', 'observation_stage', 'resources', 'call_error', 'snapshot_error'))
+        need(note['stage'] in ('correctness', 'timing') and note['case_id'] in case_map)
+        diagnostic = note['stage'] == 'correctness'
+        need(note['process_set'] is None if diagnostic else integer(note['process_set'], 0, 3))
+        need(note['condition'] == 'diagnostic' if diagnostic else note['condition'] in CONDITIONS)
+        need(note['command'] == 'correctness' if diagnostic else note['command'] in ('configure', 'warmup', 'verify_case'))
+        need(all(type(note[key]) is bool for key in ('completed', 'attempted', 'acknowledged')))
+        need(not note['completed'] or note['acknowledged'])
+        need(not note['acknowledged'] or note['attempted'])
+        need(note['observation_stage'] in ('not_started', 'before_snapshot', 'command_sent', 'acknowledged', 'after_snapshot_attempted'))
+        need(note['call_error'] is None or note['call_error'] in ERRORS)
+        need(note['snapshot_error'] in (None, 'resource_gate'))
+        if note['resources'] is not None:
+            if diagnostic:
+                matching = [section for section in report['correctness'] if section['cohort'] == case_map[note['case_id']]['cohort']]
+                need(len(matching) == 1, 'resource_gate')
+                expected = {'diagnostic': matching[0]['browser']}
+            else:
+                need(note['process_set'] < len(report['process_sets']), 'resource_gate')
+                expected = report['process_sets'][note['process_set']]['browsers']
+            resources(note['resources'], expected, diagnostic=diagnostic)
+        if complete:
+            need(note['completed'] and note['resources'] is not None and note['resources']['passed'])
+    else:
+        need(not complete)
+    reference_outputs = {}
+    reference_fixtures = {}
+    identities = [report['flag_acceptance']['browser_instance_sha256']] if report['flag_acceptance'] else []
+    for section in report['correctness']:
+        if section['browser'] is not None:
+            identities.append(section['browser']['browser_instance_sha256'])
+        for check in section['checks']:
+            reference_outputs[check['case_id']] = check['result']['reference_output_sha256']
+            reference_fixtures[check['case_id']] = check['result']['diagnostic'][0]['fixture_sha256']
+    acknowledged_count = 0
+    for index, section in enumerate(report['process_sets']):
+        exact(section, ('index', 'browsers', 'initializations', 'setups', 'warmups', 'calls', 'verifications', 'cleanup', 'stable'))
+        need(section['index'] == index and type(section['stable']) is bool)
+        need(type(section['browsers']) is dict and set(section['browsers']) <= set(CONDITIONS))
+        for value in section['browsers'].values():
+            browser_info(value)
+            identities.append(value['browser_instance_sha256'])
+            if report['flag_acceptance'] is not None:
+                need(value['engine'] == report['flag_acceptance']['engine'])
+        calibration_map = {}
+        for value in section['initializations']:
+            initialization(value, with_case=True)
+            key = (value['case_id'], value['condition'])
+            need(key not in calibration_map)
+            calibration_map[key] = value['calibration']
+        for value in section['setups']:
+            exact(value, ('case_id', 'condition', 'metadata', 'fixture_sha256', 'resources'))
+            need(value['case_id'] in case_map and value['condition'] in CONDITIONS)
+            validate_meta(value['metadata'], case_map[value['case_id']], value['condition'], 'timed')
+            validate_fixture_hashes(value['fixture_sha256']); resources(value['resources'], section['browsers'])
+            need(value['fixture_sha256'] == reference_fixtures.get(value['case_id']))
+        for value in section['warmups']:
+            exact(value, ('case_id', 'condition', 'warmup', 'resources'))
+            need(value['case_id'] in case_map and value['condition'] in CONDITIONS and integer(value['warmup'], 0, 1))
+            resources(value['resources'], section['browsers'])
+        expected_slots = [row for row in schedule() if row['process_set'] == index]
+        need(len(section['calls']) <= 72)
+        for position, value in enumerate(section['calls']):
+            slot = expected_slots[position]
+            exact(value, (*slot, 'completed', 'response_valid', 'elapsed_ms', 'heap_before_bytes', 'heap_after_bytes', 'native_result', 'guard_errors', 'post_run_error',
+                          'resources', 'attempted', 'acknowledged', 'observation_stage', 'call_error', 'snapshot_error'))
+            need(all(type(value[key]) is type(target) and value[key] == target for key, target in slot.items()))
+            need(all(type(value[key]) is bool for key in ('attempted', 'acknowledged', 'completed', 'response_valid')))
+            need(not value['acknowledged'] or value['attempted'])
+            need(not value['completed'] or value['acknowledged'])
+            need(not value['response_valid'] or value['completed'])
+            need(value['observation_stage'] in ('not_started', 'before_snapshot', 'command_sent', 'acknowledged', 'after_snapshot_attempted'))
+            need(value['call_error'] is None or value['call_error'] in ERRORS)
+            need(value['snapshot_error'] in (None, 'resource_gate'))
+            acknowledged_count += value['completed']
+            if value['response_valid']:
+                need(type(value['elapsed_ms']) in (int, float) and math.isfinite(value['elapsed_ms']) and -600000 <= value['elapsed_ms'] <= 600000)
+                need(integer(value['heap_before_bytes'], 1) and (value['heap_after_bytes'] is None or integer(value['heap_after_bytes'], 1)))
+                need(integer(value['native_result']) and (value['guard_errors'] is None or integer(value['guard_errors'])) and type(value['post_run_error']) is bool)
+            else:
+                need(value['elapsed_ms'] is None and value['heap_before_bytes'] is None and value['heap_after_bytes'] is None and value['native_result'] is None and value['guard_errors'] is None and value['post_run_error'] is None)
+            if value['resources'] is not None:
+                resources(value['resources'], section['browsers'], timed=True)
+            if complete:
+                need(value['response_valid'] and value['resources'] is not None and value['resources']['passed'] and value['heap_before_bytes'] == value['heap_after_bytes'])
+                need(value['call_error'] is None and value['snapshot_error'] is None and value['native_result'] == 0 and value['guard_errors'] == 0 and value['post_run_error'] is False)
+                need((value['case_id'], value['condition']) in calibration_map)
+                validate_primary_quality(value, calibration_map[(value['case_id'], value['condition'])])
+        for value in section['verifications']:
+            exact(value, ('case_id', 'condition', 'phase', 'result', 'resources'))
+            need(value['phase'] in ('before_primary', 'after_primary'))
+            need(value['case_id'] in case_map and value['condition'] in CONDITIONS)
+            check = value['result']; exact(check, ('verified', 'fixture_sha256', 'output_finite', 'output_sha256', 'metadata'))
+            hashes(check['output_sha256'])
+            need(check['verified'] is True); validate_fixture_hashes(check['fixture_sha256'])
+            validate_meta(check['metadata'], case_map[value['case_id']], value['condition'], 'timed')
+            count = case_map[value['case_id']]['m'] * case_map[value['case_id']]['channels']
+            need(check['output_finite'] == {'elements': count, 'finite': count})
+            resources(value['resources'], section['browsers'])
+            validate_case_verification(check, case_map[value['case_id']], value['condition'], reference_fixtures.get(value['case_id']), reference_outputs.get(value['case_id']))
+        cleanup(section['cleanup'], CONDITIONS)
+        if complete:
+            need(section['stable'] and len(section['browsers']) == 4 and len(section['initializations']) == 24 and len(section['setups']) == 24 and len(section['warmups']) == 48 and len(section['calls']) == 72 and len(section['verifications']) == 48)
+            need(all(value['resources']['passed'] for key in ('setups', 'warmups', 'verifications') for value in section[key]))
+            need(len({(value['case_id'], value['condition']) for value in section['setups']}) == 24)
+            need(len({(value['case_id'], value['condition'], value['warmup']) for value in section['warmups']}) == 48)
+            need(len({(value['case_id'], value['condition'], value['phase']) for value in section['verifications']}) == 48)
+    need(len(identities) == len(set(identities)))
+    need(acknowledged_count == report['completed_timed_calls'])
+    if complete:
+        need(len(report['correctness']) == 2 and len(report['process_sets']) == 4)
+        need(stable_sha(report['summary']) == stable_sha(summarize(report)))
+    return True
+
+
+def write_checkpoint(report, private):
+    # Only allowlisted records are inserted into report. JSON forbids NaN/Inf.
+    need(report['error_code'] is None or report['error_code'] in ERRORS)
+    need(report['measurement_valid'] or report['summary'] is None)
+    root = Path(private)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary = tempfile.mkstemp(prefix='.operator-', suffix='.tmp', dir=root)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(report, stream, sort_keys=True, separators=(',', ':'), allow_nan=False)
+            stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, root / 'browser-report.json')
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def run(manifest, private, helpers_root=DEFAULT_HELPERS):
+    """Explicit browser execution only. Every failed set suppresses all estimates."""
+    report = blank_report()
+    base = observer = None
+    alive = {}
+    current = None
+    identities = set()
+    environment_hc = None
+    fixture_references = {}
+    output_references = {}
+    def checkpoint():
+        write_checkpoint(report, private)
+    def cleanup_all():
+        good = True
+        for condition, browser in list(alive.items()):
+            try:
+                value = browser.close(); validate_cleanup(value)
+            except BaseException as error:
+                value = getattr(error, 'cleanup_receipt', dict(confirmed=False, remaining_processes=None))
+            if current is not None:
+                current['cleanup'][condition] = value
+            good = good and value['confirmed']
+            if value['confirmed']:
+                del alive[condition]
+        return good
+    def register(browser):
+        nonlocal environment_hc
+        need(browser.info['engine'] == report['flag_acceptance']['engine'], 'engine_gate')
+        identity = browser.info['browser_instance_sha256']
+        need(identity not in identities, 'resource_gate'); identities.add(identity)
+    def init(browser, cohort, kind, condition):
+        nonlocal environment_hc
+        result = browser.initialize(cohort, kind, condition)
+        if environment_hc is None:
+            environment_hc = result['hardware_concurrency']
+        need(result['hardware_concurrency'] == environment_hc, 'engine_gate')
+        return result
+    def untimed(active_condition, command, active_case, **kwargs):
+        note = dict(stage=report['stage'], process_set=current.get('index'), case_id=active_case['id'],
+                    condition=active_condition, command=command, completed=False, attempted=False,
+                    acknowledged=False, observation_stage='not_started', resources=None,
+                    call_error=None, snapshot_error=None)
+        report['last_untimed_attempt'] = note
+        checkpoint()
+        def response(value):
+            key = 'configured' if command == 'configure' else 'completed' if command == 'warmup' else 'verified'
+            note['completed'] = type(value) is dict and value.get(key) is True
+        return observed_call(alive, active_condition, command, observer, psutil, observation=note,
+                             on_stage=checkpoint, on_response=response, **kwargs)
+    def verify_case(case, phase):
+        for ending_condition, resident in alive.items():
+            final, final_resources = untimed(ending_condition, 'verify_case', case, condition=ending_condition)
+            validate_case_verification(final, case, ending_condition, fixture_references[case['id']], output_references[case['id']])
+            current['verifications'].append(dict(case_id=case['id'], condition=ending_condition, phase=phase, result=final, resources=final_resources))
+            checkpoint(); need(final_resources['passed'], 'resource_gate')
+    try:
+        report['stage'] = 'input_gates'; checkpoint()
+        base, observer = load_helpers(helpers_root)
+        root, report['artifacts'] = prepare_assets(manifest, private)
+        need(importlib.metadata.version('playwright') == '1.63.0' and importlib.metadata.version('psutil') == '7.2.2', 'dependency_gate')
+        import psutil
+        from playwright.sync_api import sync_playwright
+        need(os.name == 'posix' and Path('/proc/self/stat').is_file(), 'resource_gate')
+        report['host'] = base.host_info()
+        report['stage'] = 'browser_gates'
+        report['flag_acceptance'] = strict_flag_acceptance_probe(base, helpers_root)
+        base.validate_flag_acceptance(report['flag_acceptance'])
+        identities.add(report['flag_acceptance']['browser_instance_sha256']); checkpoint()
+        with serve_assets(root) as url, sync_playwright() as pw:
+            report['stage'] = 'correctness'
+            # Separate generations: no observer-enabled module reaches timing roots.
+            for cohort in COHORTS:
+                current = dict(cohort=cohort, browser=None, initialization=None, checks=[], cleanup={})
+                report['correctness'].append(current)
+                browser = OperatorBrowser(pw, url, base, psutil)
+                alive['diagnostic'] = browser; register(browser)
+                current['browser'] = copy.deepcopy(browser.info)
+                current['initialization'] = init(browser, cohort, 'diagnostic', None)
+                try:
+                    for case in [case for case in cases() if case['cohort'] == cohort]:
+                        for pattern in (0,):
+                            for clamp in (0,):
+                                value, resources = untimed('diagnostic', 'correctness', case, case=case, pattern=pattern, clamp=clamp)
+                                validate_correctness(value, case, pattern, clamp)
+                                hashes = value['diagnostic'][0]['fixture_sha256']
+                                if case['id'] not in fixture_references:
+                                    fixture_references[case['id']] = hashes
+                                need(hashes == fixture_references[case['id']], 'output_gate')
+                                output_references[case['id']] = value['reference_output_sha256']
+                                current['checks'].append(dict(case_id=case['id'], pattern=pattern, clamp=clamp, result=value, resources=resources))
+                                checkpoint(); need(resources['passed'], 'resource_gate')
+                finally:
+                    need(cleanup_all(), 'cleanup_gate'); checkpoint()
+            report['stage'] = 'timing'
+            case_map = {case['id']: case for case in cases()}
+            for set_index in range(4):
+                current = dict(index=set_index, browsers={}, initializations=[], setups=[], warmups=[], calls=[], verifications=[], cleanup={}, stable=False)
+                report['process_sets'].append(current)
+                try:
+                    for condition in CONDITIONS:
+                        need(base.host_snapshot(psutil)['available_bytes'] >= 1024**3, 'resource_gate')
+                        browser = OperatorBrowser(pw, url, base, psutil)
+                        alive[condition] = browser; register(browser)
+                        current['browsers'][condition] = copy.deepcopy(browser.info)
+                    previous_case = None
+                    for slot in [row for row in schedule() if row['process_set'] == set_index]:
+                        case = case_map[slot['case_id']]
+                        if case['id'] != previous_case:
+                            for condition in CONDITIONS:
+                                browser = alive[condition]
+                                current['initializations'].append(dict(case_id=case['id'], **init(browser, case['cohort'], 'timed', condition)))
+                                value, resources = untimed(condition, 'configure', case, condition=condition, case=case, pattern=0, clamp=0)
+                                exact(value, ('configured', 'metadata', 'fixture_sha256'), 'worker_gate')
+                                validate_fixture_hashes(value['fixture_sha256'])
+                                need(value['fixture_sha256'] == fixture_references[case['id']], 'output_gate')
+                                need(value['configured'] is True, 'worker_gate')
+                                validate_meta(value['metadata'], case, condition, 'timed')
+                                current['setups'].append(dict(case_id=case['id'], condition=condition, metadata=value['metadata'], fixture_sha256=value['fixture_sha256'], resources=resources))
+                                checkpoint(); need(resources['passed'], 'resource_gate')
+                            for warmup in range(WARMUPS):
+                                for condition in WILLIAMS[set_index]:
+                                    value, resources = untimed(condition, 'warmup', case, condition=condition)
+                                    need(value == {'completed': True, 'kind': 'warmup'}, 'worker_gate')
+                                    current['warmups'].append(dict(case_id=case['id'], condition=condition, warmup=warmup, resources=resources))
+                                    checkpoint(); need(resources['passed'], 'resource_gate')
+                            verify_case(case, 'before_primary')
+                            previous_case = case['id']
+                        condition = slot['condition']
+                        call_record = dict(**slot, completed=False, response_valid=False, elapsed_ms=None,
+                                           heap_before_bytes=None, heap_after_bytes=None, native_result=None, guard_errors=None, post_run_error=None, resources=None,
+                                           attempted=False, acknowledged=False, observation_stage='not_started',
+                                           call_error=None, snapshot_error=None)
+                        current['calls'].append(call_record); checkpoint()
+                        def accept_timed_response(value):
+                            exact(value, ('completed', 'kind', 'elapsed_ms', 'heap_before_bytes', 'heap_after_bytes', 'native_result', 'guard_errors', 'post_run_error'), 'worker_gate')
+                            need(value['completed'] is True and value['kind'] == 'timed', 'worker_gate')
+                            call_record['completed'] = True
+                            report['completed_timed_calls'] += 1
+                            elapsed = value['elapsed_ms']
+                            need(type(elapsed) in (int, float) and math.isfinite(elapsed) and -600000 <= elapsed <= 600000, 'worker_gate')
+                            need(integer(value['heap_before_bytes'], 1) and (value['heap_after_bytes'] is None or integer(value['heap_after_bytes'], 1)), 'worker_gate')
+                            need(integer(value['native_result']) and (value['guard_errors'] is None or integer(value['guard_errors'])) and type(value['post_run_error']) is bool, 'worker_gate')
+                            call_record.update(elapsed_ms=elapsed, heap_before_bytes=value['heap_before_bytes'],
+                                               heap_after_bytes=value['heap_after_bytes'], native_result=value['native_result'],
+                                               guard_errors=value['guard_errors'], post_run_error=value['post_run_error'], response_valid=True)
+                        value, resources = observed_call(alive, condition, 'run', observer, psutil, timed=True,
+                                                         observation=call_record, on_stage=checkpoint,
+                                                         on_response=accept_timed_response, condition=condition)
+                        elapsed = value['elapsed_ms']
+                        validate_primary_quality(value, alive[condition].calibration)
+                        need(resources['passed'], 'resource_gate')
+                        if slot['round'] == 2 and slot['position'] == 3:
+                            verify_case(case, 'after_primary')
+                            for resident in alive.values():
+                                need(resident.call('destroy_all') == {'destroyed': True}, 'worker_gate')
+                                resident.worker_kind = resident.worker_cohort = resident.worker_condition = None
+                    for condition in CONDITIONS:
+                        need(alive[condition].call('destroy_all') == {'destroyed': True}, 'worker_gate')
+                finally:
+                    need(cleanup_all(), 'cleanup_gate'); checkpoint()
+                current['stable'] = True; checkpoint()
+            need(report['completed_timed_calls'] == 288 and all(item['stable'] for item in report['process_sets']))
+            report.update(status='complete', measurement_valid=True, stage='complete', summary=summarize(report))
+    except (KeyboardInterrupt, SystemExit):
+        report['error_code'] = 'interrupted'
+    except importlib.metadata.PackageNotFoundError:
+        report['error_code'] = 'dependency_gate'
+    except Exception as error:
+        report['error_code'] = error.code if getattr(error, 'code', None) in ERRORS else 'internal_error'
+    finally:
+        if alive and not cleanup_all():
+            report['error_code'] = 'cleanup_gate'
+        if report['error_code'] is not None:
+            report.update(status='incomplete', measurement_valid=False, summary=None)
+        checkpoint()
+    try:
+        if base is not None:
+            validate_report(report, helpers_root)
+    except Exception:
+        report.update(status='incomplete', measurement_valid=False, summary=None, error_code='report_gate')
+        checkpoint()
+    return report
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--manifest', type=Path)
+    parser.add_argument('--helpers-root', type=Path, default=DEFAULT_HELPERS)
+    parser.add_argument('--private', type=Path)
+    parser.add_argument('--url', default='about:blank', help=argparse.SUPPRESS)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--plan', action='store_true')
+    action.add_argument('--verify-inputs', action='store_true')
+    action.add_argument('--execute', action='store_true')
+    action.add_argument('--validate-report', type=Path)
+    action.add_argument('--owned-browser-child', action='store_true', help=argparse.SUPPRESS)
+    action.add_argument('--strict-flag-acceptance-probe', action='store_true', help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if args.owned_browser_child:
+        return owned_browser_child(args.helpers_root, args.url)
+    if args.strict_flag_acceptance_probe:
+        return strict_flag_acceptance_child(args.helpers_root)
+    if args.plan:
+        print(json.dumps(configuration(), indent=2, sort_keys=True)); return 0
+    if args.validate_report is not None:
+        validate_report(json.loads(args.validate_report.read_text()), args.helpers_root)
+        print(json.dumps(dict(verified=True, public_scalar_report=True, browser_launched=False)))
+        return 0
+    if args.manifest is None:
+        parser.error('--manifest is required')
+    if args.verify_inputs:
+        load_helpers(args.helpers_root)
+        _, artifacts = read_manifest(args.manifest)
+        print(json.dumps(dict(verified=True, browser_launched=False, operator_calls=0, artifacts=artifacts, helper_sources=PINS), sort_keys=True)); return 0
+    if args.private is None:
+        parser.error('--private is required for explicit --execute')
+    result = run(args.manifest, args.private, args.helpers_root)
+    print(json.dumps(dict(status=result['status'], measurement_valid=result['measurement_valid'], error_code=result['error_code'], completed_timed_calls=result['completed_timed_calls']), sort_keys=True))
+    return 0 if result['measurement_valid'] else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,36 @@
+{
+  "status": "PASS_SOURCE_PROOF_ONLY",
+  "operator_execution": false,
+  "unmasked_endpoint_witnesses": 6144,
+  "padded_special_witnesses": 1536,
+  "endpoint_finite_prefix": {
+    "input_word": 1031798784,
+    "weight_word": 1031798784,
+    "bias_word": 0,
+    "input_and_weight_exact": "1/16",
+    "product_exact": "1/256",
+    "prefix_accumulator_exact": "j/256 for 0<=j<=1407",
+    "maximum_prefix_numerator": 1407,
+    "overflow_or_invalid_before_endpoint": false,
+    "argument": "All designated rows are interior; disjoint eleven-row footprints exclude every other injection. Only the designated input and channel weight at the endpoint are NaN. Prior products and accumulator values are exactly representable dyadics bounded by 1407/256, so no earlier overflow/invalid/NaN can mask the endpoint."
+  },
+  "padding_finite_prefix": "One special weight per channel only. All prior products are 0 or1/256 and all prefix accumulators are exact j/256,0<=j<=1407. Left KS0 and right KS10 occupy separate channels. Every designated target pointer is the original zero sentinel; zero times the sole infinity/NaN produces NaN at the selected K.",
+  "finite_rounding_witness": "At each focus row and all128 channels, bias0 and first KS0 K0..2 products are exactly2^24,1,-2^24. Round-to-nearest-even loses the+1 before cancellation, yielding0; reordered (2^24 + -2^24)+1 yields1. All other ID1 operands are finite with abs(input)<=2^24,abs(weight)<=1; even the conservative1408*2^24 bound is finite.",
+  "signed_zero_proof": "At every designated interior row,input sign is k%2 (row*128 is even); weight sign is1-((k+n)%2),so every product sign is1-(n%2). Bias has exactly that sign. Every update adds two same-sign zeros,thus designated even-channel results are exactly0x80000000 and odd-channel results0x00000000. All16 panels contain four of each sign:256 negative and256 positive witnesses perD,768 of each overD1/3/5. Actual full outputs are still compared to R raw words.",
+  "boundary_finite_proof": "Magnitude of every baseline operand is at most2^-126 for inputs/bias and2 for weights. Absolute sum bounded by(1+2816)*2^-126, far below overflow. Underflow and rounding are intentional.",
+  "infinity_invalid_proof": "Designated rows start with maxfinite*2=+inf then -maxfinite*2=-inf; +inf+-inf is invalid/NaN. Later injections also exercise infinity times signed zero. All128 channel lanes and four MR slots are covered.",
+  "bias_competition_proof": "Bias is a tagged NaN in every channel. At first operation KS0,K0, ID10 has tagged input NaN and finite weight, ID11 finite input and tagged weight NaN. No prior update can mask the specified addition competition.",
+  "nan_payload_scope": "Signed quiet/signaling inputs span four MR slots; weights/bias span all16 panels and eight lanes. Exact output payload behavior is an empirical Chrome gate, not implied by these source proofs.",
+  "task_store_proof": {
+    "baseline_callbacks": 15392,
+    "candidate_callbacks": 1924,
+    "subtiles_per_candidate": 8,
+    "panels_per_subtile": 16,
+    "stores_per_panel": 8,
+    "words_per_store": 4,
+    "output_words": 7880704,
+    "argument": "Each candidate callback owns32 adjacent rows, each subtile four, each panel eight channels; eight four-word stores cover32 disjoint words.1924*8*16*8*4=7880704. Original R/A/B path uses the pinned complete MR4 kernel."
+  },
+  "subprocess_invocations": 0,
+  "network_invocations": 0
+}

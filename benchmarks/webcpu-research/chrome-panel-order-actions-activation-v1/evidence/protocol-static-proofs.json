@@ -1,0 +1,41 @@
+{
+  "dilation_position_counts": {
+    "1": [
+      4,
+      2,
+      4
+    ],
+    "3": [
+      3,
+      4,
+      3
+    ],
+    "5": [
+      3,
+      4,
+      3
+    ]
+  },
+  "each_arm_position_count": 2,
+  "each_directed_predecessor_count": 2,
+  "engine_overhead_excluded": true,
+  "evidence": "pure_python_source_arithmetic_only",
+  "explicit_large_buffer_bytes": 739008080,
+  "fully_balanced_dilation_order": false,
+  "operator_invocations": 0,
+  "qualification": {
+    "calls": 330,
+    "comparison_words": 2340569088,
+    "comparisons": 297,
+    "references": 33
+  },
+  "readonly_workspace_bytes": 35675216,
+  "schedule_canonical_sha256": "bcdfe18d11907bc35c35083f9d01a44a1a2e0647f5a3a66ced21e7e5fc416073",
+  "schema": "chrome-panel-static-proofs-v1",
+  "timing": {
+    "calls": 600,
+    "comparison_words": 4492001280,
+    "comparisons": 570,
+    "references": 30
+  }
+}

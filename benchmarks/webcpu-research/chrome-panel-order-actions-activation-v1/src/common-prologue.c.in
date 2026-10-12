@@ -1,0 +1,10 @@
+  // Internal callback preconditions; production selection establishes geometry.
+  // Normal scheduler arguments establish the tile. No runtime tensor value scan.
+  assert(m_size == 32 && n_size == 128 && n_start == 0);
+  assert(m_start % 32 == 0 && m_start <= 61568 - 32);
+  assert(context->ks == 11 && context->kc == 512);
+  assert(context->ks_scaled == 176 && context->cm_stride == 512);
+  assert(context->cn_stride == 32 && context->w_stride == 5636);
+  const size_t kc = context->kc;
+  const size_t a_offset = context->a_offset;
+  const float* zero = (const float*) context->zero;

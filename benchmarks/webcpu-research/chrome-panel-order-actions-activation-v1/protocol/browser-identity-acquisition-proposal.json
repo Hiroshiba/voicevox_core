@@ -1,0 +1,44 @@
+{
+  "schema": "chrome-panel-browser-identity-acquisition-proposal-v1",
+  "status": "PROPOSAL_ONLY_NO_BINARY_FETCH_OR_EXECUTION_AUTHORIZED",
+  "purpose": "Obtain immutable official distribution and executable identity before future Actions admission; no browser or benchmark execution",
+  "official_source_url": "https://cdn.playwright.dev/builds/cft/153.0.8010.12/linux64/chrome-headless-shell-linux64.zip",
+  "url_basis": "Pinned installed Playwright1.63.0 coreBundle cftUrl helper and chromium-headless-shell linux64 entry; browsers.json binds revision1243 to153.0.8010.12",
+  "primary_source_links": [
+    "https://github.com/microsoft/playwright/blob/v1.63.0/packages/playwright-core/browsers.json",
+    "https://github.com/GoogleChromeLabs/chrome-for-testing#json-api-endpoints"
+  ],
+  "local_metadata_sha256": "545d52f8382c391e605562c330e9c1c534a16045898203037a49bb8bd769a946",
+  "local_core_bundle_sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+  "local_playwright_driver_node": {
+    "bytes": 126595440,
+    "sha256": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c",
+    "scope": "Existing local helper bytes only, hashed without execution; not proof that a previous Actions helper was byte-identical"
+  },
+  "historical_receipts_without_distribution_or_executable_hash": [
+    {"run": "38042000815", "receipt_sha256": "8c1d6a300ae686a56c869fd9f84c0f0b5ffeedf48adafc2391b3c49a1d50c6e3"},
+    {"run": "38154221135", "receipt_sha256": "5700b4c67a653e93fb3145efa3500846fdf96cb75bc903d083fe85d841d08baa"},
+    {"run": "38132085478", "receipt_sha256": "4afefa6455aa015270b27e438c639106aa31a8bfe7d66686e1d92d2040655f05"}
+  ],
+  "historical_instance_hash_caveat": "browser_instance_sha256 binds process-generation identity, not browser executable bytes",
+  "known_archive_size_bytes": null,
+  "prospective_limits": {
+    "whole_wall_seconds": 180,
+    "socket_timeout_seconds": 15,
+    "maximum_compressed_bytes": 268435456,
+    "maximum_total_uncompressed_bytes": 1073741824,
+    "maximum_single_member_bytes": 536870912,
+    "maximum_zip_entries": 10000,
+    "maximum_scalar_receipt_bytes": 65536,
+    "read_chunk_bytes": 1048576,
+    "attempts": 1
+  },
+  "prospective_behavior": [
+    "HEAD then at most one bounded GET of the exact official URL; missing/oversized Content-Length or unapproved redirect stops",
+    "Stream archive into a new private nonexecutable file and compute SHA256; no install command, subprocess, browser, Node, native import or model",
+    "Inspect ZIP central-directory bounds and safe member names; stream-hash executable and immutable distribution members without extracting or executing them",
+    "Retain only private archive plus public-eligible bounded scalar identities; never include the binary in source/public artifacts",
+    "A failure stops for review without retry or substituting another browser version"
+  ],
+  "scientific_identity_scope": "Official distribution contents and loaded runtime helper bytes; same allocated job OS/CPU/ISA observed and carried. Do not demand byte-identical system dependency or whole OS trees across jobs."
+}

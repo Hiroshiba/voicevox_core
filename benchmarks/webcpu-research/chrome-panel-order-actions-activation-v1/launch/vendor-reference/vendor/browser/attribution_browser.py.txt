@@ -1,0 +1,467 @@
+"""Bounded normal-tier Chrome153 OFF production-node attribution.
+
+Importing never launches a browser. The pinned affine helper supplies process,
+flag, dispatch, output, host/resource and cleanup gates unchanged. Each of nine
+fresh browser sessions makes exactly eight inferences, including a real output-pair preconditioning pass. Profiling is attribution,
+not end-to-end latency, and cannot promote an optimization.
+"""
+from __future__ import annotations
+import copy
+import hashlib
+import importlib.metadata
+import importlib.util
+import json
+import math
+import os
+from pathlib import Path
+import re
+import shutil
+import statistics
+import tempfile
+
+DEFAULT_HELPERS=Path(__file__).resolve().parent
+BASE_SHA='7f91d99486a8527268f879f9550ae0a6b154f7a1bfebb77f0948ed0a8f6006bc'
+KEYS=('original','rebuilt','candidate')
+HEX=re.compile(r'[a-f0-9]{64}')
+PROVIDERS=('CPUExecutionProvider','XnnpackExecutionProvider')
+OPS=('Abs','Add','ArgMax','AveragePool','Cast','Ceil','Clip','Concat','Constant','ConstantOfShape','Conv','ConvTranspose','Cos','CumSum','Div','Elu','Equal','Erf','Exp','Expand','Flatten','Floor','Gather','GatherElements','GatherND','Gemm','GlobalAveragePool','Greater','GreaterOrEqual','Identity','InstanceNormalization','LayerNormalization','LeakyRelu','Less','LessOrEqual','Log','LogSoftmax','MatMul','Max','MaxPool','Min','Mul','Neg','NonZero','Not','Pad','Pow','Range','Reciprocal','ReduceMax','ReduceMean','ReduceMin','ReduceProd','ReduceSum','Relu','Reshape','Resize','Round','ScatterND','Shape','Sigmoid','Sign','Sin','Slice','Softmax','Softplus','Split','Sqrt','Squeeze','Sub','Tanh','Tile','Transpose','Unsqueeze','Where')
+STAGES=('initializing','input_gates','browser_gates','sessions','complete')
+
+
+def load_base(payload=DEFAULT_HELPERS):
+    """Import only the byte-pinned helper. Layout fallback is offline checkout only."""
+    root=Path(payload);path=root/'affine_browser.py'
+    if not path.is_file() and root==DEFAULT_HELPERS:path=root.parent/'baseline'/'affine_browser.py'
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=BASE_SHA:
+        raise ValueError('input_gate')
+    spec=importlib.util.spec_from_file_location('_off_attribution_pinned_affine_browser',path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+base=load_base()
+GateFailure=base.GateFailure
+need=base.need
+exact=base.exact_keys
+number=base.number
+same=base.same
+
+def digest(value):
+    need(type(value) is str and HEX.fullmatch(value),'report_gate')
+    return True
+
+def schedule():
+    return [dict(index=cycle*3+position+1,cycle=cycle+1,position=position+1,condition=key)
+            for cycle in range(3) for position,key in enumerate(KEYS[cycle:]+KEYS[:cycle])]
+
+def configuration():
+    return dict(conditions=list(KEYS),cyclic_orders=[list(KEYS[i:]+KEYS[:i]) for i in range(3)],
+                fresh_sessions=9,inferences_per_session=8,total_inferences=72,preconditioning_occurrences=[0,1],warmup_occurrences=[2,3],
+                retained_occurrences=[4,5,6],raw_output_occurrence=7,total_retained_inferences=27,checked_output_buffers_per_session=4,
+                checked_output_buffer_occurrences=[0,1,6,7],completed_inferences_semantics='worker_acknowledged_calls_failed_attempts_may_have_executed',
+                normal_tiering=True,revectorization='OFF',browser_flags=list(base.FLAGS),playwright_version='1.63.0',
+                chromium_major=153,hardware_concurrency_override=False,instrumentation='ORT_production_node_events',
+                devtools_cpu_profiler=False,counter_instrumentation=False,output_checks='exact_real_preconditioning_WAV_raw_pair_and_exact_final_WAV_raw_pair_per_session',
+                output_reference_initialization='first_valid_prewarm_pair_seeds_phase_local_reference_after_finite_FP32_WAV_format_and_PCM_length_checks_not_repeatability_or_external_ground_truth',
+                output_repeatability_confirmation='subsequent_pairs_exact_WAV_raw_bytes_and_extracted_PCM_against_seeded_reference',
+                resource_observation='process_and_host_per_call_and_terminal_housekeeping_boundaries',minimum_available_memory_bytes=base.MIN_AVAILABLE,
+                resource_roles=['preconditioning_synthesis','preconditioning_raw','warmup','warmup','retained_synthesis','retained_synthesis','retained_synthesis','raw_output_check'],
+                preconditioning_major_fault_policy='disclosed_nonperformance_only',housekeeping_major_fault_policy='disclosed_nonperformance_only',
+                terminal_housekeeping='profile_flush_reduction_and_safe_aggregate_transfer',housekeeping_additional_inferences=0,preconditioning_speed_attribution=False,housekeeping_speed_attribution=False,
+                warmup_major_fault_policy='disclosed_excluded_from_retained_profile_quality',warmup_speed_attribution=False,
+                retained_major_faults_allowed=0,required_zero_major_fault_roles=['retained_synthesis'],
+                raw_output_major_fault_policy='disclosed_output_validation_only',other_resource_guards='unchanged_strict',
+                process_major_fault_disclosure='hashed_common_process_identity_root_or_descendant_no_cause_attribution',
+                resource_snapshot_limits='non_atomic_boundaries_not_continuous_intercall_gaps_and_short_lived_processes_may_be_unobserved',
+                resource_boundaries_include_controller_bookkeeping=True,inter_call_observation_may_affect_warmness=True,
+                resource_snapshot_instrumentation='outside_native_inference_and_ORT_node_event_intervals',promotion_permitted=False)
+
+def blank_report():
+    return dict(schema='off-production-attribution-v4',status='incomplete',measurement_valid=False,stage='initializing',error_code=None,
+                configuration=configuration(),fixture=dict(model_sha256=base.MODEL_SHA,query_sha256=base.QUERY_SHA,frames=962,style=302,xnn_threads=2,ort_threads=1),
+                artifacts={},host={},environment={},flag_acceptance=None,output_reference=None,sessions=[],summary=None,
+                privacy=dict(raw_outputs_persisted=False,profile_events_persisted=False,browser_logs_persisted=False,paths_in_public_report=False,node_names_hashed=True))
+
+def _snapshot_identity(snapshot,browser):
+    """Private PID/birthtime never enters the public result."""
+    identity=browser.identity
+    need(type(identity) is tuple and len(identity)==2 and type(browser.pid) is int and 0<browser.pid<2**31,'resource_gate')
+    need(type(identity[0]) is int and identity[0]==browser.pid and number(identity[1],positive=True),'resource_gate')
+    need(type(snapshot) is dict and type(snapshot.get('processes')) is dict,'resource_gate')
+    roots=[key for key in snapshot['processes'] if type(key) is tuple and len(key)==2 and key[0]==browser.pid]
+    need(len(roots)==1 and same(roots[0],identity),'resource_gate')
+    instance=hashlib.sha256(json.dumps(identity,separators=(',',':')).encode()).hexdigest()
+    need(instance==browser.info['browser_instance_sha256'],'resource_gate')
+    return instance
+
+def resource_snapshot(browser,psutil,base_module=None):
+    helper=base_module or base
+    result=helper.process_snapshot(psutil,browser.pid)
+    _snapshot_identity(result,browser)
+    return result
+
+def resource_delta(before,after,browser,base_module=None):
+    helper=base_module or base
+    instance=_snapshot_identity(before,browser)
+    need(instance==_snapshot_identity(after,browser),'resource_gate')
+    result=helper.resource_delta(before,after)
+    # Reuse the existing snapshots and aggregate, without another observation or
+    # any work inside native inference/node-event timing intervals. Hashes locate
+    # observed accounting to a process, not a node, kernel, paging cause or gap.
+    common=set(before['processes'])&set(after['processes']);rows=[]
+    for identity in common:
+        need(type(identity) is tuple and len(identity)==2 and type(identity[0]) is int and 0<identity[0]<2**31 and number(identity[1],positive=True),'resource_gate')
+        a,b=before['processes'][identity]['major_faults'],after['processes'][identity]['major_faults']
+        need(type(a) is int and type(b) is int and 0<=a<=10**18 and 0<=b<=10**18,'resource_gate')
+        rows.append(dict(process_instance_sha256=hashlib.sha256(json.dumps(identity,separators=(',',':')).encode()).hexdigest(),
+                         role='root' if same(identity,browser.identity) else 'descendant',major_faults=max(0,b-a)))
+    result.update(browser_instance_sha256=instance,root_identity_verified=True,snapshot_errors=0,
+                  process_major_faults=sorted(rows,key=lambda row:row['process_instance_sha256']))
+    return result
+
+def validate_resources(x,require_passed=False):
+    exact(x,('before','after','process_count_before','process_count_after','unmatched_processes','counter_regressions','rss_bytes_before','rss_bytes_after','major_faults','minor_faults','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta','cpu_seconds_delta','passed','browser_instance_sha256','root_identity_verified','snapshot_errors','process_major_faults'))
+    digest(x['browser_instance_sha256']);need(x['root_identity_verified'] is True and same(x['snapshot_errors'],0),'resource_gate')
+    for phase in ('before','after'):
+        exact(x[phase],('available_bytes','total_bytes','swap_used_bytes','swap_in_bytes','swap_out_bytes'))
+        need(all(type(v) is int and 0<=v<=10**18 for v in x[phase].values()))
+        need(x[phase]['available_bytes']<=x[phase]['total_bytes'] and x[phase]['total_bytes']>0)
+    for key,value in x.items():
+        if key in ('before','after','passed','browser_instance_sha256','root_identity_verified','snapshot_errors','process_major_faults'):continue
+        need(number(value) and value<=10**18 and (key=='cpu_seconds_delta' or type(value) is int))
+    need(0<x['process_count_before']<=65536 and 0<x['process_count_after']<=65536 and type(x['passed']) is bool)
+    rows=x['process_major_faults'];common_twice=x['process_count_before']+x['process_count_after']-x['unmatched_processes']
+    need(type(rows) is list and 1<=len(rows)<=min(x['process_count_before'],x['process_count_after'],65536) and len(rows)*2==common_twice,'resource_gate')
+    identities=[];roots=[]
+    for row in rows:
+        exact(row,('process_instance_sha256','role','major_faults'),'resource_gate')
+        digest(row['process_instance_sha256']);identities.append(row['process_instance_sha256'])
+        need(row['role'] in ('root','descendant') and type(row['major_faults']) is int and 0<=row['major_faults']<=10**18,'resource_gate')
+        if row['role']=='root':roots.append(row['process_instance_sha256'])
+    need(identities==sorted(set(identities)) and roots==[x['browser_instance_sha256']],'resource_gate')
+    need(sum(row['major_faults'] for row in rows)==x['major_faults'],'resource_gate')
+    passed=all(x[k]==0 for k in ('unmatched_processes','counter_regressions','major_faults','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta')) and min(x['before']['available_bytes'],x['after']['available_bytes'])>=base.MIN_AVAILABLE
+    need(x['passed']==passed)
+    for direction in ('in','out'):
+        need(x[f'host_swap_{direction}_delta']==max(0,x['after'][f'swap_{direction}_bytes']-x['before'][f'swap_{direction}_bytes']))
+    if require_passed:need(passed,'resource_gate')
+    return True
+
+def call_role(occurrence):
+    need(type(occurrence) is int and 0<=occurrence<8)
+    return ('preconditioning_synthesis','preconditioning_raw','warmup','warmup','retained_synthesis','retained_synthesis','retained_synthesis','raw_output_check')[occurrence]
+
+def nonperformance_resource_passed(resources):
+    """Disclose major faults; never relax identity, swap, errors or memory gates."""
+    validate_resources(resources)
+    return all(resources[key]==0 for key in ('unmatched_processes','counter_regressions','target_swap_growth_bytes','host_swap_in_delta','host_swap_out_delta')) and min(resources['before']['available_bytes'],resources['after']['available_bytes'])>=base.MIN_AVAILABLE
+
+def call_resource_passed(resources,role):
+    validate_resources(resources)
+    need(role in ('preconditioning_synthesis','preconditioning_raw','warmup','retained_synthesis','raw_output_check'))
+    return resources['passed'] if role=='retained_synthesis' else nonperformance_resource_passed(resources)
+
+def summarize_resources(sessions):
+    result={}
+    for role in ('preconditioning_synthesis','preconditioning_raw','warmup','retained_synthesis','raw_output_check','terminal_housekeeping'):
+        values=([session['housekeeping']['resources'] for session in sessions] if role=='terminal_housekeeping' else
+                [call['resources'] for session in sessions for call in session['call_resources'] if call['role']==role])
+        need(all(value is not None for value in values))
+        result[role]=dict(calls=len(values),major_faults=sum(value['major_faults'] for value in values),
+                          strict_resource_gate_failures=sum(not value['passed'] for value in values),
+                          required_resource_gates_passed=all(nonperformance_resource_passed(value) if role=='terminal_housekeeping' else call_resource_passed(value,role) for value in values),
+                          speed_attribution=False)
+    return result
+
+def _engine(x):
+    exact(x,('product','js_version'))
+    need(type(x['product']) is str and re.fullmatch(r'(?:Chrome|HeadlessChrome)/153\.[0-9.]{1,40}',x['product']))
+    need(type(x['js_version']) is str and re.fullmatch(r'[0-9.]{1,40}',x['js_version']))
+
+def _shapes(x):
+    need(type(x) is list and 1<=len(x)<=32)
+    for row in x:need(type(row) is list and len(row)<=8 and all(type(v) is int and 0<=v<=2147483647 for v in row))
+
+def _durations(x,n=3):
+    need(type(x) is list and len(x)==n and all(number(v) and v<=2**53-1 for v in x))
+
+def _identity_hash(nodes):
+    data=json.dumps([x['identity_sha256'] for x in nodes],separators=(',',':'))
+    return hashlib.sha256(('voicevox.off.assignment-identity.v1\0'+data).encode()).hexdigest()
+
+def validate_profile(x):
+    exact(x,('schema','inference_blocks','nodes_per_block','retained_occurrences','preconditioning_occurrences','warmup_occurrences','output_raw_occurrence','unique_xnn_conv','unique_xnn_conv_transpose','assignment_sha256','identity_sha256','nodes','groups','summed_node_us','duration_unit','duration_scope','promotion_permitted','raw_profile_erased'))
+    constants=dict(schema='off-production-node-profile-v2',inference_blocks=8,nodes_per_block=200,retained_occurrences=[4,5,6],preconditioning_occurrences=[0,1],warmup_occurrences=[2,3],output_raw_occurrence=7,unique_xnn_conv=74,unique_xnn_conv_transpose=4,duration_unit='microseconds',duration_scope='summed_ORT_node_events_not_end_to_end_walltime',promotion_permitted=False,raw_profile_erased=True)
+    for key,value in constants.items():need(same(x[key],value),'profile_gate')
+    digest(x['assignment_sha256']);digest(x['identity_sha256'])
+    need(type(x['nodes']) is list and len(x['nodes'])==200)
+    identities=set();names=set()
+    for i,row in enumerate(x['nodes']):
+        exact(row,('index','node_sha256','identity_sha256','provider','op','input_shapes','output_shapes','durations_us','sum_us','mean_us'))
+        need(same(row['index'],i) and row['provider'] in PROVIDERS and row['op'] in OPS)
+        for key,seen in (('node_sha256',names),('identity_sha256',identities)):
+            digest(row[key]);need(row[key] not in seen);seen.add(row[key])
+        _shapes(row['input_shapes']);_shapes(row['output_shapes']);_durations(row['durations_us'])
+        need(number(row['sum_us']) and row['sum_us']<=2**53-1 and number(row['mean_us']) and row['sum_us']==sum(row['durations_us']) and row['mean_us']==row['sum_us']/3)
+    need(sum(v['provider']=='XnnpackExecutionProvider' and v['op']=='Conv' for v in x['nodes'])==74,'profile_gate')
+    need(sum(v['provider']=='XnnpackExecutionProvider' and v['op']=='ConvTranspose' for v in x['nodes'])==4,'profile_gate')
+    need(x['identity_sha256']==_identity_hash(x['nodes']),'profile_gate')
+    _durations(x['summed_node_us']);need(x['summed_node_us']==[sum(v['durations_us'][j] for v in x['nodes']) for j in range(3)])
+    expected=[]
+    for provider in PROVIDERS:
+        for op in OPS:
+            selected=[n for n in x['nodes'] if n['provider']==provider and n['op']==op]
+            if selected:expected.append(dict(provider=provider,op=op,node_count=len(selected),durations_us=[sum(n['durations_us'][j] for n in selected) for j in range(3)]))
+    need(same(x['groups'],expected))
+    return True
+
+def summarize(report):
+    need(len(report['sessions'])==9)
+    conditions={}
+    for key in KEYS:
+        sessions=[x for x in report['sessions'] if x['condition']==key]
+        totals=[v for x in sessions for v in x['profile']['summed_node_us']]
+        nodes=[]
+        for i in range(200):
+            source=sessions[0]['profile']['nodes'][i]
+            values=[v for s in sessions for v in s['profile']['nodes'][i]['durations_us']]
+            nodes.append(dict(index=i,identity_sha256=source['identity_sha256'],provider=source['provider'],op=source['op'],
+                              durations_us=values,median_us=statistics.median(values),mean_us=sum(values)/9))
+        conditions[key]=dict(sessions=3,retained_inferences=9,retained_synthesis_calls=9,profiled_node_duration_sum_us=sum(totals),summed_node_us=totals,median_summed_node_us=statistics.median(totals),nodes=nodes)
+    return dict(conditions=conditions,scope='descriptive_fixed_fixture_profile_attribution_only',independent_sessions_per_condition=3,
+                duration_scope='summed_ORT_node_events_not_end_to_end_walltime',resource_observations=summarize_resources(report['sessions']),promotion_permitted=False)
+
+def validate_report(r):
+    exact(r,blank_report())
+    for key in ('schema','configuration','fixture','privacy'):need(same(r[key],blank_report()[key]))
+    need(r['status'] in ('incomplete','complete') and type(r['measurement_valid']) is bool and r['stage'] in STAGES)
+    need(r['error_code'] is None or type(r['error_code']) is str and r['error_code'] in base.ERRORS)
+    complete=r['status']=='complete'
+    need(r['measurement_valid']==complete and (not complete or r['stage']=='complete' and r['error_code'] is None))
+    if not complete:need(r['summary'] is None)
+    need(type(r['artifacts']) is dict and set(r['artifacts']) in (set(),set(KEYS)))
+    for artifact in r['artifacts'].values():
+        exact(artifact,('js_sha256','wasm_sha256'));digest(artifact['js_sha256']);digest(artifact['wasm_sha256'])
+    if r['artifacts']:need(r['artifacts']['candidate']['wasm_sha256'] not in {r['artifacts'][k]['wasm_sha256'] for k in ('original','rebuilt')})
+    need(type(r['host']) is dict and type(r['environment']) is dict)
+    if r['host']:base.validate_host_info(r['host'])
+    else:need(not complete)
+    if r['environment']:
+        exact(r['environment'],('playwright_version','engine','worker_hardware_concurrency'))
+        need(r['environment']['playwright_version']=='1.63.0');_engine(r['environment']['engine'])
+        need(type(r['environment']['worker_hardware_concurrency']) is int and 1<=r['environment']['worker_hardware_concurrency']<=65536)
+    else:need(not complete)
+    seen=set();assignment=None;identities=None
+    if r['flag_acceptance'] is not None:
+        base.validate_flag_acceptance(r['flag_acceptance']);seen.add(r['flag_acceptance']['browser_instance_sha256'])
+        if r['environment']:need(same(r['flag_acceptance']['engine'],r['environment']['engine']))
+    else:need(not complete)
+    if r['output_reference'] is not None:
+        exact(r['output_reference'],('wav_sha256','raw_sha256','pcm_sha256'))
+        for value in r['output_reference'].values():digest(value)
+    need(type(r['sessions']) is list and len(r['sessions'])<=9)
+    for index,session in enumerate(r['sessions']):
+        exact(session,('index','cycle','position','condition','initialization','completed_inferences','prewarm_outputs','outputs','profile','call_resources','housekeeping','cleanup'))
+        for key,value in schedule()[index].items():need(same(session[key],value))
+        need(type(session['completed_inferences']) is int and 0<=session['completed_inferences']<=8)
+        init=session['initialization'];exact(init,('ready','runtime','dispatch','wasm_sha256','js_sha256','instrumentation','engine','browser_instance_sha256'))
+        need(r['artifacts'] and r['environment'] and r['flag_acceptance'] is not None)
+        base.validate_initialization({k:v for k,v in init.items() if k not in ('engine','browser_instance_sha256')},r['artifacts'][session['condition']],'provider_profile')
+        _engine(init['engine']);need(same(init['engine'],r['environment']['engine']))
+        need(same(init['dispatch']['worker_hardware_concurrency'],r['environment']['worker_hardware_concurrency']))
+        digest(init['browser_instance_sha256']);need(init['browser_instance_sha256'] not in seen);seen.add(init['browser_instance_sha256'])
+        for output_key in ('prewarm_outputs','outputs'):
+            if session[output_key] is None:continue
+            out=session[output_key];exact(out,('wav_bytes','raw_bytes','wav_sha256','raw_sha256','pcm_sha256','finite','fp32_exact','wav_exact','pcm_exact','wav_format','fp32_samples'))
+            need((session['completed_inferences']>=2 if output_key=='prewarm_outputs' else session['completed_inferences']==8) and r['output_reference'] is not None)
+            for key,value in dict(wav_bytes=478252,raw_bytes=956416,fp32_samples=239104,wav_format=base.WAV_FORMAT,finite=True,fp32_exact=True,wav_exact=True,pcm_exact=True).items():need(same(out[key],value))
+            for key in ('wav_sha256','raw_sha256','pcm_sha256'):digest(out[key]);need(out[key]==r['output_reference'][key])
+        if session['profile'] is not None:
+            need(session['completed_inferences']==8 and session['prewarm_outputs'] is not None and session['outputs'] is not None)
+            prof=session['profile'];validate_profile(prof)
+            current=(prof['assignment_sha256'],prof['identity_sha256'])
+            safe_identities=[{k:v for k,v in x.items() if k not in ('durations_us','sum_us','mean_us')} for x in prof['nodes']]
+            if assignment is None:assignment=current;identities=safe_identities
+            need(current==assignment and same(safe_identities,identities),'profile_gate')
+        calls=session['call_resources'];need(type(calls) is list and len(calls)<=8)
+        if len(calls)>2:need(session['prewarm_outputs'] is not None)
+        need(session['completed_inferences']==sum(call.get('completed') is True for call in calls if type(call) is dict))
+        for occurrence,call in enumerate(calls):
+            exact(call,('occurrence','role','completed','resources'))
+            need(same(call['occurrence'],occurrence) and call['role']==call_role(occurrence) and type(call['completed']) is bool)
+            if call['resources'] is not None:
+                need(call['completed'])
+                validate_resources(call['resources'])
+                need(call['resources']['browser_instance_sha256']==init['browser_instance_sha256'],'resource_gate')
+            if complete or occurrence<len(calls)-1 or session['profile'] is not None:
+                need(call['completed'] and call['resources'] is not None and call_resource_passed(call['resources'],call['role']),'resource_gate')
+        housekeeping=session['housekeeping']
+        if housekeeping is not None:
+            exact(housekeeping,('phase','completed','resources'))
+            need(housekeeping['phase']=='profile_finalize' and type(housekeeping['completed']) is bool and len(calls)==8 and session['outputs'] is not None)
+            need(housekeeping['completed']==(session['profile'] is not None))
+            need(all(call['completed'] and call['resources'] is not None and call_resource_passed(call['resources'],call['role']) for call in calls),'resource_gate')
+            if housekeeping['resources'] is not None:
+                need(housekeeping['completed']);validate_resources(housekeeping['resources'])
+                need(housekeeping['resources']['browser_instance_sha256']==init['browser_instance_sha256'],'resource_gate')
+        if session['profile'] is not None:need(len(calls)==8 and housekeeping is not None and housekeeping['completed'])
+        if session['cleanup'] is not None:
+            exact(session['cleanup'],('confirmed','remaining_processes'))
+            need(type(session['cleanup']['confirmed']) is bool and type(session['cleanup']['remaining_processes']) is int and 0<=session['cleanup']['remaining_processes']<=65536)
+            need(not session['cleanup']['confirmed'] or session['cleanup']['remaining_processes']==0)
+        if complete or index<len(r['sessions'])-1:
+            need(session['completed_inferences']==8 and session['prewarm_outputs'] is not None and session['outputs'] is not None and session['profile'] is not None and len(calls)==8 and all(call['completed'] and call['resources'] is not None and call_resource_passed(call['resources'],call['role']) for call in calls) and housekeeping is not None and housekeeping['completed'] and housekeeping['resources'] is not None and nonperformance_resource_passed(housekeeping['resources']) and session['cleanup'] is not None and session['cleanup']['confirmed'] is True)
+    if complete:
+        need(len(r['sessions'])==9 and len(seen)==10 and set(r['artifacts'])==set(KEYS))
+        need(same(r['summary'],summarize(r)))
+    return True
+
+def write_checkpoint(report,private):
+    """Validate before serializing, then atomically replace a private 0600 file."""
+    validate_report(report)
+    directory=Path(private);directory.mkdir(parents=True,exist_ok=True,mode=0o700)
+    data=(json.dumps(report,sort_keys=True,separators=(',',':'),allow_nan=False)+'\n').encode()
+    fd,path=tempfile.mkstemp(prefix='.attribution-',suffix='.tmp',dir=directory)
+    try:
+        with os.fdopen(fd,'wb') as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
+        os.replace(path,directory/'attribution-checkpoint.json')
+    finally:
+        if os.path.exists(path):os.unlink(path)
+
+def prepare_assets(manifest,helpers_root,private):
+    if isinstance(manifest,(str,Path)):manifest=json.loads(Path(manifest).read_text())
+    need(type(manifest) is dict,'input_gate');entries=manifest.get('entries',manifest)
+    need(type(entries) is dict and all(key in entries for key in KEYS),'input_gate')
+    root=Path(private)/'attribution-assets';need(not root.exists(),'input_gate');root.mkdir(parents=True,mode=0o700)
+    model=manifest.get('model',entries['original'].get('model'));query=manifest.get('query',entries['original'].get('query'))
+    need(model and query and base.file_sha(model)==base.MODEL_SHA and base.file_sha(query)==base.QUERY_SHA,'input_gate')
+    for source,target in ((model,'sample.vvm'),(query,'query.json')):shutil.copyfile(source,root/target)
+    artifacts={}
+    for key in KEYS:
+        entry=entries[key];binary=Path(entry.get('binary',entry.get('js','')));wasm=Path(entry.get('wasm',binary.with_suffix('.wasm')))
+        js_sha=entry.get('js_sha256',entry.get('worker',{}).get('js_sha256'));wasm_sha=entry.get('wasm_sha256',entry.get('worker',{}).get('wasm_sha256'))
+        digest(js_sha);digest(wasm_sha);need(base.file_sha(binary)==js_sha and base.file_sha(wasm)==wasm_sha,'input_gate')
+        target=root/key;target.mkdir(mode=0o700);shutil.copyfile(binary,target/'voicevox_benchmark.js');shutil.copyfile(wasm,target/'voicevox_benchmark.wasm')
+        for extra in entry.get('auxiliary',[]):
+            exact(extra,('path','sha256'),'input_gate');source=Path(extra['path']);digest(extra['sha256'])
+            need(source.name.endswith('.worker.js') and base.file_sha(source)==extra['sha256'],'input_gate');shutil.copyfile(source,target/source.name)
+        artifacts[key]=dict(js_sha256=js_sha,wasm_sha256=wasm_sha)
+    need(artifacts['candidate']['wasm_sha256'] not in {artifacts[k]['wasm_sha256'] for k in ('original','rebuilt')},'input_gate')
+    helpers=Path(helpers_root);dispatch=helpers/'core_dispatch_check.js'
+    if not dispatch.is_file() and helpers==DEFAULT_HELPERS:dispatch=helpers.parent/'baseline'/'core_dispatch_check.js'
+    need(base.file_sha(dispatch)==base.DISPATCH_SHA,'input_gate');shutil.copyfile(dispatch,root/'core_dispatch_check.js')
+    shutil.copyfile(helpers/'attribution_worker.js',root/'worker.js');(root/'helpers').mkdir(mode=0o700)
+    shutil.copyfile(helpers/'profile_reduce.js',root/'helpers'/'profile_reduce.js')
+    (root/'index.html').write_text(base.PAGE);(root/'runtime_manifest.json').write_text(json.dumps(artifacts,separators=(',',':')))
+    return root,artifacts
+
+Browser=base.Browser
+
+def _output_bytes(value):
+    need(type(value) in (bytes,list),'output_gate')
+    if type(value) is list:need(all(type(v) is int and 0<=v<=255 for v in value),'output_gate')
+    result=bytes(value)
+    if type(value) is list:value.clear()
+    return result
+
+def run(manifest,helpers_root=DEFAULT_HELPERS,private=None):
+    """No build/download/publication. Fail closed, keep chronological safe prefix."""
+    need(private is not None,'input_gate')
+    report=blank_report();reference=None;wav=raw=value=None;active=None;record=None;identities=set();assignment=None
+    def checkpoint():write_checkpoint(report,private)
+    try:
+        report['stage']='input_gates';checkpoint()
+        load_base(helpers_root)
+        root,report['artifacts']=prepare_assets(manifest,helpers_root,private)
+        report['host']=base.host_info();checkpoint()
+        need(importlib.metadata.version('playwright')=='1.63.0' and importlib.metadata.version('psutil')=='7.2.2','dependency_gate')
+        import psutil
+        from playwright.sync_api import sync_playwright
+        need(os.name=='posix' and Path('/proc/self/stat').is_file(),'resource_gate')
+        report['stage']='browser_gates';report['flag_acceptance']=base.flag_acceptance_probe();base.validate_flag_acceptance(report['flag_acceptance'])
+        identities.add(report['flag_acceptance']['browser_instance_sha256']);checkpoint()
+        with base.serve_assets(root) as url,sync_playwright() as pw:
+            report['stage']='sessions'
+            for slot in schedule():
+                need(base.host_snapshot(psutil)['available_bytes']>=base.MIN_AVAILABLE,'resource_gate')
+                active=Browser(pw,url,slot['condition'],report['artifacts'],psutil,True)
+                init=active.info
+                # Validate before copying any worker/engine data into a checkpoint.
+                exact(init,('ready','runtime','dispatch','wasm_sha256','js_sha256','instrumentation','engine','browser_instance_sha256'))
+                base.validate_initialization({k:v for k,v in init.items() if k not in ('engine','browser_instance_sha256')},report['artifacts'][slot['condition']],'provider_profile')
+                _engine(init['engine']);digest(init['browser_instance_sha256'])
+                need(same(init['engine'],report['flag_acceptance']['engine']),'engine_gate')
+                need(init['browser_instance_sha256'] not in identities,'resource_gate');identities.add(init['browser_instance_sha256'])
+                environment=dict(playwright_version='1.63.0',engine=copy.deepcopy(init['engine']),worker_hardware_concurrency=init['dispatch']['worker_hardware_concurrency'])
+                need(type(environment['worker_hardware_concurrency']) is int and 1<=environment['worker_hardware_concurrency']<=65536,'engine_gate')
+                if report['environment']:need(same(environment,report['environment']),'engine_gate')
+                else:report['environment']=environment
+                record=dict(**slot,initialization=copy.deepcopy(init),completed_inferences=0,prewarm_outputs=None,outputs=None,profile=None,call_resources=[],housekeeping=None,cleanup=None)
+                report['sessions'].append(record);checkpoint()
+                try:
+                    for occurrence in range(8):
+                        call=dict(occurrence=occurrence,role=call_role(occurrence),completed=False,resources=None)
+                        record['call_resources'].append(call);checkpoint()
+                        before=resource_snapshot(active,psutil)
+                        need(before['host']['available_bytes']>=base.MIN_AVAILABLE,'resource_gate')
+                        value=active.call('raw',occurrence=occurrence) if occurrence in (1,7) else active.call('inference',occurrence=occurrence)
+                        if occurrence not in (1,7):
+                            exact(value,('occurrence','kind','completed','wav_bytes'),'worker_gate')
+                            need(same(value,dict(occurrence=occurrence,kind='synthesis',completed=True,wav_bytes=478252)),'worker_gate')
+                        else:
+                            exact(value,('occurrence','kind','completed','wav','raw'),'worker_gate')
+                            need(same(value['occurrence'],occurrence) and value['kind']=='raw' and value['completed'] is True,'worker_gate')
+                        call['completed']=True;record['completed_inferences']+=1;checkpoint()
+                        # Every call has its own root-bound observations. The raw
+                        # output call is separately labeled and never retained as
+                        # a synthesis-duration observation. Output comparison and
+                        # profile flush/reduction occur outside these boundaries.
+                        resources=resource_delta(before,resource_snapshot(active,psutil),active);validate_resources(resources)
+                        call['resources']=resources;checkpoint()
+                        if occurrence in (1,7):
+                            wav,raw=_output_bytes(value['wav']),_output_bytes(value['raw']);value=None
+                            output=base.compare_outputs(wav,raw,reference)
+                            if reference is None:
+                                reference=(bytearray(wav),bytearray(raw));report['output_reference']={key:output[key] for key in ('wav_sha256','raw_sha256','pcm_sha256')}
+                            record['prewarm_outputs' if occurrence==1 else 'outputs']=output;wav=raw=None;checkpoint()
+                        need(call_resource_passed(resources,call['role']),'resource_gate')
+                    record['housekeeping']=dict(phase='profile_finalize',completed=False,resources=None);checkpoint()
+                    before=resource_snapshot(active,psutil)
+                    need(before['host']['available_bytes']>=base.MIN_AVAILABLE,'resource_gate')
+                    prof=active.call('profile');validate_profile(prof)
+                    current=(prof['assignment_sha256'],prof['identity_sha256'])
+                    if assignment is None:assignment=current
+                    need(current==assignment,'profile_gate')
+                    # Finalization unloads the model. It has no inference and is
+                    # observed separately, never mixed into retained/raw quality.
+                    prospective=copy.deepcopy(report);prospective['sessions'][-1]['profile']=prof;prospective['sessions'][-1]['housekeeping']['completed']=True;validate_report(prospective)
+                    record['profile']=prof;record['housekeeping']['completed']=True;checkpoint()
+                    resources=resource_delta(before,resource_snapshot(active,psutil),active);validate_resources(resources)
+                    record['housekeeping']['resources']=resources;checkpoint()
+                    need(nonperformance_resource_passed(resources),'resource_gate')
+                finally:
+                    cleanup=active.close();exact(cleanup,('confirmed','remaining_processes'),'cleanup_gate')
+                    need(type(cleanup['confirmed']) is bool and type(cleanup['remaining_processes']) is int and 0<=cleanup['remaining_processes']<=65536,'cleanup_gate')
+                    need(not cleanup['confirmed'] or cleanup['remaining_processes']==0,'cleanup_gate')
+                    record['cleanup']=cleanup;active=None;checkpoint();need(cleanup['confirmed'],'cleanup_gate')
+            report['summary']=summarize(report);report['status']='complete';report['measurement_valid']=True;report['stage']='complete'
+            validate_report(report);checkpoint()
+    except base.GateFailure as error:report['error_code']=error.code
+    except (KeyboardInterrupt,SystemExit):report['error_code']='interrupted'
+    except importlib.metadata.PackageNotFoundError:report['error_code']='dependency_gate'
+    except (OSError,PermissionError):report['error_code']='browser_unavailable'
+    except Exception:report['error_code']='internal_error'
+    finally:
+        if active is not None:
+            try:
+                cleanup=active.close()
+                exact(cleanup,('confirmed','remaining_processes'),'cleanup_gate')
+                need(type(cleanup['confirmed']) is bool and type(cleanup['remaining_processes']) is int and 0<=cleanup['remaining_processes']<=65536 and (not cleanup['confirmed'] or cleanup['remaining_processes']==0),'cleanup_gate')
+                if record is not None and record.get('initialization')==getattr(active,'info',None):record['cleanup']=cleanup
+                if not cleanup['confirmed']:report['error_code']='cleanup_gate'
+            except BaseException:report['error_code']='cleanup_gate'
+        if reference is not None:
+            for buffer in reference:buffer[:]=bytes(len(buffer))
+        reference=None;wav=raw=value=None
+        if report['error_code'] is not None:report.update(status='incomplete',measurement_valid=False,summary=None)
+    # Only validated enum/hash/numeric data was ever committed above.
+    validate_report(report);checkpoint();return report

@@ -1,0 +1,83 @@
+{
+  "aggregate_quota_claimed": false,
+  "browser_byte_identity_scope": "one_official_ci_acquisition_then_immutable_within_job",
+  "browser_prelaunch_binding": "complete_archive_executable_support_tree_and_explicit_executable_path",
+  "calibration": "timing_only_immediately_after_each_arm_init_before_next_arm",
+  "chromium": "153.0.8010.12",
+  "cleanup_reserve_seconds": 30,
+  "commands_per_call": [
+    "prepare",
+    "run",
+    "verify",
+    "delete"
+  ],
+  "emscripten_backing_workers_per_module": 1,
+  "execution_admitted": false,
+  "execution_authority": "one_hash_bound_root_ci_request_with_explicit_child_descriptors",
+  "execution_capable": true,
+  "failure_only_cleanup_seconds": 30,
+  "fixed_heap_bytes": 134217728,
+  "flag_probe_seconds": 60,
+  "flags": [
+    "--js-flags=--no-wasm-revectorize"
+  ],
+  "host_available_minimum_bytes": 1073741824,
+  "initialization_order": [
+    "R",
+    "A",
+    "B",
+    "Q",
+    "P"
+  ],
+  "large_application_buffer_bytes": 739008080,
+  "legacy_donor_workloads_disabled": true,
+  "local_browser_permitted": false,
+  "main_controller_resource_scope": "excluded_and_disclosed",
+  "maximum_chrome_roots": 1,
+  "new_runtime_artifacts_peak_bytes": 268435456,
+  "normal_tiering": true,
+  "operator_workers_per_root": 5,
+  "optional_cache_metadata": "bounded_best_effort_unknown_allowed_no_gate_no_privileged_counters",
+  "output_reference_bytes": 31522816,
+  "packed_reference_bytes": 721408,
+  "phase_record_reset": false,
+  "plan_sha256": "07456a44febb29f820920fb68fe4f62071676b05c0f933495db076ce06ace702",
+  "primary_clock": "performance.now(); _screen_run(); performance.now()",
+  "public_scalar_receipts_maximum_bytes": 33554432,
+  "raw_output_transport": false,
+  "readonly_workspace_bytes": 35675216,
+  "real_pool_participants": 2,
+  "resource_windows_include": [
+    "controller_init",
+    "module_init_and_calibration",
+    "prepare",
+    "run_acknowledgement",
+    "verify",
+    "delete",
+    "shutdown"
+  ],
+  "root_launch_and_module_init_seconds": 60,
+  "runtime_caps": {
+    "qualification": {
+      "calls": 330,
+      "per_process_cpu_seconds": 1200,
+      "roots": 1,
+      "tree_cpu_seconds": 1200,
+      "wall_seconds": 900
+    },
+    "timing": {
+      "calls": 600,
+      "per_process_cpu_seconds": 2400,
+      "roots": 10,
+      "tree_cpu_seconds": 2400,
+      "wall_seconds": 1800
+    }
+  },
+  "schema": "chrome-panel-browser-source-contract-v1",
+  "single_rpc_seconds": 30,
+  "source_donor_architecture": "generation_safe_subreaper_pidfd_all_thread_children",
+  "status": "EXECUTION_CAPABLE_SOURCE_NOT_EXECUTED",
+  "summed_owned_rss_bytes": 3221225472,
+  "unadmitted_donor_imports_blocked": true,
+  "v8": "15.3.76.4"
+}
