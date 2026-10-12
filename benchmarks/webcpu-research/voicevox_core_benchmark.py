@@ -6,8 +6,9 @@
 """Reproducible VOICEVOX CORE CPU/browser benchmark (one-file distribution).
 
 Run: uv run benchmark.py [--threads 4]
-Four confirmed modes: native CPU, browser single-thread, browser multi-thread,
-and the accepted optimized browser configuration (same --threads N).
+Nine-condition comparison: the original seven CPU/XNNPACK/V8 conditions plus
+the accepted optimized XNNPACK configuration with V8 revectorization OFF and ON.
+ON is a candidate for fastest browser configuration; only same-run data ranks it.
 Run: uv run voicevox_core_benchmark.py --threads 2 --seed 1729
 Supported complete comparison: Linux x86_64, including x86_64 WSL.
 --plan and --self-test perform no downloads, builds, browser or model execution.
@@ -1083,7 +1084,7 @@ def svg_results(result: dict[str, Any]) -> str:
     left, right, top, bottom = 220, 30, 24, 45
     maximum = max(row["elapsed_s"] for row in rows) * 1.12
     plot_width = width - left - right
-    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"]
+    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030", "#007c91", "#ab4800"]
     output = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="各モードの合成時間。点は全試行、太線は中央値">']
     for tick in range(6):
         value = maximum * tick / 5
@@ -1114,7 +1115,7 @@ def svg_results(result: dict[str, Any]) -> str:
 def svg_sequence(result: dict[str, Any]) -> str:
     rows = sorted(result["trials"], key=lambda row: row["order"])
     modes = result["modes"]
-    colors = {mode["key"]: color for mode, color in zip(modes, ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"] * len(modes))}
+    colors = {mode["key"]: color for mode, color in zip(modes, ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030", "#007c91", "#ab4800"] * len(modes))}
     width, height, left, top = 880, 180, 65, 15
     plot_width, plot_height = width - left - 25, height - top - 40
     maximum = max(row["rtf"] for row in rows) * 1.1
@@ -1213,7 +1214,7 @@ def cpu_profile_html(result: dict[str, Any]) -> str:
     xmax = max((point["end_s"] for row in profiles for point in row["points"]), default=0.25)
     ymax = max(100, math.ceil(max((point["ci_high_percent"] if point["ci_high_percent"] is not None else point["median_percent"]
                                   for row in profiles for point in row["points"]), default=0) / 100) * 100)
-    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030"]
+    colors = ["#245fbd", "#078879", "#9c5caa", "#c77719", "#a54453", "#566873", "#303030", "#007c91", "#ab4800"]
     figures = []
     for index, profile in enumerate(profiles):
         left, top, width, height = 52, 30, 365, 140
@@ -2681,8 +2682,8 @@ def positive_int(value: str) -> int:
 
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--threads", type=positive_int, default=default_threads(), help="native + multithreaded-browser inference threads; default: max(1, available logical CPUs // 2)")
-    parser.add_argument("--seed", type=int, default=20261007, help="reproducible block order")
+    parser.add_argument("--threads", type=positive_int, default=2, help="native + multithreaded-browser inference threads; default: 2")
+    parser.add_argument("--seed", type=int, default=1729, help="reproducible block order; default: 1729")
     parser.add_argument("--audio-query", type=Path, help="optional prepared AudioQuery JSON; default: built-in approximately 10-second query")
     parser.add_argument("--style-id", type=int, default=302)
     parser.add_argument("--target-seconds", type=float, default=10.0)
@@ -2770,7 +2771,8 @@ def self_test() -> None:
 def main() -> None:
     args = argument_parser().parse_args()
     if args.diagnostic_config:
-        raise ValueError("Exploratory revectorization diagnostics are closed in this final comparison")
+        matrix_diagnostic_child(args.diagnostic_config)
+        return
     if args.plan:
         print(json.dumps(final_plan(args), ensure_ascii=False, indent=2))
         return
@@ -5517,7 +5519,7 @@ RECIPE_PAYLOAD = (
 
 BROWSER_WORKER = "// Read-only proof from the actual initialized CORE instance in its dedicated Worker.\n// This helper never supplies, replaces, or overrides self/navigator.\nfunction verifyActualCoreDispatch(module, stdout, expected = 'auto') {\n  if (!['auto', 'splat', 'loadsplat'].includes(expected)) throw new Error('Invalid expected dispatcher');\n  if (typeof DedicatedWorkerGlobalScope === 'undefined' || !(self instanceof DedicatedWorkerGlobalScope)) {\n    throw new Error('Dispatch proof must run inside the actual dedicated CORE Worker');\n  }\n  const hc = self.navigator.hardwareConcurrency;\n  if (!Number.isInteger(hc) || hc < 1) throw new Error('Worker hardwareConcurrency unavailable');\n  if (self.crossOriginIsolated !== true || typeof SharedArrayBuffer === 'undefined' ||\n      !(module.HEAPU8.buffer instanceof SharedArrayBuffer)) throw new Error('Shared isolated CORE required');\n  if (!Array.isArray(stdout) || typeof module._probe_xnn_f32_dispatch !== 'function') {\n    throw new Error('Actual CORE dispatcher export/stdout capture missing');\n  }\n  const begin = stdout.length;\n  const code = module._probe_xnn_f32_dispatch();\n  const prefix = 'XNN_DISPATCH ';\n  const lines = stdout.slice(begin).filter(line => typeof line === 'string' && line.startsWith(prefix));\n  if (lines.length !== 1) throw new Error('Expected exactly one actual CORE dispatch record');\n  const record = JSON.parse(lines[0].slice(prefix.length));\n  const keys = ['is_x86', 'navigatorHardwareConcurrency', 'mr', 'nr', 'loadsplatPointers', 'splatPointers', 'checkedPointers', 'relaxedSimd'];\n  if (Object.keys(record).sort().join(',') !== keys.sort().join(',') ||\n      keys.some(key => !Number.isInteger(record[key]))) throw new Error('Unexpected dispatcher record schema');\n  if (record.is_x86 !== 1 || record.relaxedSimd !== 0 || record.mr !== 4 || record.nr !== 8 ||\n      record.checkedPointers !== 12 || record.navigatorHardwareConcurrency !== hc) {\n    throw new Error('Actual CORE architecture/precision/tile/context mismatch');\n  }\n  const actual = code === 0 ? 'splat' : code === 1 ? 'loadsplat' : null;\n  if (actual === null || record[actual + 'Pointers'] !== 12 ||\n      record.loadsplatPointers + record.splatPointers !== 12) throw new Error('Inconsistent actual CORE pointer family');\n  const required = expected === 'auto' ? (hc > 4 ? 'loadsplat' : 'splat') : expected;\n  if (actual !== required) throw new Error('Actual CORE dispatcher does not match manifest/heuristic');\n  return {\n    schema_version: 1, source: 'actual_CORE_module', context: 'dedicated_worker',\n    expected_dispatch: expected, actual_dispatch: actual,\n    worker_hardware_concurrency: hc, probe_hardware_concurrency: record.navigatorHardwareConcurrency,\n    is_x86: true, relaxed_simd: false, mr: 4, nr: 8,\n    splat_pointers: record.splatPointers, loadsplat_pointers: record.loadsplatPointers,\n    checked_pointers: 12, probe_return_code: code,\n    cross_origin_isolated: true, shared_memory: true, verified: true\n  };\n}\n\n// Return bounded failed evidence rather than discarding it. No arbitrary stdout\n// or error payloads survive this wrapper; the caller checkpoints then asserts.\nfunction captureActualCoreDispatch(module, stdout, expected = 'auto') {\n  const start = Array.isArray(stdout) ? stdout.length : 0;\n  try { return verifyActualCoreDispatch(module, stdout, expected); }\n  catch (error) {\n    let hc = null;\n    let context = 'not_dedicated_worker';\n    try {\n      if (typeof DedicatedWorkerGlobalScope !== 'undefined' && self instanceof DedicatedWorkerGlobalScope) context = 'dedicated_worker';\n      if (Number.isInteger(self.navigator.hardwareConcurrency)) hc = self.navigator.hardwareConcurrency;\n    } catch (_) {}\n    const records = [];\n    const prefix = 'XNN_DISPATCH ';\n    for (const line of (Array.isArray(stdout) ? stdout.slice(start) : [])) {\n      if (records.length === 2) break;\n      if (typeof line !== 'string' || !line.startsWith(prefix) || line.length > 1024) continue;\n      try {\n        const value = JSON.parse(line.slice(prefix.length));\n        const numeric = {};\n        for (const key of ['is_x86','navigatorHardwareConcurrency','mr','nr','loadsplatPointers','splatPointers','checkedPointers','relaxedSimd']) {\n          if (Number.isInteger(value[key]) && Math.abs(value[key]) <= 2147483647) numeric[key] = value[key];\n        }\n        records.push(numeric);\n      } catch (_) {}\n    }\n    const allowed = new Set([\n      'Invalid expected dispatcher','Dispatch proof must run inside the actual dedicated CORE Worker',\n      'Worker hardwareConcurrency unavailable','Shared isolated CORE required',\n      'Actual CORE dispatcher export/stdout capture missing','Expected exactly one actual CORE dispatch record',\n      'Unexpected dispatcher record schema','Actual CORE architecture/precision/tile/context mismatch',\n      'Inconsistent actual CORE pointer family','Actual CORE dispatcher does not match manifest/heuristic'\n    ]);\n    return {\n      schema_version: 1, source: 'actual_CORE_module', context,\n      expected_dispatch: ['auto','splat','loadsplat'].includes(expected) ? expected : 'invalid',\n      worker_hardware_concurrency: hc, numeric_records: records, verified: false,\n      error_type: ['Error','TypeError','RangeError','SyntaxError','RuntimeError'].includes(error?.name) ? error.name : 'Error',\n      error_message: allowed.has(error?.message) ? error.message : 'Unexpected dispatcher exception'\n    };\n  }\n}\n" + BROWSER_WORKER
 
-# Final Gist integration. The embedded recipe is source, never a binary/model.
+# Nine-condition comparison integration. Embedded sources are never binaries/models.
 GIST_REVISION = 'eb7d86b1478ec50ce3fbc2ef11b7b8bf90f2d373'
 GIST_SOURCE_SHA256 = '43e8177bbeb29ef9ce2ab98cf0af811eff52d6c204470623c0aeaed1dc57623d'
 ACCEPTED_SOURCE_COMMIT = '4d68c154eaaa802bf2928d335257677d31f4f560'
@@ -5529,6 +5531,171 @@ BROWSER_OFF_FLAG = '--js-flags=--no-wasm-revectorize'
 BROWSER_AUTOMATION_FLAG = '--enable-automation'
 BUILD_TIMEOUT_S = 1800
 ACTIVE_CACHE: Path | None = None
+BROWSER_ON_FLAG = '--js-flags=--wasm-revectorize'
+MATRIX_REVISION = 'nine-condition-v2'
+OPTIMIZED_PAIRS = {'browser_optimized': 'browser_xnnpack',
+                   'browser_optimized_revectorize': 'browser_xnnpack_revectorize'}
+ASSET_KEYS = {'browser_mt_fixed': 'browser_mt', 'browser_revectorize': 'browser_mt',
+              'browser_xnnpack_revectorize': 'browser_xnnpack',
+              'browser_optimized_revectorize': 'browser_optimized'}
+DIAGNOSTIC_KEYS = {'browser_mt': 'cpu_mt', 'browser_revectorize': 'cpu_mt',
+                   'browser_xnnpack': 'pristine_xnn', 'browser_xnnpack_revectorize': 'pristine_xnn',
+                   'browser_optimized': 'accepted_xnn', 'browser_optimized_revectorize': 'accepted_xnn'}
+
+
+def browser_launch_options(*, headed: bool, browser_path: Path | None = None,
+                           revectorize: bool = False, trace: bool = False) -> dict[str, Any]:
+    flag = BROWSER_ON_FLAG if revectorize else BROWSER_OFF_FLAG
+    if trace:
+        flag += ',--trace-wasm-revectorize'
+    options = {'headless': not headed, 'args': [flag, BROWSER_AUTOMATION_FLAG]}
+    if browser_path:
+        options['executable_path'] = str(browser_path)
+    return options
+
+
+def verify_browser_flags(browser: Any, requested: dict[str, Any], *, revectorize: bool,
+                         trace: bool = False) -> dict[str, Any]:
+    flag = (BROWSER_ON_FLAG if revectorize else BROWSER_OFF_FLAG) + (',--trace-wasm-revectorize' if trace else '')
+    require(requested.get('args') == [flag, BROWSER_AUTOMATION_FLAG] and
+            not requested.get('ignore_default_args'), 'Browser launch must retain exact V8 flag and --enable-automation')
+    session = browser.new_browser_cdp_session()
+    try:
+        actual = session.send('Browser.getBrowserCommandLine')['arguments']
+        version = session.send('Browser.getVersion')
+    finally:
+        session.detach()
+    js = [value for value in actual if value.startswith('--js-flags=')]
+    require(js == [flag], 'Actual V8 flags differ from the predeclared condition')
+    require(BROWSER_AUTOMATION_FLAG in actual, 'CDP did not confirm actual --enable-automation')
+    require(not any('hardwareConcurrency' in value or 'force-device-scale-factor' in value for value in actual), 'Unexpected browser host override')
+    return {'product': version['product'], 'js_version': version['jsVersion'],
+            'actual_js_flags': js, 'revectorize': revectorize, 'trace_enabled': trace,
+            'actual_enable_automation': True, 'all_arguments_recorded': False,
+            'flag_evidence': 'Browser.getBrowserCommandLine; only relevant allowlisted flags are published'}
+
+
+def verify_browser_off(browser: Any, requested: dict[str, Any]) -> dict[str, Any]:
+    return verify_browser_flags(browser, requested, revectorize=False)
+
+
+def final_modes(threads: int, baseline_only: bool = False) -> list[Mode]:
+    modes = [Mode('native', f'Native CPU ×{threads}', threads, 'original native CPU EP; dynamic shape; per-session pools'),
+             Mode('browser', 'Browser ×1', 1, 'original CPU EP; dynamic shape; unshared SIMD WASM; V8 revectorize OFF')]
+    if not baseline_only:
+        modes += [
+            Mode('browser_mt', f'Browser MT ×{threads}', threads,
+                 'original CPU EP; dynamic shape; global ORT intra=N/inter=1; spin default; V8 revectorize OFF'),
+            Mode('browser_mt_fixed', f'CPU fixed shape ×{threads}', threads,
+                 'original CPU fixed-shape control; query-derived vocoder-only fixed length; global ORT intra=N/inter=1; spin default; V8 revectorize OFF', fixed_shape=True),
+            Mode('browser_xnnpack', f'XNNPACK ×{threads}', threads,
+                 'pristine R XNNPACK vocoder; query-fixed shape; ORT global1/inter1/spin off; XNN N; genuine automatic dispatch; V8 revectorize OFF',
+                 fixed_shape=True, spin_off=True, execution_provider='XNNPACK'),
+            Mode('browser_revectorize', f'CPU MT + V8 ×{threads}', threads,
+                 'same original dynamic-shape CPU MT WASM/pools; only V8 revectorize ON', revectorize=True),
+            Mode('browser_xnnpack_revectorize', f'XNNPACK + V8 ×{threads}', threads,
+                 'same pristine R fixed-shape XNNPACK WASM/pools; only V8 revectorize ON',
+                 fixed_shape=True, spin_off=True, execution_provider='XNNPACK', revectorize=True),
+            Mode('browser_optimized', f'最適化XNN ×{threads}', threads,
+                 'accepted T: same fixed-shape XNNPACK/pools; forced-loadsplat757 + in-placeLeaky514; V8 revectorize OFF',
+                 fixed_shape=True, spin_off=True, execution_provider='XNNPACK'),
+            Mode('browser_optimized_revectorize', f'最適化XNN + V8 ×{threads}', threads,
+                 'accepted T: same fixed-shape XNNPACK/pools and 514/757 recipe; V8 revectorize ON; fastest-browser hypothesis, not an assumed outcome',
+                 fixed_shape=True, spin_off=True, execution_provider='XNNPACK', revectorize=True)]
+    return modes
+
+
+def matrix_diagnostic_child(config_path: Path) -> None:
+    """Private, untimed actual-WASM V8 transform check in an isolated child."""
+    from playwright.sync_api import sync_playwright
+    import psutil
+    config = json.loads(config_path.read_text('utf-8'))
+    mode = Mode(**config['mode'])
+    require(mode.key in DIAGNOSTIC_KEYS, 'Unexpected diagnostic mode')
+    asset = config_path.parent / ASSET_KEYS.get(mode.key, mode.key) / 'voicevox_benchmark.js'
+    hashes = {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}
+    require(hashes == config['asset_hashes'], 'Diagnostic assets changed before launch')
+    options = browser_launch_options(headed=config['headed'],
+        browser_path=Path(config['browser_path']) if config['browser_path'] else None,
+        revectorize=mode.revectorize, trace=True)
+    with sync_playwright() as playwright:
+        browser = runner = root_process = None
+        observed = []
+        try:
+            browser = playwright.chromium.launch(**options)
+            root_process = psutil.Process(chromium_process_id(browser))
+            info = verify_browser_flags(browser, options, revectorize=mode.revectorize, trace=True)
+            runner = BrowserRunner(browser, config['url'], f"/{ASSET_KEYS.get(mode.key, mode.key)}/voicevox_benchmark.js",
+                                   mode.threads, True, config['style'], Path(config['wav']),
+                                   fixed_shape=mode.fixed_shape, spin_off=mode.spin_off,
+                                   xnn_threads=mode.threads if mode.execution_provider == 'XNNPACK' else 0,
+                                   profile=mode.execution_provider == 'XNNPACK')
+            for _ in range(3):
+                runner.synthesize(save=True)
+            if mode.execution_provider == 'XNNPACK':
+                require(runner.thread_state() == mode.threads - 1, 'Diagnostic XNNPACK inference pool changed')
+                info['provider_profile'] = runner.finish_profile()
+                info['dispatch'] = runner.page.evaluate('data => request(data)',
+                    {'command': 'dispatch', 'expected': 'loadsplat' if mode.key in OPTIMIZED_PAIRS else 'auto'})
+                require(info['provider_profile']['verified'] and info['dispatch']['verified'], 'Diagnostic XNNPACK activation failed')
+            require(hashes == {'module_js_sha256': sha256_file(asset), 'module_wasm_sha256': sha256_file(asset.with_suffix('.wasm'))}, 'Diagnostic assets changed during execution')
+            info.update({**hashes, 'fixed_length': runner.fixed_length, 'fixed_matches': runner.fixed_matches,
+                         'xnn_threads': runner.xnn_threads, 'xnn_sessions': runner.xnn_sessions,
+                         'pthreads': runner.thread_state()})
+            atomic_write(Path(config['result']), json.dumps(info, allow_nan=False).encode())
+        finally:
+            if root_process:
+                with contextlib.suppress(psutil.NoSuchProcess):
+                    observed = root_process.children(recursive=True)
+            if runner:
+                with contextlib.suppress(Exception): runner.close()
+            if browser:
+                with contextlib.suppress(Exception): browser.close()
+            finish_owned_tree(root_process, observed)
+
+
+def verify_matrix_revectorization(url: str, modes: list[Mode], args: argparse.Namespace, work: Path, preflight_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Do not permit partial matrices or inferred SIMD-width claims."""
+    diagnostics = {}
+    for control_key, candidate_key in (('browser_mt', 'browser_revectorize'),
+                                       ('browser_xnnpack', 'browser_xnnpack_revectorize'),
+                                       ('browser_optimized', 'browser_optimized_revectorize')):
+        records = {}
+        for key, label in ((control_key, 'control'), (candidate_key, 'candidate')):
+            mode = next(mode for mode in modes if mode.key == key)
+            if preflight_state is not None:
+                preflight_state.update(stage='untimed-actual-WASM-V8-transform-gate', condition=key)
+            progress(f'Untimed actual-WASM V8 transformation check: {mode.label}')
+            config_path, result_path = work / (key + '-diagnostic.json'), work / (key + '-evidence.json')
+            atomic_write(config_path, json.dumps({'mode': asdict(mode), 'headed': args.headed,
+                'browser_path': str(args.browser_path) if args.browser_path else None,
+                'asset_hashes': {'module_js_sha256': sha256_file(work / ASSET_KEYS.get(key, key) / 'voicevox_benchmark.js'),
+                                 'module_wasm_sha256': sha256_file(work / ASSET_KEYS.get(key, key) / 'voicevox_benchmark.wasm')},
+                'url': url, 'style': args.style_id, 'wav': str(work / (key + '-diagnostic.wav')),
+                'result': str(result_path)}).encode())
+            env = {**os.environ, 'DEBUG': 'pw:browser'}
+            # checked_run retains the full trace in a private cache log only.
+            output = checked_run([sys.executable, str(Path(__file__).resolve()), '--diagnostic-config', str(config_path)],
+                                 env=env, timeout=900)
+            nodes = [int(value) for value in re.findall(r'Decide(?:d)? to vectorize, ([1-9][0-9]*) revectorizable nodes', output)]
+            rejected = bool(re.search(r'(?:unrecognized|unknown|unrecognised|contradictory) (?:command[- ]line )?flags?|Error:.*(?:wasm-revectorize|trace-wasm-revectorize)', output, re.I))
+            info = json.loads(result_path.read_text('utf-8'))
+            expected = json.loads(config_path.read_text())['asset_hashes']
+            require(all(info[field] == value for field, value in expected.items()), 'Diagnostic source binding changed')
+            records[label] = {**info, 'transformed_groups': len(nodes), 'revectorizable_nodes': sum(nodes), 'flag_rejected': rejected}
+        control, candidate = records['control'], records['candidate']
+        require(control['transformed_groups'] == 0 and candidate['transformed_groups'] > 0 and
+                not any(record['flag_rejected'] for record in records.values()),
+                'Actual V8 transformation was not proven for ' + candidate_key + '; no timed matrix was started')
+        require((control['product'], control['js_version']) == (candidate['product'], candidate['js_version']), 'Diagnostic browser engine mismatch')
+        require(all(control[field] == candidate[field] for field in ('module_js_sha256', 'module_wasm_sha256', 'fixed_length', 'fixed_matches', 'xnn_threads', 'xnn_sessions', 'pthreads')), 'V8 ON/OFF module or configuration differs')
+        if 'provider_profile' in control:
+            require(control['provider_profile']['provider_assignment_sha256'] == candidate['provider_profile']['provider_assignment_sha256'],
+                    'V8 ON changed the XNNPACK provider assignment')
+        diagnostics[DIAGNOSTIC_KEYS[control_key]] = {**records, 'verified': True,
+            'evidence': 'actual module: explicit OFF has zero V8 transformations; explicit ON has positive V8 transformations; three untimed syntheses each; no SIMD-width inference'}
+    return diagnostics
+
 
 
 def require(ok: bool, message: str) -> None:
@@ -5746,31 +5913,8 @@ class TreeMemorySampler:
                 'scope': 'target process tree; request/response plus one-second pre/post CPU padding; shared pages excluded'}
 
 
-def browser_launch_options(*, headed: bool, browser_path: Path | None = None) -> dict[str, Any]:
-    # CDP Browser.getBrowserCommandLine requires explicit automation opt-in.
-    # One shared factory covers every browser arm and untimed profile/control.
-    options = {'headless': not headed, 'args': [BROWSER_OFF_FLAG, BROWSER_AUTOMATION_FLAG]}
-    if browser_path:
-        options['executable_path'] = str(browser_path)
-    return options
 
 
-def verify_browser_off(browser: Any, requested: dict[str, Any]) -> dict[str, Any]:
-    require(requested.get('args') == [BROWSER_OFF_FLAG, BROWSER_AUTOMATION_FLAG] and
-            not requested.get('ignore_default_args'), 'Browser launch must retain explicit V8 OFF and --enable-automation')
-    session = browser.new_browser_cdp_session()
-    try:
-        actual = session.send('Browser.getBrowserCommandLine')['arguments']
-        version = session.send('Browser.getVersion')
-    finally:
-        session.detach()
-    js = [value for value in actual if value.startswith('--js-flags=')]
-    require(js == [BROWSER_OFF_FLAG], 'Actual V8 flags are not the explicit revectorization-OFF configuration')
-    require(BROWSER_AUTOMATION_FLAG in actual, 'CDP did not confirm actual --enable-automation')
-    require(not any('hardwareConcurrency' in value or 'force-device-scale-factor' in value for value in actual), 'Unexpected browser host override')
-    return {'product': version['product'], 'js_version': version['jsVersion'],
-            'actual_js_flags': js, 'revectorize': False, 'actual_enable_automation': True,
-            'all_arguments_recorded': False, 'flag_evidence': 'Browser.getBrowserCommandLine; only the relevant allowlisted flag is published'}
 
 
 def finish_owned_tree(root: Any, observed: list[Any]) -> None:
@@ -5790,16 +5934,6 @@ def finish_owned_tree(root: Any, observed: list[Any]) -> None:
     require(not [p for p in alive if p.is_running() and p.status() != psutil.STATUS_ZOMBIE], 'Owned process survived cleanup; refusing another mode')
 
 
-def final_modes(threads: int, baseline_only: bool = False) -> list[Mode]:
-    modes = [Mode('native', f'Native CPU ×{threads}', threads, 'CPU EP; dynamic shape; per-session pools'),
-             Mode('browser', 'Browser single-thread ×1', 1, 'CPU EP; dynamic shape; unshared SIMD WASM; V8 revectorize OFF')]
-    if not baseline_only:
-        modes += [Mode('browser_mt', f'Browser multithread ×{threads}', threads,
-                       'original CPU EP; dynamic shape; global ORT intra=N/inter=1; spin default; V8 revectorize OFF'),
-                  Mode('browser_optimized', f'Browser optimized configuration ×{threads}', threads,
-                       'vocoder XNNPACK; query-fixed vocoder shape; ORT global1/inter1/spin off; XNN N; forced-loadsplat757 + in-placeLeaky514; V8 revectorize OFF',
-                       fixed_shape=True, spin_off=True, execution_provider='XNNPACK')]
-    return modes
 
 
 def strict_pair(reference: tuple[bytes, bytes], value: tuple[bytes, bytes]) -> dict[str, Any]:
@@ -5824,8 +5958,8 @@ def run_isolated_schedule(modes: list[Mode], seed: int, open_runner: Any,
             progress(f'{mode.label}: block {block.number}/{BLOCKS_PER_MODE}')
             with open_runner(mode) as (runner, pid, state):
                 warm = collect_output(runner)
-                if mode.key == 'browser_optimized':
-                    checks.append({'block': block.number, 'stage': 'before', **strict_pair(references['pristine_xnn'], warm)})
+                if mode.execution_provider == 'XNNPACK':
+                    checks.append({'mode': mode.key, 'block': block.number, 'stage': 'before', **strict_pair(references[OPTIMIZED_PAIRS.get(mode.key, mode.key)], warm)})
                 log.append({'event': 'block_warmup_excluded', 'mode': mode.key, 'block': block.number, 'audio_s': runner.duration})
                 for repetition in range(1, TRIALS_PER_BLOCK + 1):
                     with TreeMemorySampler(pid) as memory:
@@ -5842,8 +5976,8 @@ def run_isolated_schedule(modes: list[Mode], seed: int, open_runner: Any,
                     if checkpoint:
                         checkpoint(trials, checks, "incomplete", None)
                     progress(f'Trial {len(trials)}/{len(modes) * 15}: {mode.label}; synthesis {elapsed:.3f}s; CPU {cpu.cpu_percent:.1f}%')
-                if mode.key == 'browser_optimized':
-                    checks.append({'block': block.number, 'stage': 'after', **strict_pair(references['pristine_xnn'], collect_output(runner))})
+                if mode.execution_provider == 'XNNPACK':
+                    checks.append({'mode': mode.key, 'block': block.number, 'stage': 'after', **strict_pair(references[OPTIMIZED_PAIRS.get(mode.key, mode.key)], collect_output(runner))})
             log.append({'event': 'block_completed_and_process_tree_closed', 'mode': mode.key, 'block': block.number, 'samples': TRIALS_PER_BLOCK})
     except BaseException as error:
         if checkpoint:
@@ -5863,7 +5997,7 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
     import psutil
     require(sys.platform.startswith('linux') and platform.machine().lower() in ('x86_64', 'amd64'),
             'The accepted recipe is pinned to Linux x86_64 (including x86_64 WSL). Use that platform; no download or measurement was started.')
-    require(not args.experiments and not args.backend_experiments, 'Optimization exploration is closed; run without experiment flags for the four confirmed modes')
+    require(not args.experiments and not args.backend_experiments, 'Optimization exploration is closed; run without experiment flags for the predeclared nine-condition matrix')
     require(1 <= args.threads <= 1024, '--threads must be between 1 and 1024')
     require(args.baseline_only or args.style_id == 302, 'The accepted configuration targets streaming Style302; use --style-id 302')
     require(not args.threaded_ort_url and not args.threaded_ort_archive and not args.xnnpack_ort_url and not args.xnnpack_ort_archive,
@@ -5905,7 +6039,7 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
             bundle = unpack_recipe(root)
             helper = load_recipe_module(bundle / 'accepted_builder.py', '_gist_accepted_builder')
             accepted = helper.prepare(bundle, root, source, env, args.threads, host=sys.modules[__name__])
-            binaries['pristine_xnn'] = Path(accepted['R']['binary'])
+            binaries['browser_xnnpack'] = Path(accepted['R']['binary'])
             binaries['browser_optimized'] = Path(accepted['T']['binary'])
         model = root / ('sample-' + CORE_COMMIT + '.vvm')
         if not model.exists():
@@ -5925,7 +6059,7 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
                             'cpu_browser_scope': 'one mode/process tree alive per block; Python and Playwright Node excluded',
                             'memory_metric': 'sampled tree USS peak, shared pages excluded; not total RAM or a hard peak; per-trial plus pre/post padding',
                             'wasm_memory_metric': 'linear memory byteLength after request; allocated high-water capacity, not live tensor bytes',
-                            'browser_headless': not args.headed, 'browser_instances': {},
+                            'browser_headless': not args.headed, 'browser_instances': {}, 'matrix_revision': MATRIX_REVISION,
                             'actual_actions': actions_provenance(),
                             'core_variants': {mode.key: asdict(mode) for mode in modes},
                             'block_order': [block.mode for block in make_schedule(modes, args.seed)],
@@ -5953,96 +6087,124 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
                         if path.suffix in ('.js', '.wasm'):
                             shutil.copyfile(path, work / key / path.name)
                 with serve_assets(work) as url, sync_playwright() as playwright:
-                    options = browser_launch_options(headed=args.headed, browser_path=args.browser_path)
-                    active = {'mode': None}
-                    @contextlib.contextmanager
-                    def open_runner(mode: Mode, *, profile: bool = False) -> Iterator[Any]:
-                        require(active['mode'] is None, 'Another benchmark process tree is still alive')
-                        active['mode'] = mode.key
-                        runner = browser = root_process = None
-                        observed = []
-                        try:
-                            if mode.key == 'native':
-                                runner = NativeRunner(binaries['native'], runtimes['native'], model, work / 'query.json',
-                                                      mode.threads, args.style_id, work / 'native.wav')
-                                pid = runner.process.pid
-                                state = {}
-                            else:
-                                browser = playwright.chromium.launch(**options)
-                                pid = chromium_process_id(browser)
-                                root_process = psutil.Process(pid)
-                                state = verify_browser_off(browser, options)
-                                runner = BrowserRunner(browser, url, f'/{mode.key}/voicevox_benchmark.js', mode.threads,
-                                                       mode.key != 'browser', args.style_id, work / (mode.key + '.wav'),
-                                                       fixed_shape=mode.fixed_shape, spin_off=mode.spin_off,
-                                                       xnn_threads=mode.threads if mode.execution_provider == 'XNNPACK' else 0, profile=profile)
-                                state.update(runner.page.evaluate('() => ({hardware_concurrency:navigator.hardwareConcurrency,cross_origin_isolated:crossOriginIsolated})'))
-                                require(state['cross_origin_isolated'], 'Browser lacks cross-origin isolation')
+                    preflight_state = {'stage': 'untimed-preflight', 'condition': None}
+                    try:
+                        if accepted:
+                            environment['revectorization_diagnostics'] = verify_matrix_revectorization(url, modes, args, work, preflight_state)
+                        active = {'mode': None}
+                        @contextlib.contextmanager
+                        def open_runner(mode: Mode, *, profile: bool = False) -> Iterator[Any]:
+                            require(active['mode'] is None, 'Another benchmark process tree is still alive')
+                            active['mode'] = mode.key
+                            runner = browser = root_process = None
+                            observed = []
+                            try:
+                                if mode.key == 'native':
+                                    runner = NativeRunner(binaries['native'], runtimes['native'], model, work / 'query.json',
+                                                          mode.threads, args.style_id, work / 'native.wav')
+                                    pid = runner.process.pid
+                                    state = {}
+                                else:
+                                    options = browser_launch_options(headed=args.headed, browser_path=args.browser_path, revectorize=mode.revectorize)
+                                    browser = playwright.chromium.launch(**options)
+                                    pid = chromium_process_id(browser)
+                                    root_process = psutil.Process(pid)
+                                    state = verify_browser_flags(browser, options, revectorize=mode.revectorize)
+                                    asset_key = ASSET_KEYS.get(mode.key, mode.key)
+                                    actual_asset = work / asset_key / 'voicevox_benchmark.js'
+                                    state.update({'module_js_sha256': sha256_file(actual_asset),
+                                                  'module_wasm_sha256': sha256_file(actual_asset.with_suffix('.wasm'))})
+                                    build = environment['build_artifacts'][asset_key]
+                                    require(state['module_js_sha256'] == build['binary_sha256'] and state['module_wasm_sha256'] == build['wasm_sha256'], 'Served assets differ from built module')
+                                    if mode.key in DIAGNOSTIC_KEYS:
+                                        diagnostic = environment['revectorization_diagnostics'][DIAGNOSTIC_KEYS[mode.key]]['candidate' if mode.revectorize else 'control']
+                                        require(all(state[field] == diagnostic[field] for field in ('product', 'js_version', 'module_js_sha256', 'module_wasm_sha256')), 'Timed/untimed engine/assets differ from transformation evidence')
+                                    runner = BrowserRunner(browser, url, f'/{ASSET_KEYS.get(mode.key, mode.key)}/voicevox_benchmark.js', mode.threads,
+                                                           mode.key != 'browser', args.style_id, work / (mode.key + '.wav'),
+                                                           fixed_shape=mode.fixed_shape, spin_off=mode.spin_off,
+                                                           xnn_threads=mode.threads if mode.execution_provider == 'XNNPACK' else 0, profile=profile)
+                                    state.update(runner.page.evaluate('() => ({hardware_concurrency:navigator.hardwareConcurrency,cross_origin_isolated:crossOriginIsolated})'))
+                                    require(state['cross_origin_isolated'], 'Browser lacks cross-origin isolation')
+                                    if mode.execution_provider == 'XNNPACK':
+                                        dispatch = runner.page.evaluate("data => request(data)", {'command': 'dispatch', 'expected': 'loadsplat' if mode.key in OPTIMIZED_PAIRS else 'auto'})
+                                        require(dispatch['verified'] and dispatch['worker_hardware_concurrency'] == state['hardware_concurrency'], 'Actual worker dispatcher differs from page context')
+                                        state['dispatch'] = dispatch
+                                    state.update({'inference_threads': mode.threads, 'fixed_length': runner.fixed_length,
+                                                  'fixed_matches': runner.fixed_matches, 'xnn_threads': runner.xnn_threads,
+                                                  'xnn_sessions': runner.xnn_sessions, 'spin_off': runner.spin_off,
+                                                  'pthreads_created': runner.pthreads_created})
+                                    environment['browser_instances'].setdefault(mode.key, []).append(state)
+                                root_process = root_process or psutil.Process(pid)
+                                yield runner, pid, state
+                            finally:
+                                if root_process:
+                                    with contextlib.suppress(psutil.NoSuchProcess):
+                                        observed = root_process.children(recursive=True)
+                                if runner:
+                                    with contextlib.suppress(Exception):
+                                        runner.close()
+                                if browser:
+                                    with contextlib.suppress(Exception):
+                                        browser.close()
+                                finish_owned_tree(root_process, observed)
+                                active['mode'] = None
+                        log = []
+                        references: dict[str, tuple[bytes, bytes]] = {}
+                        repeat_checks = {}
+                        for mode in modes:
+                            preflight_state.update(stage='untimed-output-repeatability-and-matched-exactness', condition=mode.key)
+                            progress(f'Untimed output and repeatability checks: {mode.label}')
+                            with open_runner(mode) as (runner, _, state):
+                                references[mode.key] = collect_output(runner)
+                                repeated = collect_output(runner)
+                                repeat_checks[mode.key] = waveform_comparison(*references[mode.key], *repeated)
                                 if mode.execution_provider == 'XNNPACK':
-                                    dispatch = runner.page.evaluate("data => request(data)", {'command': 'dispatch', 'expected': 'auto' if mode.key == 'pristine_xnn' else 'loadsplat'})
-                                    require(dispatch['verified'] and dispatch['worker_hardware_concurrency'] == state['hardware_concurrency'], 'Actual worker dispatcher differs from page context')
-                                    state['dispatch'] = dispatch
-                                state.update({'inference_threads': mode.threads, 'fixed_length': runner.fixed_length,
-                                              'fixed_matches': runner.fixed_matches, 'xnn_threads': runner.xnn_threads,
-                                              'xnn_sessions': runner.xnn_sessions, 'spin_off': runner.spin_off,
-                                              'pthreads_created': runner.pthreads_created})
-                                environment['browser_instances'].setdefault(mode.key, []).append(state)
-                            root_process = root_process or psutil.Process(pid)
-                            yield runner, pid, state
-                        finally:
-                            if root_process:
-                                with contextlib.suppress(psutil.NoSuchProcess):
-                                    observed = root_process.children(recursive=True)
-                            if runner:
-                                with contextlib.suppress(Exception):
-                                    runner.close()
-                            if browser:
-                                with contextlib.suppress(Exception):
-                                    browser.close()
-                            finish_owned_tree(root_process, observed)
-                            active['mode'] = None
-                    log = []
-                    references: dict[str, tuple[bytes, bytes]] = {}
-                    repeat_checks = {}
-                    pristine_mode = Mode('pristine_xnn', 'Untimed matched pristine XNN control', args.threads,
-                                         'untimed correctness only', fixed_shape=True, spin_off=True, execution_provider='XNNPACK')
-                    verification_modes = ([pristine_mode] if accepted else []) + modes
-                    for mode in verification_modes:
-                        progress(f'Untimed output and repeatability checks: {mode.label}')
-                        with open_runner(mode) as (runner, _, state):
-                            references[mode.key] = collect_output(runner)
-                            repeated = collect_output(runner)
-                            repeat_checks[mode.key] = waveform_comparison(*references[mode.key], *repeated)
-                            if mode.key in ('pristine_xnn', 'browser_optimized'):
-                                strict_pair(references[mode.key], repeated)
-                            if mode.key == 'browser_optimized':
-                                strict_pair(references['pristine_xnn'], references[mode.key])
-                        log.append({'event': 'untimed_output_check_closed', 'mode': mode.key})
-                    if accepted:
-                        for mode in (pristine_mode, modes[-1]):
-                            with open_runner(mode, profile=True) as (runner, _, _):
-                                runner.synthesize(save=True)
-                                profile = runner.finish_profile()
-                                require(profile['verified'], 'Untimed XNNPACK provider activation not confirmed')
-                                environment.setdefault('untimed_provider_profiles', {})[mode.key] = profile
-                    reference_key = 'browser_mt' if accepted else 'browser'
-                    output_checks = {'reference_mode': reference_key,
-                                     'reference_deterministic': repeat_checks[reference_key]['pcm_exact'] and repeat_checks[reference_key]['fp32_exact'],
-                                     'reference_repeat': repeat_checks[reference_key],
-                                     'modes': {mode.key: waveform_comparison(*references[reference_key], *references[mode.key]) for mode in modes},
-                                     'interpretation': 'Cross-backend errors are descriptive. Strict accepted-recipe exactness uses the separate same-provider/same-settings pristine XNN reference.'}
-                    matched = None
-                    if accepted:
-                        profiles = environment['untimed_provider_profiles']
-                        require(profiles['pristine_xnn']['provider_assignment_sha256'] == profiles['browser_optimized']['provider_assignment_sha256'],
-                                'Matched R/T provider assignments differ')
-                        matched = {'reference': 'pristine_xnn', 'candidate': 'browser_optimized',
-                                   'scope': 'same query/model/provider/N/fixed shape/spin/V8 OFF; only accepted native recipe differs',
-                                   'same_run_exact': strict_pair(references['pristine_xnn'], references['browser_optimized']),
-                                   'reference_repeat': repeat_checks['pristine_xnn'], 'candidate_repeat': repeat_checks['browser_optimized']}
+                                    strict_pair(references[mode.key], repeated)
+                                if mode.key in OPTIMIZED_PAIRS:
+                                    strict_pair(references[OPTIMIZED_PAIRS[mode.key]], references[mode.key])
+                            log.append({'event': 'untimed_output_check_closed', 'mode': mode.key})
+                        if accepted:
+                            for mode in (mode for mode in modes if mode.execution_provider == 'XNNPACK'):
+                                preflight_state.update(stage='untimed-provider-profile', condition=mode.key)
+                                with open_runner(mode, profile=True) as (runner, _, _):
+                                    runner.synthesize(save=True)
+                                    profile = runner.finish_profile()
+                                    require(profile['verified'], 'Untimed XNNPACK provider activation not confirmed')
+                                    environment.setdefault('untimed_provider_profiles', {})[mode.key] = profile
+                        reference_key = 'browser_mt' if accepted else 'browser'
+                        output_checks = {'reference_mode': reference_key,
+                                         'reference_deterministic': repeat_checks[reference_key]['pcm_exact'] and repeat_checks[reference_key]['fp32_exact'],
+                                         'reference_repeat': repeat_checks[reference_key],
+                                         'modes': {mode.key: waveform_comparison(*references[reference_key], *references[mode.key]) for mode in modes},
+                                         'interpretation': 'Cross-backend errors are descriptive. Strict accepted-recipe exactness uses separate same-provider/same-settings pristine XNN references independently for V8 OFF and ON.'}
+                        matched = {}
+                        if accepted:
+                            profiles = environment['untimed_provider_profiles']
+                            for candidate, reference in OPTIMIZED_PAIRS.items():
+                                preflight_state.update(stage='matched-provider-and-output-proof', condition=candidate)
+                                require(profiles[reference]['provider_assignment_sha256'] == profiles[candidate]['provider_assignment_sha256'],
+                                        'Matched R/T provider assignments differ')
+                                matched[candidate] = {'reference': reference, 'candidate': candidate,
+                                    'scope': 'same query/model/provider/N/fixed shape/spin/V8 state; only accepted native recipe differs',
+                                    'same_run_exact': strict_pair(references[reference], references[candidate]),
+                                    'reference_repeat': repeat_checks[reference], 'candidate_repeat': repeat_checks[candidate]}
+                            output_checks.update({'fixed_control_repeat': repeat_checks['browser_mt_fixed'],
+                                'xnnpack_vs_fixed_control': waveform_comparison(*references['browser_mt_fixed'], *references['browser_xnnpack']),
+                                'xnnpack_reference_repeat': repeat_checks['browser_xnnpack'],
+                                'combined_vs_xnnpack': waveform_comparison(*references['browser_xnnpack'], *references['browser_xnnpack_revectorize']),
+                                'combined_vs_fixed_control': waveform_comparison(*references['browser_mt_fixed'], *references['browser_xnnpack_revectorize'])})
+                    except BaseException as error:
+                        atomic_write(args.output.with_suffix('.partial.json'), json.dumps({
+                            'schema': 'voicevox-nine-condition-partial-v2', 'evidence_kind': 'incomplete-actual-measurements',
+                            'status': 'failed-preflight', 'complete': False, 'expected_trials': len(modes) * 15,
+                            'completed_trials': 0, 'trials': [], 'failure_exception_class': type(error).__name__,
+                            **preflight_state, 'modes': [asdict(mode) for mode in modes], 'environment': environment,
+                            'warning': 'A required predeclared condition failed. No reduced matrix or completed comparison was produced.'
+                        }, ensure_ascii=False, indent=2, allow_nan=False).encode())
+                        raise
                     progress(f'Starting {len(modes) * 15} measured trials with isolated per-block process lifetimes')
                     def checkpoint(rows, checks, status, exception_class):
-                        partial = {'schema': 'voicevox-final-gist-partial-v1', 'evidence_kind': 'incomplete-actual-measurements',
+                        partial = {'schema': 'voicevox-nine-condition-partial-v2', 'evidence_kind': 'incomplete-actual-measurements',
                                    'status': status, 'complete': False, 'expected_trials': len(modes) * 15,
                                    'completed_trials': len(rows), 'trials': rows, 'matched_block_checks': checks,
                                    'failure_exception_class': exception_class, 'script_sha256': sha256_file(Path(__file__)),
@@ -6051,8 +6213,9 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
                                    'warning': 'Incomplete checkpoint only. No completed comparison or improvement claim.'}
                         atomic_write(args.output.with_suffix('.partial.json'), json.dumps(partial, ensure_ascii=False, indent=2, allow_nan=False).encode())
                     trials, block_checks = run_isolated_schedule(modes, args.seed, open_runner, log, references, checkpoint)
-                    if matched:
-                        matched['per_timed_block_checks'] = block_checks
+                    for key, proof in matched.items():
+                        proof['per_timed_block_checks'] = [check for check in block_checks if check['mode'] == key]
+                        proof['reference_timed_block_checks'] = [check for check in block_checks if check['mode'] == proof['reference']]
                     audio_s = wav_duration(references[reference_key][0])
                     result = {'schema_version': SCHEMA_VERSION, 'created_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
                               'evidence_kind': 'actual-measurement', 'modes': [asdict(mode) for mode in modes], 'trials': trials,
@@ -6061,12 +6224,14 @@ def final_run_benchmark(args: argparse.Namespace) -> None:
                               'schedule_method': 'seeded independent shuffle in each round',
                               'schedule': [asdict(block) for block in make_schedule(modes, args.seed)],
                               'notes': ['最適化モードはXNNPACK・固定shape・pool設定・2か所のカーネル変更を含む構成全体との比較。元のCPU EPブラウザMTとの差を514/757だけの効果とは解釈しない。',
-                                        '同一provider・同一設定のpristine XNNと最適化版のPCM/FP32完全一致を測定外で検証。第5の速度測定モードは追加していない。',
+                                        '同一provider・同一設定のpristine XNNと最適化版のPCM/FP32完全一致をV8 OFF/ONそれぞれで測定外検証。ON/OFF間のbit一致は仮定しない。',
                                         'navigator.hardwareConcurrencyを上書きしない。pristine XNNは実際の値が4を超えると元からloadsplatを選ぶ。',
-                                        '別の研究実行の27.5%改善はこのレポートの測定値ではない。',
+                                        '過去の測定値は再利用せず、この実行の9条件135試行のみで比較。最適化XNN+V8は最速候補で、順位は実測中央値から決める。',
                                         'USSは共有メモリを除くサンプル値。WASM容量は確保済み線形メモリの高水位で、生存テンソル量やピークRAMの保証ではない。',
-                                        '全モードV8 revectorize OFF。各ブロックの初期化・ウォームアップ・正当性チェック・プロセス終了は測定外。',
-                                        '可視化は性能と数値比較に限定。スペクトログラムは生成せず、音声・テンソル・モデルはレポートに含めない。']}
+                                        'V8はOFF/ONを明示。実際の変換は別の非計測ブラウザで検証し、計測ブラウザのengineと実際のflagsも照合。traceは測定中に無効。',
+                                        '各ブロックで1プロセスツリーのみを起動し終了。初期化・ウォームアップ・正当性チェック・終了は測定外。',
+                                        f'元の7条件の設定を保持し、seed {args.seed}でラウンドごとに独立shuffle。元レポートのseed 20261007・位置均衡scheduleとは異なる。',
+                                        '可視化は性能と数値比較に限定。スペクトログラムは生成せず、音声・テンソル・モデルはレポートに含めない。'] if accepted else ['明示的なbaseline-only実行。NativeとBrowser単一threadの2条件30試行のみで、MT/XNNPACK/V8 ONは測定していない。', 'V8 OFFを明示。各ブロックの初期化・ウォームアップ・正当性チェック・終了は測定外。']}
                     save_measurements_and_report(result, args.output)
                     args.output.with_suffix('.partial.json').unlink(missing_ok=True)
                     progress(f'Report complete: {args.output.name}; raw scalar JSON: {args.output.with_suffix(".json").name}')
@@ -6101,7 +6266,7 @@ def render_report(result: dict[str, Any], target: Path) -> None:
         return
     kind = result['evidence_kind']
     label = '実測結果' if kind == 'actual-measurement' else '合成テスト専用・実測ではない'
-    config = '<h2>構成の違い</h2><p>最適化構成と元のCPU EPブラウザMTの速度差は、下記すべての設定差を含みます。</p><ul>'
+    config = '<h2>構成の違い</h2><p>' + ('最適化構成と元のCPU EPブラウザMTの速度差は、下記すべての設定差を含みます。' if len(result['modes']) == 9 else '明示的な2条件のbaseline-only比較です。') + '</p><ul>'
     for mode in result['modes']:
         config += f'<li><b>{html.escape(mode["label"])}</b>: {html.escape(mode["backend"])}</li>'
     config += '</ul>'
@@ -6116,63 +6281,153 @@ def render_report(result: dict[str, Any], target: Path) -> None:
             memory_rows.append('<tr>' + ''.join(f'<td>{html.escape(str(value))}</td>' for value in [mode['label'],
                 f'{observed/2**20:.1f}' if observed is not None else '不完全',
                 f'{wasm/2**20:.1f}' if wasm else '該当なし', f'{len(complete)}/{len(memories)}']) + '</tr>')
-    memory = ('<h2>メモリ観測</h2><table><tr><th>モード</th><th>観測USS最大MiB</th><th>WASM容量最大MiB</th><th>完全な試行</th></tr>' + ''.join(memory_rows) +
-              '</table><p>USSは対象process treeの非共有ページのみを200msごとに採取。短いピークを取り逃がすことがあります。WASMは各試行後の確保容量で、共有ページを含みます。両者を足し合わせません。</p>') if memory_rows else ''
+    memory = ('<h2>メモリ観測</h2><div class="scroll"><table><tr><th>モード</th><th>観測USS最大MiB</th><th>WASM容量最大MiB</th><th>完全な試行</th></tr>' + ''.join(memory_rows) +
+              '</table></div><p>USSは対象process treeの非共有ページのみを200msごとに採取。短いピークを取り逃がすことがあります。WASMは各試行後の確保容量で、共有ページを含みます。両者を足し合わせません。</p>') if memory_rows else ''
     matched = result.get('matched_recipe_checks')
-    proof = ('<details><summary>accepted recipe の同条件PCM/FP32完全一致</summary><p>pristine XNNを用いた測定外の対照。元のCPU EPブラウザMTとは別です。測定に使った最適化runnerの各ブロック前後も確認。</p><pre>' + html.escape(json.dumps(matched, ensure_ascii=False, indent=2)) + '</pre></details>') if matched else ''
+    proof = ('<details><summary>accepted recipe の同条件PCM/FP32完全一致</summary><p>pristine Rとaccepted TをV8 OFF/ON別々に検証。元のCPU EPとの誤差は説明用。4つのXNN runnerそれぞれの測定ブロック前後も完全一致を確認。</p><pre>' + html.escape(json.dumps(matched, ensure_ascii=False, indent=2)) + '</pre></details>') if matched else ''
+    rankings = matrix_rankings(result)
+    browser_ranks = [row for row in rankings if row['mode'] != 'native']
+    fastest = browser_ranks[0]
+    ranking = ('<h2>この実行の順位</h2><p>ブラウザ最短中央値: <b>' + html.escape(fastest['label']) +
+               f"</b> ({fastest['median_s']:.3f}秒)。同じ実行の中央値による順位で、一般的な最速保証や統計的有意差の主張ではありません。</p><ol>" +
+               ''.join(f"<li>{html.escape(row['label'])}: {row['median_s']:.3f}秒</li>" for row in rankings) + '</ol>')
+    contrasts = ''
+    if len(result['modes']) == 9:
+        medians = {row['mode']: row['median_s'] for row in rankings}
+        labels = {mode['key']: mode['label'] for mode in result['modes']}
+        pairs = [('browser_xnnpack', 'browser_mt_fixed', 'XNNPACK構成 / 固定shape CPU'),
+                 ('browser_revectorize', 'browser_mt', 'CPU MTのV8 ON / OFF'),
+                 ('browser_xnnpack_revectorize', 'browser_xnnpack', 'pristine XNNのV8 ON / OFF'),
+                 ('browser_optimized', 'browser_xnnpack', 'accepted recipe / pristine（V8 OFF）'),
+                 ('browser_optimized_revectorize', 'browser_xnnpack_revectorize', 'accepted recipe / pristine（V8 ON）'),
+                 ('browser_optimized_revectorize', 'browser_optimized', '最適化XNNのV8 ON / OFF'),
+                 ('browser_optimized', 'browser_mt', '最適化構成全体 / 元のCPU MT'),
+                 ('browser_optimized_revectorize', 'browser_mt', '最適化+V8構成全体 / 元のCPU MT')]
+        contrast_rows = []
+        for candidate, reference, title in pairs:
+            percent = 100 * (1 - medians[candidate] / medians[reference])
+            contrast_rows.append('<tr>' + ''.join('<td>' + html.escape(value) + '</td>' for value in
+                [title, labels[reference], labels[candidate], f'{percent:+.2f}%']) + '</tr>')
+        contrasts = ('<h2>対応する条件間の比較</h2><div class="scroll"><table><tr><th>比較の範囲</th><th>基準</th><th>候補</th><th>中央値の短縮率</th></tr>' +
+                     ''.join(contrast_rows) + '</table></div><p>同じ実行の中央値から計算。正は短縮、負は遅延。全構成比較はprovider・shape・pool・recipeの設定差を含み、514/757単独の効果を表しません。accepted recipe比較も2か所の変更を合わせた効果です。</p>')
     document = target.read_text('utf-8')
     document = document.replace('<h1>VOICEVOX CORE benchmark</h1>', f'<h1>VOICEVOX CORE benchmark</h1><p><b>{label}</b></p>' + config, 1)
-    document = document.replace('<h2>測定条件</h2>', memory + proof + '<h2>測定条件</h2>', 1)
+    document = document.replace('<h2>測定条件</h2>', ranking + contrasts + memory + proof + '<h2>測定条件</h2>', 1)
+    document = document.replace('<th>PCM / FP32</th>', '<th>CPU MT基準 PCM / FP32</th>') if len(result['modes']) == 9 else document
     atomic_write(target, document.encode())
 
 
 run_benchmark = final_run_benchmark
 
 
+
+
+_original_validate_results = validate_results
+
+
+
+
 def final_plan(args: argparse.Namespace) -> dict[str, Any]:
-    return {'schema': 'voicevox-final-gist-plan-v1', 'execution_performed': False,
+    return {'schema': 'voicevox-nine-condition-plan-v2', 'execution_performed': False,
             'supported_platform': 'Linux x86_64, including x86_64 WSL',
             'modes': [asdict(mode) for mode in final_modes(args.threads, args.baseline_only)],
             'threads': args.threads, 'blocks_per_mode': 3, 'trials_per_block': 5,
             'timed_trials': len(final_modes(args.threads, args.baseline_only)) * 15,
             'seed': args.seed, 'style_id': args.style_id, 'builtin_target_seconds': args.target_seconds,
-            'output': 'standalone HTML and raw scalar JSON', 'v8_revectorize': False,
-            'correctness': 'untimed matched pristine XNN versus accepted configuration, same N/settings/query/model; exact PCM and pre-PCM FP32 before timing and each optimized block',
-            'comparison_scope': 'original CPU-provider MT versus complete optimized configuration; not an isolated 514/757 speedup',
+            'output': 'standalone HTML, scalar JSON, and exact source', 'v8_states': ['explicit OFF'] if args.baseline_only else ['explicit OFF', 'explicit ON'],
+            'schedule': 'seeded independent shuffle each round; 3 rounds, one block per mode per round; differs from historical position-balanced seed20261007',
+            'correctness': 'two-mode descriptive output/repeat checks; no accepted recipe measured' if args.baseline_only else 'strict pristine R versus accepted T PCM/pre-PCM FP32 independently under OFF and ON; repeatability and before/after checks on all four XNN timed arms',
+            'comparison_scope': 'native CPU versus browser single-thread only' if args.baseline_only else 'original CPU MT versus complete optimized configuration; matched R/T contrasts isolate the accepted two-change recipe, not either change alone',
+            'fastest_hypothesis': None if args.baseline_only else 'accepted optimized XNNPACK + V8 ON; rank by measured same-run browser median, no guaranteed winner',
+            'v8_activation_gate': 'not applicable; explicit OFF only' if args.baseline_only else 'actual-WASM untimed OFF0/ONpositive transformation traces, actual CDP flags, same engine; fail whole matrix before timing if unproven',
             'recipe_source_sha256': ACCEPTED_SOURCE_SHA256, 'embedded_source_sha256': RECIPE_PAYLOAD_SHA256,
             'embedded_files': len(RECIPE_MANIFEST), 'build_command_timeout_seconds': BUILD_TIMEOUT_S,
             'process_lifecycle': 'one isolated native/browser process tree per block; cleanup before next block',
-            'first_run': 'downloads digest-pinned sources/runtime/model and official pinned toolchains/Chromium; compiles native/ST/MT and accepted/pristine-XNN correctness modules; may take tens of minutes and several GB',
-            'public_output_excludes': ['binaries', 'models', 'audio', 'tensors', 'process argv', 'credentials'],
+            'first_run': 'downloads pinned sources/runtime/model and toolchains/Chromium; builds native/ST/MT and accepted/pristine-XNN modules; may take tens of minutes and several GB',
+            'public_output_excludes': ['binaries', 'models', 'audio', 'tensors', 'JIT traces', 'process argv', 'credentials'],
             'source_claim_limit': 'plan and self-test are not evidence of actual synthesis or performance'}
-
-
-_original_validate_results = validate_results
 
 
 def validate_results(result: dict[str, Any]) -> None:
     _original_validate_results(result)
     if result.get('evidence_kind') not in ('actual-measurement', 'synthetic-test-only'):
         return
-    keys = {mode['key'] for mode in result['modes']}
-    require(keys in ({'native', 'browser'}, {'native', 'browser', 'browser_mt', 'browser_optimized'}), 'Final mode set changed')
-    if 'browser_optimized' in keys:
+    modes = {mode['key']: mode for mode in result['modes']}
+    keys = set(modes)
+    require(keys == {mode.key for mode in final_modes(modes['native']['threads'], len(keys) == 2)}, 'Predeclared mode set changed')
+    require(all(mode['core_optimization'] == 'z' and mode['graph_optimization'] == 1 for mode in modes.values()), 'Original optimization configuration changed')
+    if len(keys) == 9:
+        threads = modes['native']['threads']
+        expected = {mode.key: asdict(mode) for mode in final_modes(threads)}
+        for key, mode in modes.items():
+            for field in ('threads', 'fixed_shape', 'spin_off', 'execution_provider', 'revectorize'):
+                require(mode[field] == expected[key][field], 'Mode configuration changed: ' + key + '/' + field)
         checks = result.get('matched_recipe_checks')
-        require(isinstance(checks, dict) and checks['reference'] == 'pristine_xnn' and checks['candidate'] == 'browser_optimized', 'Missing matched accepted recipe proof')
-        for check in [checks['same_run_exact'], checks['reference_repeat'], checks['candidate_repeat'], *checks['per_timed_block_checks']]:
-            require(check['finite'] is True and check['pcm_exact'] is True and check['fp32_exact'] is True, 'Accepted exactness evidence failed')
-        require([(check['block'], check['stage']) for check in checks['per_timed_block_checks']] ==
-                [(block, stage) for block in range(1, 4) for stage in ('before', 'after')], 'Incomplete accepted block output checks')
+        require(isinstance(checks, dict) and set(checks) == set(OPTIMIZED_PAIRS), 'Missing separate OFF/ON matched recipe proof')
+        for candidate, reference in OPTIMIZED_PAIRS.items():
+            proof = checks[candidate]
+            require(proof['reference'] == reference and proof['candidate'] == candidate, 'Matched recipe reference changed')
+            for check in [proof['same_run_exact'], proof['reference_repeat'], proof['candidate_repeat'],
+                          *proof['per_timed_block_checks'], *proof['reference_timed_block_checks']]:
+                require(check['finite'] is True and check['pcm_exact'] is True and check['fp32_exact'] is True, 'Accepted exactness evidence failed')
+            for name, key in (('per_timed_block_checks', candidate), ('reference_timed_block_checks', reference)):
+                require([(check['mode'], check['block'], check['stage']) for check in proof[name]] ==
+                        [(key, block, stage) for block in range(1, 4) for stage in ('before', 'after')], 'Incomplete XNN block output checks')
+        if result['evidence_kind'] == 'actual-measurement':
+            environment = result['environment']
+            diagnostics = environment['revectorization_diagnostics']
+            require(set(diagnostics) == {'cpu_mt', 'pristine_xnn', 'accepted_xnn'}, 'Incomplete V8 transformation proof')
+            for key, diagnostic in diagnostics.items():
+                require(diagnostic['verified'] is True and diagnostic['control']['transformed_groups'] == 0 and
+                        diagnostic['candidate']['transformed_groups'] > 0, 'Actual V8 activation not proven')
+                for label, enabled in (('control', False), ('candidate', True)):
+                    evidence = diagnostic[label]
+                    flag = (BROWSER_ON_FLAG if enabled else BROWSER_OFF_FLAG) + ',--trace-wasm-revectorize'
+                    require(evidence['actual_js_flags'] == [flag] and evidence['trace_enabled'] is True and
+                            evidence['actual_enable_automation'] is True and not evidence['flag_rejected'], 'Invalid V8 diagnostic launch evidence')
+                a, b = diagnostic['control'], diagnostic['candidate']
+                require((a['product'], a['js_version'], a['module_wasm_sha256'], a['module_js_sha256']) ==
+                        (b['product'], b['js_version'], b['module_wasm_sha256'], b['module_js_sha256']), 'Diagnostic engine/assets differ across ON/OFF')
+            profiles = environment['untimed_provider_profiles']
+            for candidate, reference in OPTIMIZED_PAIRS.items():
+                require(profiles[candidate]['verified'] and profiles[reference]['verified'] and
+                        profiles[candidate]['provider_assignment_sha256'] == profiles[reference]['provider_assignment_sha256'], 'Matched provider assignment differs')
     for row in result['trials']:
         memory = row.get('memory')
         require(isinstance(memory, dict) and type(memory['incomplete']) is bool and type(memory['samples']) is int and memory['samples'] > 0,
                 'Invalid memory coverage')
         require(type(memory['sampled_peak_tree_uss_bytes']) is int and memory['sampled_peak_tree_uss_bytes'] >= 0, 'Invalid memory sample')
-    for instances in result['environment']['browser_instances'].values():
-        for instance in instances:
-            require(instance['actual_js_flags'] == [BROWSER_OFF_FLAG] and instance['revectorize'] is False and
-                    instance['actual_enable_automation'] is True and
+    instances = result['environment']['browser_instances']
+    if result['evidence_kind'] == 'actual-measurement':
+        require(set(instances) == keys - {'native'}, 'Browser evidence does not cover every mode')
+    for key, values in instances.items():
+        mode = modes[key]
+        expected_flag = BROWSER_ON_FLAG if mode['revectorize'] else BROWSER_OFF_FLAG
+        if result['evidence_kind'] == 'actual-measurement':
+            require(len(values) == (5 if mode['execution_provider'] == 'XNNPACK' else 4), 'Missing browser process lifetime evidence')
+        for instance in values:
+            require(instance['actual_js_flags'] == [expected_flag] and instance['revectorize'] is mode['revectorize'] and
+                    instance['trace_enabled'] is False and instance['actual_enable_automation'] is True and
                     type(instance['hardware_concurrency']) is int and instance['hardware_concurrency'] > 0, 'Invalid actual browser setting evidence')
+            if result['evidence_kind'] == 'actual-measurement':
+                asset_key = ASSET_KEYS.get(key, key)
+                build = result['environment']['build_artifacts'][asset_key]
+                require(instance['module_js_sha256'] == build['binary_sha256'] and instance['module_wasm_sha256'] == build['wasm_sha256'], 'Browser module differs from source-bound build')
+                if key in DIAGNOSTIC_KEYS:
+                    diagnostic = result['environment']['revectorization_diagnostics'][DIAGNOSTIC_KEYS[key]]['candidate' if mode['revectorize'] else 'control']
+                    require(all(instance[field] == diagnostic[field] for field in ('product', 'js_version', 'module_js_sha256', 'module_wasm_sha256')), 'Timed engine/module differs from V8 diagnostic')
+            if mode['execution_provider'] == 'XNNPACK':
+                dispatch = instance['dispatch']
+                require(dispatch['verified'] and dispatch['worker_hardware_concurrency'] == instance['hardware_concurrency'], 'Invalid genuine worker dispatch proof')
+                require(instance['inference_threads'] == mode['threads'] == instance['xnn_threads'] and instance['xnn_sessions'] == 1 and
+                        instance['fixed_matches'] == 1 and instance['spin_off'] is True, 'Invalid actual XNN configuration')
+
+
+def matrix_rankings(result: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [{'mode': mode['key'], 'label': mode['label'],
+             'median_s': statistics.median(row['elapsed_s'] for row in result['trials'] if row['mode'] == mode['key'])}
+            for mode in result['modes']]
+    return sorted(rows, key=lambda row: (row['median_s'], row['mode']))
 
 
 _original_self_test = self_test
@@ -6199,8 +6454,8 @@ def self_test() -> None:
                      CpuInterval(0.1, 1.1, 0, 0, 1, False, 'post'))
             measured = CpuMeasurement(0.05, 0.1, 0.5, 50, 4, 1, False, trace)
             rows = run_schedule(modes, 1729, lambda mode: (0.1, 10.0, measured), [])
-            require(len(rows) == 60 and all(sum(row.mode == mode.key for row in rows) == 15 for mode in modes),
-                    'Four-mode synthetic schedule failed')
+            require(len(rows) == 135 and all(sum(row.mode == mode.key for row in rows) == 15 for mode in modes),
+                    'Nine-mode synthetic schedule failed')
             import struct
             output = io.BytesIO()
             with wave.open(output, 'wb') as wav:
@@ -6218,7 +6473,7 @@ def self_test() -> None:
                 raise RuntimeError('Changed FP32 synthetic output was accepted')
     finally:
         progress = saved_progress
-    print('Self-test passed: original report/CPU tests, 16 embedded source hashes, canonical helper identity, four-mode schedule, and strict-pair rejection. Synthetic tests only; no downloads, build, browser, or model execution.')
+    print('Self-test passed: original report/CPU tests, 16 embedded source hashes, canonical helper identity, nine-mode schedule, and strict-pair rejection. Synthetic tests only; no downloads, build, browser, or model execution.')
 
 
 if __name__ == "__main__":

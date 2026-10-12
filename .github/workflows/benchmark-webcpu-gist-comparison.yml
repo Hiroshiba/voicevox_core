@@ -1,5 +1,5 @@
-# Final Gist comparison source-only review draft. No signing or default branch.
-name: VOICEVOX final Gist four-mode CPU comparison
+# Expanded nine-condition source-only review draft. No signing or default branch.
+name: VOICEVOX expanded nine-condition CPU comparison
 on:
   push:
     branches: ['benchmark/native-browser-research-20261008']
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: final-gist-comparison-${{ github.ref }}
+  group: expanded-nine-condition-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   compare:
@@ -37,30 +37,30 @@ jobs:
       - name: Stage exact standalone source and check offline plan
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/gist-final" "$RUNNER_TEMP/gist-result"
-          cp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py"
-          cmp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py"
-          echo '1941b57b5b7b8e566f6a75ac27c67fb25f27910c5bb3f4dedc93bb3475fddc9a  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
-          python "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py" --plan --threads 2 --seed 1729
-          python "$RUNNER_TEMP/gist-final/voicevox_core_benchmark.py" --self-test
-      - name: Execute this exact Python for all four modes
+          mkdir -p "$RUNNER_TEMP/matrix-final" "$RUNNER_TEMP/matrix-result"
+          cp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py"
+          cmp benchmarks/webcpu-research/voicevox_core_benchmark.py "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py"
+          echo '8ac3ab1d2a6a5801806f77fc99a7c66da1828072f7b450bb18f2e2d855093217  benchmarks/webcpu-research/voicevox_core_benchmark.py' | sha256sum --check
+          python "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py" --plan --threads 2 --seed 1729
+          python "$RUNNER_TEMP/matrix-final/voicevox_core_benchmark.py" --self-test
+      - name: Execute this exact Python for all nine predeclared conditions
         id: benchmark
         run: |
           set -euo pipefail
           ulimit -c 0
-          cd "$RUNNER_TEMP/gist-final"
+          cd "$RUNNER_TEMP/matrix-final"
           uv run --script voicevox_core_benchmark.py --threads 2 --seed 1729 \
-            --cache-dir "$RUNNER_TEMP/gist-private-cache" \
-            --output "$RUNNER_TEMP/gist-result/voicevox-benchmark.html"
+            --cache-dir "$RUNNER_TEMP/matrix-private-cache" \
+            --output "$RUNNER_TEMP/matrix-result/voicevox-benchmark.html"
           cmp "$GITHUB_WORKSPACE/benchmarks/webcpu-research/voicevox_core_benchmark.py" voicevox_core_benchmark.py
-          cp voicevox_core_benchmark.py "$RUNNER_TEMP/gist-result/voicevox_core_benchmark.py"
+          cp voicevox_core_benchmark.py "$RUNNER_TEMP/matrix-result/voicevox_core_benchmark.py"
       - name: Validate complete actual measurements and exact source binding
         id: validate
         run: |
           set -euo pipefail
           python - <<'PY'
           import hashlib, importlib.util, json, os, pathlib, sys
-          folder = pathlib.Path(os.environ['RUNNER_TEMP']) / 'gist-result'
+          folder = pathlib.Path(os.environ['RUNNER_TEMP']) / 'matrix-result'
           source = folder / 'voicevox_core_benchmark.py'
           spec = importlib.util.spec_from_file_location('final_gist_check', source)
           module = importlib.util.module_from_spec(spec)
@@ -69,30 +69,39 @@ jobs:
           result = json.loads((folder / 'voicevox-benchmark.json').read_text())
           module.validate_results(result)
           assert result['evidence_kind'] == 'actual-measurement'
-          assert len(result['trials']) == 60 and len(result['modes']) == 4
+          assert len(result['trials']) == 135 and len(result['modes']) == 9
           assert result['environment']['script_sha256'] == hashlib.sha256(source.read_bytes()).hexdigest()
           assert result['environment']['actual_actions']['commit'] == os.environ['GITHUB_SHA']
           assert result['environment']['actual_actions']['run_id'] == os.environ['GITHUB_RUN_ID']
+          rendered = folder / 'source-bound-rerender.html'
+          try:
+              module.render_report(result, rendered)
+              assert rendered.read_bytes() == (folder / 'voicevox-benchmark.html').read_bytes()
+          finally:
+              rendered.unlink(missing_ok=True)
           text = (folder / 'voicevox-benchmark.html').read_text()
           assert '<audio' not in text and 'data:audio' not in text and 'data:image' not in text
-          print('Verified 60 actual trials, four modes, matched output checks, and exact source/run binding.')
+          assert result['seed'] == 1729 and result['environment']['matrix_revision'] == 'nine-condition-v2'
+          assert set(result['matched_recipe_checks']) == set(module.OPTIMIZED_PAIRS)
+          assert all(value['verified'] for value in result['environment']['revectorization_diagnostics'].values())
+          print('Verified 135 actual trials, all nine conditions, independent OFF/ON matched output checks, V8 transforms, and exact source/run binding.')
           PY
       - name: Upload actual report and exact standalone Python only
         if: steps.validate.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: voicevox-final-gist-comparison
+          name: voicevox-expanded-nine-condition-comparison
           path: |
-            ${{ runner.temp }}/gist-result/voicevox_core_benchmark.py
-            ${{ runner.temp }}/gist-result/voicevox-benchmark.html
-            ${{ runner.temp }}/gist-result/voicevox-benchmark.json
+            ${{ runner.temp }}/matrix-result/voicevox_core_benchmark.py
+            ${{ runner.temp }}/matrix-result/voicevox-benchmark.html
+            ${{ runner.temp }}/matrix-result/voicevox-benchmark.json
           if-no-files-found: error
           retention-days: 14
       - name: Preserve clearly labeled partial scalar diagnostics on failure
         if: failure() && steps.benchmark.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: voicevox-final-gist-incomplete-diagnostics
-          path: ${{ runner.temp }}/gist-result/voicevox-benchmark.partial.json
+          name: voicevox-expanded-nine-condition-incomplete-diagnostics
+          path: ${{ runner.temp }}/matrix-result/voicevox-benchmark.partial.json
           if-no-files-found: ignore
           retention-days: 7
