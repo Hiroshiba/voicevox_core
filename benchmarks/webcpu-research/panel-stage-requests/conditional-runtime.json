@@ -1,0 +1,241 @@
+{
+  "authorization": "separately_reviewed_hash_bound_actions_conditional_GO",
+  "budgets": {
+    "compile": 600,
+    "finalization": 60,
+    "provision": 2700,
+    "qualification": 900,
+    "timing": 1800,
+    "transition": 30
+  },
+  "build_input_lock_sha256": "8da45133346b033171655b80fd20d697de62d5aa084476688002e44e903602cd",
+  "expected": {
+    "asset_manifest": {
+      "admission": "independently_reviewed_complete_assets",
+      "assets": [
+        {
+          "arm": "A",
+          "bytes": 51965,
+          "name": "A/screen.js",
+          "role": "module_js",
+          "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+        },
+        {
+          "arm": "A",
+          "bytes": 264028,
+          "name": "A/screen.wasm",
+          "role": "module_wasm",
+          "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce"
+        },
+        {
+          "arm": "B",
+          "bytes": 51965,
+          "name": "B/screen.js",
+          "role": "module_js",
+          "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+        },
+        {
+          "arm": "B",
+          "bytes": 265535,
+          "name": "B/screen.wasm",
+          "role": "module_wasm",
+          "sha256": "6e0d7af74d1d7ddd1ee88a6baa1dd61eacd84c0d9808e27fb275fd7c7231bd60"
+        },
+        {
+          "arm": "P",
+          "bytes": 51965,
+          "name": "P/screen.js",
+          "role": "module_js",
+          "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+        },
+        {
+          "arm": "P",
+          "bytes": 265339,
+          "name": "P/screen.wasm",
+          "role": "module_wasm",
+          "sha256": "b515a39e82e65fd9089778b6a58cb75094ad793d97a3b7091ad97cd2e289cf87"
+        },
+        {
+          "arm": "Q",
+          "bytes": 51965,
+          "name": "Q/screen.js",
+          "role": "module_js",
+          "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+        },
+        {
+          "arm": "Q",
+          "bytes": 265335,
+          "name": "Q/screen.wasm",
+          "role": "module_wasm",
+          "sha256": "f2f67abb44c8bcfa88ec971345053399639f21bc277a1a52d40dc7745327a254"
+        },
+        {
+          "arm": "R",
+          "bytes": 51965,
+          "name": "R/screen.js",
+          "role": "module_js",
+          "sha256": "bb63b5f330da537930a2d6269540b22f62c83404f904adb0e93d91096fc73630"
+        },
+        {
+          "arm": "R",
+          "bytes": 264028,
+          "name": "R/screen.wasm",
+          "role": "module_wasm",
+          "sha256": "a748d59b49b44975f2e85702421f71af4ddcedd95f0182a37d8a143874b741ce"
+        },
+        {
+          "arm": null,
+          "bytes": 25833,
+          "name": "controller.js",
+          "role": "controller",
+          "sha256": "8e315138615692a8c35df2f5f8bc68e377534c3b0c9991c9ebeba1496fc71b12"
+        },
+        {
+          "arm": null,
+          "bytes": 125,
+          "name": "index.html",
+          "role": "html",
+          "sha256": "be4824511c0b88c3b5cff8edd8251bb651acbb0ca84018b78410c2c6679d1451"
+        },
+        {
+          "arm": null,
+          "bytes": 10827,
+          "name": "worker.js",
+          "role": "operator_worker",
+          "sha256": "49ad5c53576a5d6644fb84315c1d31a75055a393760bdd516f12bdf43370988c"
+        }
+      ],
+      "logical_names": [
+        "A/screen.js",
+        "A/screen.wasm",
+        "B/screen.js",
+        "B/screen.wasm",
+        "P/screen.js",
+        "P/screen.wasm",
+        "Q/screen.js",
+        "Q/screen.wasm",
+        "R/screen.js",
+        "R/screen.wasm",
+        "controller.js",
+        "index.html",
+        "worker.js"
+      ],
+      "schema": "panel-assets-v1"
+    },
+    "bindings": {
+      "bootstrap_helper_lock_sha256": "7da480db4bd0c665a71290fcfedc9e3246a841570167192a70fc1cdca08b8c20",
+      "build_recipe_sha256": "6f3b8724a9827d621b85e7b19eb48fb7ec8fb39798ed293180608176acd827f4",
+      "emitted_review_sha256": "34d559ce9e136ce58d274423b3de11202213e0b9d5a4c5a95a58faca029a574e",
+      "fixture_manifest_sha256": "c935d701e938087860d50828408e28bbc86a8563ee0f58ebb0978664340bf525",
+      "launcher_sha256": "f9f268f7c26da613e762e7a9154889a2fe8f0674220c72877808d262f04259ef",
+      "plan_sha256": "07456a44febb29f820920fb68fe4f62071676b05c0f933495db076ce06ace702",
+      "schedule_sha256": "1502eeb5d8124fdcaa14c5d1863a7453c4dc918f3689dd6bd5da470fae2b3656",
+      "source_commit": "d2a8547d76585030b2b3da77ced185c1c1d82b33",
+      "source_review_sha256": "d0db7de21abde03c0d3d94c0efcf02060e5660f56cc702f1fbe1c3e48cb023c0",
+      "source_tree_sha256": "11cc7da2a2dc862bcf669a13f3fe782c9703639e09ac85000a8c23863a82671c",
+      "toolchain_lock_sha256": "8da45133346b033171655b80fd20d697de62d5aa084476688002e44e903602cd",
+      "transition_verifier_sha256": "cf0b0a2d4db57c306a9bd03501f5204d09fbdd1e49441763b05f84979ff28339",
+      "workflow_sha256": "932dde7179d2850c3821b70ec4dc406397d99ac82ff6745731ddf6097752c3cd"
+    },
+    "browser_acquisition_policy": {
+      "allowed_redirect_urls": [
+        "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.12/linux64/chrome-headless-shell-linux64.zip"
+      ],
+      "bootstrap_helper_lock_sha256": "7da480db4bd0c665a71290fcfedc9e3246a841570167192a70fc1cdca08b8c20",
+      "chrome_product": "HeadlessChrome/153.0.8010.12",
+      "executable_name": "chrome-headless-shell-linux64/chrome-headless-shell",
+      "helper_sha256": "3e296ea98d7f6ce6585cf448a49a263eafc5a5e83a5939ce1e974f430c87936e",
+      "identity_scope": "acquired_once_and_pinned_within_ci_job",
+      "installation_scope": "complete_official_distribution_regular_files_no_symlinks",
+      "limits": {
+        "maximum_compressed_bytes": 268435456,
+        "maximum_scalar_receipt_bytes": 65536,
+        "maximum_single_member_bytes": 536870912,
+        "maximum_total_uncompressed_bytes": 1073741824,
+        "maximum_zip_entries": 10000,
+        "read_chunk_bytes": 1048576,
+        "socket_timeout_seconds": 15,
+        "wall_seconds": 180
+      },
+      "method": "HEAD_THEN_ONE_GET",
+      "platform": "linux64",
+      "playwright_core_bundle_sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+      "schema": "panel-browser-acquisition-policy-v1",
+      "source_metadata_sha256": "545d52f8382c391e605562c330e9c1c534a16045898203037a49bb8bd769a946",
+      "source_url": "https://cdn.playwright.dev/builds/cft/153.0.8010.12/linux64/chrome-headless-shell-linux64.zip",
+      "v8_version": "15.3.76.4"
+    },
+    "identity_policy": {
+      "accepted_flags": [
+        "--js-flags=--no-wasm-revectorize"
+      ],
+      "architecture": "x86_64",
+      "chrome_product": "HeadlessChrome/153.0.8010.12",
+      "collection_method": "proc_cpuinfo_chrome_bytes_cdp_v1",
+      "launch_argv_policy": [
+        "<ADMITTED_CHROME_EXECUTABLE>",
+        "--disable-field-trial-config",
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-back-forward-cache",
+        "--disable-breakpad",
+        "--disable-client-side-phishing-detection",
+        "--disable-component-extensions-with-background-pages",
+        "--disable-component-update",
+        "--no-default-browser-check",
+        "--disable-default-apps",
+        "--disable-dev-shm-usage",
+        "--disable-edgeupdater",
+        "--disable-extensions",
+        "--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion",
+        "--enable-features=CDPScreenshotNewSurface",
+        "--allow-pre-commit-input",
+        "--disable-hang-monitor",
+        "--disable-ipc-flooding-protection",
+        "--disable-popup-blocking",
+        "--disable-prompt-on-repost",
+        "--disable-renderer-backgrounding",
+        "--disable-updater-scheduler",
+        "--force-color-profile=srgb",
+        "--metrics-recording-only",
+        "--no-first-run",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--no-service-autorun",
+        "--export-tagged-pdf",
+        "--disable-search-engine-choice-screen",
+        "--unsafely-disable-devtools-self-xss-warnings",
+        "--edge-skip-compat-layer-relaunch",
+        "--disable-infobars",
+        "--disable-search-engine-choice-screen",
+        "--disable-sync",
+        "--enable-unsafe-swiftshader",
+        "--headless",
+        "--hide-scrollbars",
+        "--mute-audio",
+        "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+        "--no-sandbox",
+        "--js-flags=--no-wasm-revectorize",
+        "--user-data-dir=<OWNED_PROFILE_DIR>",
+        "--remote-debugging-pipe",
+        "--no-startup-window"
+      ],
+      "os": "Linux",
+      "v8_version": "15.3.76.4"
+    },
+    "schema": "panel-request-expectations-v1"
+  },
+  "issuer": "root",
+  "provisioning_contract_sha256": "681e2d68b98fb79bd67825c7d40e0f4624038d4f3cd97da524717348d0cbc9c5",
+  "schema": "panel-conditional-request-v1",
+  "scope": {
+    "build_attempts": 1,
+    "conditional_timing_calls": 600,
+    "local_browser": false,
+    "qualification_calls": 330,
+    "retry": false,
+    "same_job_host": true
+  },
+  "source_release": "d2a8547d76585030b2b3da77ced185c1c1d82b33"
+}

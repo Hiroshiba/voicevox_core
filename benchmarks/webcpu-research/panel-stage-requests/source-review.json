@@ -1,0 +1,10 @@
+{
+  "compiled_assets_review_sha256": "34d559ce9e136ce58d274423b3de11202213e0b9d5a4c5a95a58faca029a574e",
+  "host_manifest_sha256": "72eec2a4e02824480c07456fac04bd079eed5f05aaf99af87b461a5a3db10150",
+  "independent": true,
+  "reviewer": "/root/review_panel_screen_plan",
+  "schema": "panel-actions-source-review-v1",
+  "scope": "one_same_job_330_then_conditional_600",
+  "source_tree_sha256": "11cc7da2a2dc862bcf669a13f3fe782c9703639e09ac85000a8c23863a82671c",
+  "status": "PASS"
+}
